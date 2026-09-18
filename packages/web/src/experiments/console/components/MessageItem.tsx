@@ -1,3 +1,4 @@
+import { Paperclip } from 'lucide-react';
 import type { ReactElement } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -5,6 +6,7 @@ import remarkBreaks from 'remark-breaks';
 import rehypeHighlight from 'rehype-highlight';
 import { AgentAvatar } from './AgentAvatar';
 import { formatClock } from '../lib/format';
+import { formatBytes } from '../primitives/file';
 import type { Message } from '../primitives/message';
 
 interface MessageItemProps {
@@ -184,6 +186,24 @@ export function MessageItem({ message, variant = 'chat' }: MessageItemProps): Re
                 >
                   {content}
                 </ReactMarkdown>
+              </div>
+            ) : null}
+            {message.files.length > 0 ? (
+              <div className={`flex flex-wrap gap-[6px]${content.length > 0 ? ' mt-[10px]' : ''}`}>
+                {message.files.map((f, i) => (
+                  <span
+                    key={`${f.name}-${String(i)}`}
+                    title={`${f.name} · ${formatBytes(f.size)}`}
+                    className="flex items-center gap-[6px] rounded-[8px] border bg-[color:var(--surface)] px-[9px] py-[4px] text-[11.5px]"
+                    style={{ borderColor: 'var(--border-bright)' }}
+                  >
+                    <Paperclip aria-hidden className="h-[12px] w-[12px] text-text-tertiary" />
+                    <span className="max-w-[180px] truncate text-text-secondary">{f.name}</span>
+                    <span className="font-mono text-[10px] text-text-tertiary">
+                      {formatBytes(f.size)}
+                    </span>
+                  </span>
+                ))}
               </div>
             ) : null}
             {message.error !== null ? ERROR_BLOCK(message.error.message) : null}
