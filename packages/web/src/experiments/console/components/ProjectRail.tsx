@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router';
-import { Settings, Workflow, ArrowLeft, PenTool, type LucideIcon } from 'lucide-react';
+import { Settings, PenTool, type LucideIcon } from 'lucide-react';
 import { ProjectRow } from './ProjectRow';
 import { EnvVarsDialog } from './EnvVarsDialog';
 import { useEntity, invalidate } from '../store/cache';
@@ -302,8 +302,7 @@ export function ProjectRail({ onAddProject }: ProjectRailProps): ReactElement {
         </button>
       </div>
 
-      {/* Nav menu — settings + the classic-UI escape hatches, under Add project
-          and separated from it by the border-t divider. */}
+      {/* Nav menu — under Add project, separated from it by the border-t divider. */}
       <div className="flex flex-col gap-0.5 border-t border-border px-2.5 py-2">
         <RailNavLink
           to="/console/builder"
@@ -317,18 +316,6 @@ export function ProjectRail({ onAddProject }: ProjectRailProps): ReactElement {
           icon={Settings}
           label="Settings"
           title="Settings ( , )"
-        />
-        <RailNavLink
-          to="/legacy/workflows"
-          icon={Workflow}
-          label="Workflows"
-          title="Workflows (classic UI)"
-        />
-        <RailNavLink
-          to="/legacy"
-          icon={ArrowLeft}
-          label="Old UI"
-          title="Switch back to the classic UI"
         />
       </div>
 
