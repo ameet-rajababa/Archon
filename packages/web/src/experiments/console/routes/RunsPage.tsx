@@ -4,7 +4,6 @@ import { EmptyState } from '../components/EmptyState';
 import { ActiveRunCard } from '../components/ActiveRunCard';
 import { RecentRunRow } from '../components/RecentRunRow';
 import { FilterChips, type Filter } from '../components/FilterChips';
-import { ProjectViewTabs } from '../components/ProjectViewTabs';
 import { DraftRunCard } from '../components/DraftRunCard';
 import { PendingInputBanner } from '../components/PendingInputBanner';
 import { useEntity } from '../store/cache';
@@ -367,7 +366,6 @@ export function RunsPage(): ReactElement {
   );
   const promotedRunIds = useMemo(() => new Set(visiblePending.map(r => r.id)), [visiblePending]);
 
-  const heading = scope === 'all' ? 'All projects' : (project?.name ?? 'Project');
   const hasScopedProject = scope !== 'all' && project !== undefined && project !== null;
   const draftProject = hasScopedProject ? { id: project.id, path: project.path } : null;
 
@@ -498,19 +496,11 @@ export function RunsPage(): ReactElement {
 
   return (
     <section className="flex h-full flex-col">
-      <header className="flex flex-col gap-3 border-b border-border px-6 py-4">
-        <div className="flex items-baseline justify-between gap-4">
-          <div className="min-w-0">
-            <h1 className="truncate text-base font-medium text-text-primary">{heading}</h1>
-            <p className="text-xs text-text-tertiary">
-              {scope === 'all' ? 'Every run, across every project.' : (project?.path ?? 'Loading…')}
-              {demoMode ? (
-                <span className="ml-2 rounded border border-warning/40 bg-warning/10 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-warning">
-                  demo mocks on
-                </span>
-              ) : null}
-            </p>
-          </div>
+      {/* Status sub-tabs and search on one strip. The project name, path and
+          Runs/Chat tabs moved to the layout's header — see ProjectLayout. */}
+      <div className="flex shrink-0 items-center gap-4 border-b border-border px-6">
+        <FilterChips value={filter} onChange={setFilter} counts={counts} />
+        <div className="ml-auto py-2">
           <div
             className="flex h-[38px] w-[300px] max-w-[34vw] shrink-0 items-center gap-2 rounded-[10px] border bg-surface-elevated px-3 text-text-tertiary transition-colors focus-within:text-text-secondary"
             // Inline because the console scope's wildcard border-color rule
@@ -541,20 +531,6 @@ export function RunsPage(): ReactElement {
             />
           </div>
         </div>
-
-        {scope === 'all' ? (
-          <div className="rounded border border-dashed border-border bg-surface-inset/60 px-3 py-2 text-[12px] text-text-tertiary">
-            Pick a project on the left to start a run.
-          </div>
-        ) : (
-          <ProjectViewTabs projectId={scope} active="runs" />
-        )}
-      </header>
-
-      {/* Status sub-tabs — their own strip; the active underline overlaps the
-          hairline below (design: .subtabs). */}
-      <div className="border-b border-border px-6">
-        <FilterChips value={filter} onChange={setFilter} counts={counts} />
       </div>
 
       <PendingInputBanner

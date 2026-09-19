@@ -6,6 +6,7 @@ import { ProjectPalette } from './components/ProjectPalette';
 import { KeymapHelp } from './components/KeymapHelp';
 import { BuilderConnected } from './builder/BuilderConnected';
 import { RunsPage } from './routes/RunsPage';
+import { ProjectLayout } from './routes/ProjectLayout';
 import { RunDetailPage } from './routes/RunDetailPage';
 import { ChatPage } from './routes/ChatPage';
 import { PreviewPage } from './routes/PreviewPage';
@@ -72,14 +73,18 @@ export function ConsoleApp(): ReactElement {
         />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <Routes>
-            <Route index element={<RunsPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="builder" element={<BuilderConnected />} />
             <Route path="builder/:name" element={<BuilderConnected />} />
             <Route path="_preview" element={<PreviewPage />} />
-            <Route path="p/:projectId" element={<RunsPage />} />
-            <Route path="p/:projectId/chat" element={<ChatPage />} />
-            <Route path="p/:projectId/r/:runId" element={<RunDetailPage />} />
+            {/* Pathless layout: everything project-scoped shares one header,
+                mounted above the page so navigation never unmounts it. */}
+            <Route element={<ProjectLayout />}>
+              <Route index element={<RunsPage />} />
+              <Route path="p/:projectId" element={<RunsPage />} />
+              <Route path="p/:projectId/chat" element={<ChatPage />} />
+              <Route path="p/:projectId/r/:runId" element={<RunDetailPage />} />
+            </Route>
           </Routes>
         </main>
       </div>

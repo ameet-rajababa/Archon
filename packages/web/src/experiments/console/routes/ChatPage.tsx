@@ -3,7 +3,6 @@ import { useParams } from 'react-router';
 import { ChatStream } from '../components/ChatStream';
 import { ChatComposer, type ChatDraft } from '../components/ChatComposer';
 import { chooseOpenChat, readLastChat, writeLastChat } from '../lib/last-chat';
-import { ProjectViewTabs } from '../components/ProjectViewTabs';
 import { ConversationRail, type ArchiveScope } from '../components/ConversationRail';
 import { BriefModal } from '../components/BriefModal';
 import type { ConversationColor } from '../primitives/conversation';
@@ -16,7 +15,6 @@ import { useEntity, invalidate } from '../store/cache';
 import { K } from '../store/keys';
 import { useFollowTail } from '../hooks/useFollowTail';
 import * as skill from '../skills';
-import type { Project } from '../primitives/project';
 import type { Message } from '../primitives/message';
 import {
   reduceLive,
@@ -56,11 +54,6 @@ const BRIEF_REFRESH_PROMPT =
  */
 export function ChatPage(): ReactElement {
   const { projectId } = useParams<{ projectId: string }>();
-
-  const { data: project } = useEntity<Project | null>(
-    projectId !== undefined ? K.project(projectId) : 'noop:no-project',
-    () => (projectId !== undefined ? skill.getProject(projectId) : Promise.resolve(null))
-  );
 
   // Which archived state the rail is showing. Part of the cache key, or
   // switching scope would render the previous scope's list.
@@ -413,18 +406,6 @@ export function ChatPage(): ReactElement {
         }}
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="flex flex-col gap-3 border-b border-border px-6 py-4">
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <h1 className="truncate text-base font-medium text-text-primary">
-                {project?.name ?? 'Project'}
-              </h1>
-              <p className="text-xs text-text-tertiary">{project?.path ?? 'Loading…'}</p>
-            </div>
-          </div>
-          <ProjectViewTabs projectId={projectId} active="chat" />
-        </header>
-
         <div className="relative min-h-0 flex-1">
           <div
             ref={scrollRef}

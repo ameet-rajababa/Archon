@@ -7,7 +7,8 @@ import {
   useState,
   type ReactElement,
 } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams } from 'react-router';
+import { shortRunId } from '../lib/format';
 import { useKeymap, type Binding } from '../lib/keymap';
 import { RunDetailHeader } from '../components/RunDetailHeader';
 import { RunStream } from '../components/RunStream';
@@ -370,11 +371,17 @@ export function RunDetailPage(): ReactElement {
   }
 
   if (detailError !== undefined) {
+    // The sub-bar is rendered even here. A run that will not load used to leave
+    // an error alone on an empty pane with no way out of it; the layout header
+    // above now keeps the project, and this keeps the step back to the runs.
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-        <p className="text-sm text-text-primary">Could not load run.</p>
-        <p className="font-mono text-[11px] text-text-tertiary">{detailError.message}</p>
-      </div>
+      <>
+        <RunErrorBar projectId={projectId} runId={runId} />
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 text-center">
+          <p className="text-sm text-text-primary">Could not load run.</p>
+          <p className="font-mono text-[11px] text-text-tertiary">{detailError.message}</p>
+        </div>
+      </>
     );
   }
 
@@ -521,5 +528,28 @@ export function RunDetailPage(): ReactElement {
         <RunActionBar run={run} />
       </section>
     </StreamContextProvider>
+  );
+}
+
+/**
+ * The sub-bar shown when a run cannot be loaded. Deliberately not the full
+ * `RunDetailHeader`: there is no run to describe, and inventing a status for
+ * one is worse than saying plainly that it did not load.
+ */
+function RunErrorBar({ projectId, runId }: { projectId: string; runId: string }): ReactElement {
+  return (
+    <header className="flex shrink-0 items-center gap-3 border-b border-border bg-surface-elevated px-6 py-2.5">
+      <Link
+        to={`/console/p/${projectId}`}
+        className="rounded-[7px] border px-2 py-[3px] font-mono text-[11px] font-semibold text-text-secondary transition-colors hover:text-text-primary"
+        style={{ borderColor: 'var(--border-bright)' }}
+      >
+        <span aria-hidden>←</span> Runs
+      </Link>
+      <span className="font-mono text-[12px] text-text-tertiary">{shortRunId(runId)}</span>
+      <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-error">
+        Could not load
+      </span>
+    </header>
   );
 }

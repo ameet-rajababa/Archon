@@ -49,24 +49,26 @@ export function RunDetailHeader({
   };
 
   return (
-    <header className="relative sticky top-0 z-10 flex flex-wrap items-center gap-x-4 gap-y-2 bg-surface px-6 py-3">
+    <header className="relative flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-border bg-surface-elevated px-6 py-2.5">
       {/* Brand thread along the bottom edge — anchors the detail view. */}
       <span
         aria-hidden
         className="brand-bar pointer-events-none absolute inset-x-0 bottom-0 h-px opacity-60"
       />
 
-      {/* Breadcrumb */}
+      {/* A way back that is not the project rail. The project's name and path
+          sit in the layout header above this bar, so repeating them here as a
+          breadcrumb would say the same thing twice; what is missing without
+          this is the step back out to the run list. */}
       <div className="flex items-center gap-2 font-mono text-[12px]">
         <Link
           to={`/console/p/${projectId}`}
-          className="text-text-tertiary transition-colors hover:text-text-primary"
+          title={`Back to ${projectName} runs`}
+          className="rounded-[7px] border px-2 py-[3px] text-[11px] font-semibold text-text-secondary transition-colors hover:text-text-primary"
+          style={{ borderColor: 'var(--border-bright)' }}
         >
-          {projectName}
+          <span aria-hidden>←</span> Runs
         </Link>
-        <span aria-hidden className="text-text-tertiary">
-          /
-        </span>
         <button
           type="button"
           onClick={() => void copyRunId()}
