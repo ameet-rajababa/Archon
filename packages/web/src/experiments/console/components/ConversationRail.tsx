@@ -95,7 +95,13 @@ export function ConversationRail({
   const renameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (renamingId !== null) renameRef.current?.focus();
+    // select(), not just focus(): a rename almost always replaces the title
+    // rather than appending to it, so the existing text should be gone the
+    // moment you type. ProjectRow has done this since it was written; the chat
+    // rail only focused, which left the caret at one end and made every rename
+    // a select-all first. Two renames in one app that behave differently is
+    // the defect, not either behaviour on its own.
+    if (renamingId !== null) renameRef.current?.select();
   }, [renamingId]);
 
   // Bumped after a drop so the list re-reads the stored order.
