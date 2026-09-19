@@ -85,6 +85,7 @@ export function ChatPage(): ReactElement {
     setActiveConvId(null);
     setStartingNew(false);
     setBusy(false);
+    setPendingUser(null);
   }, [projectId]);
 
   useEffect(() => {
@@ -111,6 +112,8 @@ export function ChatPage(): ReactElement {
     }
     settleSigRef.current = '';
     setBusy(false);
+    // The echo belongs to the chat it was typed in, not to the page.
+    setPendingUser(null);
     if (projectId !== undefined) writeLastChat(projectId, id);
   };
 
@@ -187,6 +190,20 @@ export function ChatPage(): ReactElement {
   // so it stays correct even when the per-conversation SSE drops or never
   // connects (which it can, cross-origin in dev). SSE is a pure accelerator.
   const [busy, setBusy] = useState(false);
+  // The user's own message, echoed the instant they send it rather than when
+  // the server has stored it. Without this the first message of a new chat is
+  // invisible for the whole create-and-upload round trip — the composer clears,
+  // nothing takes its place, and a slow upload reads as a failed send. The echo
+  // carries the attachments too, so the file chips appear with the text.
+  const [pendingUser, setPendingUser] = useState<{
+    content: string;
+    files: Message['files'];
+  } | null>(null);
+  // How many user rows the conversation held when the echo was raised. The echo
+  // clears once the server's list holds more than that: robust when the same
+  // text is sent twice, and correct across the new-chat id switch (which resets
+  // the message list to empty before the real row arrives).
+  const pendingBaseRef = useRef(0);
   // Keyed by conversation — a pending chat has no id yet, so it gets its own
   // slot. Held in the composer this followed the user between chats.
   const [drafts, setDrafts] = useState<Record<string, ChatDraft>>({});
@@ -270,6 +287,16 @@ export function ChatPage(): ReactElement {
     []
   );
 
+  // Retire the echo the moment the server's own copy of the message arrives.
+  // Counting user rows rather than matching content: the same text sent twice
+  // would otherwise clear the second echo against the first message's row.
+  useEffect(() => {
+    if (pendingUser === null) return;
+    if ((messages ?? []).filter(m => m.role === 'user').length > pendingBaseRef.current) {
+      setPendingUser(null);
+    }
+  }, [messages, pendingUser]);
+
   // Recovery poll: while a reply is pending, refetch messages on a cadence so a
   // dropped or absent SSE event can't hide the reply. Hard-caps at MAX_WAIT_MS.
   const busySinceRef = useRef(0);
@@ -296,6 +323,12 @@ export function ChatPage(): ReactElement {
     setError(null);
     setLiveSegments([]); // a new turn — the previous reply is history now
     setBusy(true); // optimistic: disable the composer immediately
+    // Show the message (and its attachments) before the request leaves.
+    pendingBaseRef.current = (messages ?? []).filter(m => m.role === 'user').length;
+    setPendingUser({
+      content: text,
+      files: (files ?? []).map(f => ({ name: f.name, mimeType: f.type, size: f.size })),
+    });
     void (async (): Promise<void> => {
       try {
         if (activeConvId === null) {
@@ -316,6 +349,7 @@ export function ChatPage(): ReactElement {
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : 'Send failed.');
         setBusy(false); // unblock so the user can retry
+        setPendingUser(null); // nothing was sent — the echo would be a lie
       }
       // On success `busy` stays true until the settle detector sees the reply.
     })();
@@ -350,11 +384,33 @@ export function ChatPage(): ReactElement {
   // real row lands, because `pendingSegments` slices by how many rows this turn
   // already has — no content comparison, and nothing to de-duplicate.
   const renderedMessages = useMemo<Message[]>(() => {
-    const pending = pendingSegments(liveSegments, messageList);
-    if (pending.length === 0) return messageList;
     const now = new Date().toISOString();
+    // The user's echo sits after the stored rows and before any streamed reply,
+    // which is the order it happened in.
+    const withEcho =
+      pendingUser === null
+        ? messageList
+        : [
+            ...messageList,
+            {
+              id: 'pending-user',
+              role: 'user' as const,
+              content: pendingUser.content,
+              timestamp: now,
+              toolCalls: [],
+              files: pendingUser.files,
+              error: null,
+              category: null,
+              dispatch: null,
+              workflowResult: null,
+            },
+          ];
+    // Deliberately measured against `messageList`, not `withEcho`: the slice is
+    // by how many *stored* rows this turn has, and the echo is not one.
+    const pending = pendingSegments(liveSegments, messageList);
+    if (pending.length === 0) return withEcho;
     return [
-      ...messageList,
+      ...withEcho,
       ...pending.map(
         (seg, i): Message => ({
           id: `live-${String(i)}`,
@@ -370,7 +426,7 @@ export function ChatPage(): ReactElement {
         })
       ),
     ];
-  }, [messageList, liveSegments]);
+  }, [messageList, liveSegments, pendingUser]);
 
   const currentActivity = useMemo<string | null>(() => {
     for (let i = messageList.length - 1; i >= 0; i--) {
