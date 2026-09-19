@@ -11,11 +11,48 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
-    <style>
-      body {
-        background-color: #0f1117;
-      }
-    </style>
+    <script>
+      /* Appearance, applied BEFORE first paint. An imported module cannot run
+         before the bundle loads, so this logic is deliberately duplicated from
+         src/theme/appearance.ts rather than imported — keep the two in step.
+         Without it every reload flashes the wrong theme. */
+      (function () {
+        var d = { theme: 'linear', mode: 'system', text: 'default' };
+        var a = d;
+        try {
+          var raw = localStorage.getItem('archon.console.appearance');
+          if (raw) {
+            var p = JSON.parse(raw);
+            if (p && typeof p === 'object') {
+              a = {
+                theme: p.theme === 'archon' || p.theme === 'linear' ? p.theme : d.theme,
+                mode:
+                  p.mode === 'light' || p.mode === 'dark' || p.mode === 'system'
+                    ? p.mode
+                    : d.mode,
+                text:
+                  p.text === 'small' || p.text === 'default' || p.text === 'large'
+                    ? p.text
+                    : d.text,
+              };
+            }
+          }
+        } catch (e) {
+          a = d;
+        }
+        var mode = a.mode;
+        if (mode === 'system') {
+          mode = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        var r = document.documentElement;
+        r.dataset.theme = a.theme;
+        r.dataset.mode = mode;
+        r.dataset.text = a.text;
+        /* Paint the page background immediately. A hardcoded dark hex here used
+           to guarantee a dark flash on the way into light mode. */
+        r.style.background = mode === 'dark' ? '#111216' : '#ffffff';
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
