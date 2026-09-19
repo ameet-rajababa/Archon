@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } 
 import { useParams } from 'react-router';
 import { ChatStream } from '../components/ChatStream';
 import { ChatComposer, type ChatDraft } from '../components/ChatComposer';
+import { chooseOpenChat, readLastChat, writeLastChat } from '../lib/last-chat';
 import { ProjectViewTabs } from '../components/ProjectViewTabs';
 import { ConversationRail, type ArchiveScope } from '../components/ConversationRail';
 import { ChatSummary } from '../components/ChatSummary';
@@ -87,10 +88,13 @@ export function ChatPage(): ReactElement {
   }, [projectId]);
 
   useEffect(() => {
-    if (activeConvId !== null || startingNew) return;
-    const web = (conversations ?? []).find(c => c.platformType === 'web');
-    if (web !== undefined) setActiveConvId(web.id);
-  }, [conversations, activeConvId, startingNew]);
+    if (activeConvId !== null || startingNew || projectId === undefined) return;
+    const web = (conversations ?? []).filter(c => c.platformType === 'web');
+    if (web.length === 0) return;
+    // byMostRecent already ordered the list, so [0] is the newest.
+    const open = chooseOpenChat(readLastChat(projectId), web);
+    if (open !== null) setActiveConvId(open);
+  }, [conversations, activeConvId, startingNew, projectId]);
 
   const selectConversation = (id: string | null): void => {
     setError(null);
@@ -107,6 +111,7 @@ export function ChatPage(): ReactElement {
     }
     settleSigRef.current = '';
     setBusy(false);
+    if (projectId !== undefined) writeLastChat(projectId, id);
   };
 
   const invalidateConversations = (): void => {
@@ -296,6 +301,7 @@ export function ChatPage(): ReactElement {
           const conv = await skill.createConversation(projectId, text, files);
           setActiveConvId(conv.conversationId);
           setStartingNew(false);
+          writeLastChat(projectId, conv.conversationId);
           invalidate(K.messages(conv.conversationId));
         } else {
           await skill.sendMessage(activeConvId, text, files);
@@ -387,6 +393,7 @@ export function ChatPage(): ReactElement {
         scope={scope}
         onScopeChange={setScope}
         archivedCount={archivedList?.length ?? 0}
+        pendingNew={startingNew && activeConvId === null}
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="flex flex-col gap-3 border-b border-border px-6 py-4">
