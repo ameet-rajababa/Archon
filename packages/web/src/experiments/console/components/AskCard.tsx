@@ -11,7 +11,8 @@ import remarkGfm from 'remark-gfm';
 import {
   composeAnswer,
   isComplete,
-  usesListView,
+  toggleChoice,
+  type Answer,
   type AskQuestion,
   type AskSpec,
 } from '../primitives/ask';
@@ -73,15 +74,13 @@ function Inline({ text }: { text: string }): ReactElement {
  * costs nothing and needs no round trip. Sending once also means a set of seven
  * questions is one wait instead of seven.
  *
- * Sending does not lock the card. Changing your mind after you have answered is
- * the normal case, not an error, and the correction is just another message —
- * so the card stays live and the button offers to send again, enabled only once
- * an answer actually differs from what was sent.
+ * Sending locks the card. Once the answers are a message in the conversation
+ * the card is a record of what was decided, and a control that still looks live
+ * but cannot change anything reads worse than one that is plainly finished — a
+ * correction is a new message, not a rewrite of an old one.
  *
- * Past a handful of questions the pager stops helping: the dot strip is no
- * longer scannable and paging hides how much is left. Beyond
- * {@link usesListView}'s threshold the card drops the pager and stacks every
- * question instead.
+ * A question takes one answer unless it sets `multi`, in which case clicking an
+ * option adds it and clicking it again takes it away.
  *
  * Submitting composes the message a person would have typed and sends it
  * through the ordinary composer path, so the agent needs no new channel — see
@@ -90,26 +89,20 @@ function Inline({ text }: { text: string }): ReactElement {
 export function AskCard({ spec, onAnswer }: AskCardProps): ReactElement {
   const { questions } = spec;
   const total = questions.length;
-  const list = usesListView(total);
 
   const [index, setIndex] = useState(0);
-  const [answers, setAnswers] = useState<(string | null)[]>(() => questions.map(() => null));
-  /** Which question has its free-text box open, or null. Indexed because list mode shows them all. */
-  const [ownOpenFor, setOwnOpenFor] = useState<number | null>(null);
+  const [answers, setAnswers] = useState<Answer[]>(() => questions.map(() => null));
+  const [ownOpen, setOwnOpen] = useState(false);
   const [ownDraft, setOwnDraft] = useState('');
-  /** The exact text last sent, so "send again" can tell a real change from a double-click. */
-  const [lastSent, setLastSent] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
   const ownRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const answered = answers.filter(a => a !== null && a.trim().length > 0).length;
+  const answered = answers.filter(a => a?.some(v => v.trim().length > 0) === true).length;
   const complete = isComplete(questions, answers);
-  const readOnly = onAnswer === undefined;
-  const composed = composeAnswer(questions, answers);
-  const changedSinceSend = composed !== lastSent;
-  const canSend = !readOnly && complete && changedSinceSend;
+  const readOnly = onAnswer === undefined || sent;
 
   const closeOwn = useCallback((): void => {
-    setOwnOpenFor(null);
+    setOwnOpen(false);
     setOwnDraft('');
   }, []);
 
@@ -122,26 +115,27 @@ export function AskCard({ spec, onAnswer }: AskCardProps): ReactElement {
   );
 
   const choose = useCallback(
-    (slot: number, value: string): void => {
+    (value: string): void => {
+      const multi = questions[index]?.multi === true;
       setAnswers(prev => {
         const next = [...prev];
-        next[slot] = value;
+        next[index] = toggleChoice(prev[index] ?? null, value, multi);
         return next;
       });
       closeOwn();
       // Advance so a set can be answered without reaching for the mouse between
       // questions; the last answer stays put so the review state is visible.
-      // List mode shows everything at once, so there is nothing to advance to.
-      if (!list && slot === index && index < total - 1) setIndex(index + 1);
+      // A multi-answer question is not finished after one click, so it stays.
+      if (!multi && index < total - 1) setIndex(index + 1);
     },
-    [index, total, list, closeOwn]
+    [index, total, questions, closeOwn]
   );
 
   const submit = useCallback((): void => {
-    if (onAnswer === undefined || !complete || !changedSinceSend) return;
-    setLastSent(composed);
-    onAnswer(composed);
-  }, [onAnswer, complete, changedSinceSend, composed]);
+    if (onAnswer === undefined || !complete) return;
+    setSent(true);
+    onAnswer(composeAnswer(questions, answers));
+  }, [onAnswer, complete, questions, answers]);
 
   // Keyboard: letters pick, arrows page, ⌘/Ctrl+Enter sends. Bound to the card
   // rather than the document so typing in the composer is never intercepted.
@@ -152,7 +146,7 @@ export function AskCard({ spec, onAnswer }: AskCardProps): ReactElement {
     if (e.target instanceof HTMLTextAreaElement) {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault();
-        if (ownOpenFor !== null && ownDraft.trim().length > 0) choose(ownOpenFor, ownDraft.trim());
+        if (ownDraft.trim().length > 0) choose(ownDraft.trim());
       }
       return;
     }
@@ -161,7 +155,6 @@ export function AskCard({ spec, onAnswer }: AskCardProps): ReactElement {
       submit();
       return;
     }
-    if (list) return;
     if (e.key === 'ArrowLeft') {
       e.preventDefault();
       goTo(index - 1);
@@ -179,29 +172,25 @@ export function AskCard({ spec, onAnswer }: AskCardProps): ReactElement {
     const option = question.options[slot];
     if (option !== undefined) {
       e.preventDefault();
-      choose(index, option.label);
+      choose(option.label);
       return;
     }
     if (question.allowOwn !== false && slot === question.options.length) {
       e.preventDefault();
-      setOwnOpenFor(index);
+      setOwnOpen(true);
       setOwnDraft('');
     }
   };
 
   useEffect(() => {
-    if (ownOpenFor !== null) ownRef.current?.focus();
-  }, [ownOpenFor]);
+    if (ownOpen) ownRef.current?.focus();
+  }, [ownOpen]);
 
-  if (total === 0) return <></>;
+  const question = questions[index];
+  if (question === undefined) return <></>;
 
-  const shown: readonly (readonly [AskQuestion | undefined, number])[] = list
-    ? questions.map((q, i) => [q, i] as const)
-    : [[questions[index], index] as const];
-  const headerChip = list ? undefined : questions[index]?.chip;
-
-  const sendLabel =
-    lastSent === null ? `Submit all ${String(total)}` : changedSinceSend ? 'Send again' : 'Sent';
+  const chosen = answers[index] ?? [];
+  const sendLabel = sent ? 'Sent' : `Submit all ${String(total)}`;
 
   return (
     <div
@@ -217,9 +206,10 @@ export function AskCard({ spec, onAnswer }: AskCardProps): ReactElement {
         style={{ borderColor: 'var(--border)' }}
       >
         <span className="font-mono text-[10.5px] font-semibold tracking-[0.18em] uppercase text-text-secondary">
-          {list ? (
+          {sent ? (
             <>
-              <span className="text-text-primary">{total}</span> questions
+              Answered · <span className="text-text-primary">{total}</span> question
+              {total === 1 ? '' : 's'}
             </>
           ) : (
             <>
@@ -228,17 +218,17 @@ export function AskCard({ spec, onAnswer }: AskCardProps): ReactElement {
             </>
           )}
         </span>
-        {headerChip !== undefined ? (
+        {question.chip !== undefined ? (
           <span className="rounded bg-surface-bright px-[7px] py-[2px] font-mono text-[11px] text-text-secondary">
-            {headerChip}
+            {question.chip}
           </span>
         ) : null}
 
-        {!list && total > 1 ? (
+        {total > 1 ? (
           <div className="ml-auto flex items-center gap-2.5">
             <div className="flex items-center gap-[5px]">
               {questions.map((q, i) => {
-                const done = (answers[i] ?? '').trim().length > 0;
+                const done = (answers[i] ?? []).some(v => v.trim().length > 0);
                 return (
                   <button
                     key={q.title + String(i)}
@@ -279,38 +269,22 @@ export function AskCard({ spec, onAnswer }: AskCardProps): ReactElement {
         ) : null}
       </header>
 
-      <div className={list ? 'flex flex-col' : ''}>
-        {shown.map(([question, slot]) =>
-          question === undefined ? null : (
-            <QuestionBlock
-              key={question.title + String(slot)}
-              question={question}
-              slot={slot}
-              number={list ? slot + 1 : null}
-              chosen={answers[slot] ?? null}
-              readOnly={readOnly}
-              ownOpen={ownOpenFor === slot}
-              ownDraft={ownDraft}
-              ownRef={ownRef}
-              isLast={slot === total - 1}
-              onOwnDraft={setOwnDraft}
-              onOpenOwn={() => {
-                const current = answers[slot];
-                const custom =
-                  current !== null &&
-                  current !== undefined &&
-                  !question.options.some(o => o.label === current);
-                setOwnOpenFor(slot);
-                setOwnDraft(custom ? current : '');
-              }}
-              onCancelOwn={closeOwn}
-              onChoose={value => {
-                choose(slot, value);
-              }}
-            />
-          )
-        )}
-      </div>
+      <QuestionBlock
+        question={question}
+        chosen={chosen}
+        readOnly={readOnly}
+        ownOpen={ownOpen}
+        ownDraft={ownDraft}
+        ownRef={ownRef}
+        onOwnDraft={setOwnDraft}
+        onOpenOwn={() => {
+          const custom = chosen.find(c => !question.options.some(o => o.label === c));
+          setOwnOpen(true);
+          setOwnDraft(custom ?? '');
+        }}
+        onCancelOwn={closeOwn}
+        onChoose={choose}
+      />
 
       <footer
         className="flex flex-wrap items-center gap-x-3.5 gap-y-2 border-t bg-surface-inset px-3.5 py-2.5"
@@ -328,18 +302,17 @@ export function AskCard({ spec, onAnswer }: AskCardProps): ReactElement {
         <div className="ml-auto flex items-center gap-3">
           {readOnly ? null : (
             <span className="font-mono text-[11px] text-text-tertiary">
-              {list
-                ? '⌘↵ to send'
-                : `A–${KEYS[questions[index]?.options.length ?? 0] ?? 'A'} · ←/→ to page`}
+              {`A–${KEYS[question.options.length] ?? 'A'}`}
+              {total > 1 ? ' · ←/→ to page' : ''}
             </span>
           )}
           {onAnswer !== undefined ? (
             <button
               type="button"
-              disabled={!canSend}
+              disabled={!complete || sent}
               onClick={submit}
               className={PRIMARY_BUTTON}
-              style={primaryStyle(!canSend)}
+              style={primaryStyle(!complete || sent)}
             >
               {sendLabel}
             </button>
@@ -350,61 +323,40 @@ export function AskCard({ spec, onAnswer }: AskCardProps): ReactElement {
   );
 }
 
-/**
- * One question: its evidence, its title, its options, and the free-text row.
- *
- * Shared by both layouts so the pager and the list cannot drift apart — the
- * only difference between them is how many of these are on screen.
- */
+/** One question: its evidence, its title, its options, and the free-text row. */
 function QuestionBlock({
   question,
-  number,
   chosen,
   readOnly,
   ownOpen,
   ownDraft,
   ownRef,
-  isLast,
   onOwnDraft,
   onOpenOwn,
   onCancelOwn,
   onChoose,
 }: {
   question: AskQuestion;
-  slot: number;
-  /** Position label, shown only in list mode where there is no "question N of M" header. */
-  number: number | null;
-  chosen: string | null;
+  /** The option labels chosen so far. More than one only when the question is `multi`. */
+  chosen: string[];
   readOnly: boolean;
   ownOpen: boolean;
   ownDraft: string;
   ownRef: React.RefObject<HTMLTextAreaElement | null>;
-  isLast: boolean;
   onOwnDraft: (v: string) => void;
   onOpenOwn: () => void;
   onCancelOwn: () => void;
   onChoose: (value: string) => void;
 }): ReactElement {
   const ownSlot = KEYS[question.options.length] ?? '?';
-  const custom =
-    chosen !== null && chosen.length > 0 && !question.options.some(o => o.label === chosen);
+  const custom = chosen.find(c => !question.options.some(o => o.label === c));
 
   return (
-    <div
-      className={number !== null && !isLast ? 'border-b' : ''}
-      style={number !== null && !isLast ? { borderColor: 'var(--border)' } : undefined}
-    >
+    <div>
       <div className="px-4 pt-3.5">
-        {number !== null ? (
-          <div className="mb-2 flex items-center gap-2.5">
-            <span className="font-mono text-[10.5px] font-semibold tracking-[0.18em] uppercase text-text-tertiary">
-              {number}
-            </span>
-            {question.chip !== undefined ? (
-              <span className="rounded bg-surface-bright px-[7px] py-[2px] font-mono text-[11px] text-text-secondary">
-                {question.chip}
-              </span>
-            ) : null}
+        {question.multi === true ? (
+          <div className="mb-2 font-mono text-[10.5px] font-semibold tracking-[0.18em] uppercase text-text-tertiary">
+            Choose any that apply
           </div>
         ) : null}
         {question.evidence !== undefined ? (
@@ -429,7 +381,7 @@ function QuestionBlock({
             detail={option.detail}
             recommended={option.recommended === true}
             why={option.why}
-            chosen={chosen === option.label}
+            chosen={chosen.includes(option.label)}
             readOnly={readOnly}
             onClick={() => {
               onChoose(option.label);
@@ -482,8 +434,8 @@ function QuestionBlock({
         ) : (
           <OptionRow
             slot={ownSlot}
-            label={custom ? (chosen ?? '') : 'Type your own…'}
-            chosen={custom}
+            label={custom ?? 'Type your own…'}
+            chosen={custom !== undefined}
             dashed
             readOnly={false}
             onClick={onOpenOwn}

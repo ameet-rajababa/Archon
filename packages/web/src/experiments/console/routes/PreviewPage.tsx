@@ -233,22 +233,21 @@ const ASK_SAMPLE = parseAskSpec(
   })
 );
 
-/** Six questions — one past the threshold, so the preview shows the stacked list. */
-const ASK_LIST_SAMPLE = parseAskSpec(
+/** A multi-answer question, so the preview shows the toggle behaviour. */
+const ASK_MULTI_SAMPLE = parseAskSpec(
   JSON.stringify({
-    questions: Array.from({ length: 6 }, (_, i) => ({
-      title: `Question ${String(i + 1)} of a set too long to page through`,
-      chip: `repo-${String(i + 1)}`,
-      options: [
-        { label: 'Keep it.', detail: 'Still earning its place.' },
-        {
-          label: 'Archive it.',
-          detail: 'Nothing has touched it this quarter.',
-          recommended: i % 2 === 0,
-          why: i % 2 === 0 ? 'Cold, and nothing references it.' : undefined,
-        },
-      ],
-    })),
+    questions: [
+      {
+        title: 'Which of these should the sweep touch?',
+        chip: 'rajababa-io',
+        multi: true,
+        options: [
+          { label: 'framework', detail: 'Two months cold.' },
+          { label: 'atlas', detail: 'Still serving FalkorDB.' },
+          { label: 'wix-access', detail: 'Nothing has referenced it since July.' },
+        ],
+      },
+    ],
   })
 );
 
@@ -400,8 +399,8 @@ export function PreviewPage(): ReactElement {
           <AskCard spec={ASK_SAMPLE ?? { questions: [] }} onAnswer={() => undefined} />
         </Section>
 
-        <Section title="Ask card — list view (past five)">
-          <AskCard spec={ASK_LIST_SAMPLE ?? { questions: [] }} onAnswer={() => undefined} />
+        <Section title="Ask card — multi-answer">
+          <AskCard spec={ASK_MULTI_SAMPLE ?? { questions: [] }} onAnswer={() => undefined} />
         </Section>
 
         <Section title="Borders">

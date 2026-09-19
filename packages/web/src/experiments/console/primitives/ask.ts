@@ -39,11 +39,24 @@ export interface AskQuestion {
   options: AskOption[];
   /** Whether to offer a free-text answer. Defaults to true. */
   allowOwn?: boolean;
+  /**
+   * Whether more than one option can be chosen. Defaults to false — a question
+   * asks for a decision, and letting every question take a set would quietly
+   * turn "which one" into "which of these", which is a different question.
+   */
+  multi?: boolean;
 }
 
 export interface AskSpec {
   questions: AskQuestion[];
 }
+
+/**
+ * What one question has been answered with: the chosen option labels, or a
+ * single free-text answer. An array even for a single-answer question so the
+ * two kinds share one shape.
+ */
+export type Answer = string[] | null;
 
 /** A reply is a sequence of prose runs and ask cards. */
 export type ReplyPart = { kind: 'markdown'; text: string } | { kind: 'ask'; spec: AskSpec };
@@ -71,7 +84,7 @@ export function parseAskSpec(raw: string): AskSpec | null {
   const parsed: AskQuestion[] = [];
   for (const q of questions) {
     if (typeof q !== 'object' || q === null) return null;
-    const { title, evidence, chip, options, allowOwn } = q as Record<string, unknown>;
+    const { title, evidence, chip, options, allowOwn, multi } = q as Record<string, unknown>;
     if (typeof title !== 'string' || title.trim().length === 0) return null;
     if (!Array.isArray(options) || options.length === 0) return null;
 
@@ -94,6 +107,7 @@ export function parseAskSpec(raw: string): AskSpec | null {
       ...(typeof chip === 'string' ? { chip } : {}),
       options: parsedOptions,
       ...(allowOwn === false ? { allowOwn: false } : {}),
+      ...(multi === true ? { multi: true } : {}),
     });
   }
 
@@ -168,31 +182,35 @@ export function splitReply(content: string): ReplyPart[] {
  * is — the agent reads a normal chat message and needs no parser. Numbered to
  * match the order asked, so a set answered out of order still reads in order.
  */
-export function composeAnswer(questions: AskQuestion[], answers: (string | null)[]): string {
+export function composeAnswer(questions: AskQuestion[], answers: Answer[]): string {
   return questions
     .map((q, i) => {
-      const answer = answers[i];
-      return `${String(i + 1)}. ${q.title}\n   ${answer ?? '(skipped)'}`;
+      const chosen = answers[i] ?? [];
+      // Several choices are written one per line rather than joined with commas,
+      // so an option whose own text contains a comma stays unambiguous.
+      const body = chosen.length === 0 ? '(skipped)' : chosen.map(c => c.trim()).join('\n   ');
+      return `${String(i + 1)}. ${q.title}\n   ${body}`;
     })
     .join('\n');
 }
 
-/**
- * Past this many questions the pager stops helping: the dot strip is no longer
- * scannable at a glance, and paging hides how much is left to do. Beyond it the
- * card stacks every question instead.
- */
-const LIST_VIEW_THRESHOLD = 5;
-
-/** Whether a set of this size renders as a stacked list rather than a pager. */
-export function usesListView(questionCount: number): boolean {
-  return questionCount > LIST_VIEW_THRESHOLD;
-}
-
 /** Whether every question has an answer — what gates submission. */
-export function isComplete(questions: AskQuestion[], answers: (string | null)[]): boolean {
+export function isComplete(questions: AskQuestion[], answers: Answer[]): boolean {
   return questions.every((_, i) => {
     const a = answers[i];
-    return typeof a === 'string' && a.trim().length > 0;
+    return a?.some(v => v.trim().length > 0) ?? false;
   });
+}
+
+/**
+ * Toggle or replace a choice.
+ *
+ * A single-answer question replaces what was there; a multi-answer question
+ * adds the choice, or removes it if it was already chosen — so the same click
+ * that selects is the one that deselects, and there is no separate way to undo.
+ */
+export function toggleChoice(current: Answer, value: string, multi: boolean): string[] {
+  if (!multi) return [value];
+  const chosen = current ?? [];
+  return chosen.includes(value) ? chosen.filter(v => v !== value) : [...chosen, value];
 }

@@ -4,7 +4,7 @@ import {
   splitReply,
   composeAnswer,
   isComplete,
-  usesListView,
+  toggleChoice,
   type AskQuestion,
 } from './ask';
 
@@ -117,11 +117,26 @@ describe('composeAnswer', () => {
   ];
 
   test('numbers the answers in the order asked', () => {
-    expect(composeAnswer(questions, ['Yes', 'No'])).toBe('1. First?\n   Yes\n2. Second?\n   No');
+    expect(composeAnswer(questions, [['Yes'], ['No']])).toBe(
+      '1. First?\n   Yes\n2. Second?\n   No'
+    );
   });
 
   test('marks an unanswered question rather than dropping it', () => {
-    expect(composeAnswer(questions, ['Yes', null])).toContain('(skipped)');
+    expect(composeAnswer(questions, [['Yes'], null])).toContain('(skipped)');
+  });
+
+  test('writes several choices one per line, so a comma in an option cannot be read as a separator', () => {
+    const multi: AskQuestion[] = [
+      {
+        title: 'Which apply?',
+        multi: true,
+        options: [{ label: 'a, with a comma' }, { label: 'b' }],
+      },
+    ];
+    expect(composeAnswer(multi, [['a, with a comma', 'b']])).toBe(
+      '1. Which apply?\n   a, with a comma\n   b'
+    );
   });
 });
 
@@ -132,21 +147,40 @@ describe('isComplete', () => {
   ];
 
   test('true only when every question has a non-blank answer', () => {
-    expect(isComplete(questions, ['a', 'b'])).toBe(true);
-    expect(isComplete(questions, ['a', null])).toBe(false);
-    expect(isComplete(questions, ['a', '   '])).toBe(false);
+    expect(isComplete(questions, [['a'], ['b']])).toBe(true);
+    expect(isComplete(questions, [['a'], null])).toBe(false);
+    expect(isComplete(questions, [['a'], ['   ']])).toBe(false);
+    expect(isComplete(questions, [['a'], []])).toBe(false);
     expect(isComplete(questions, [])).toBe(false);
   });
 });
 
-describe('usesListView', () => {
-  test('a handful of questions keeps the pager', () => {
-    expect(usesListView(1)).toBe(false);
-    expect(usesListView(5)).toBe(false);
+describe('toggleChoice', () => {
+  test('a single-answer question replaces whatever was there', () => {
+    expect(toggleChoice(null, 'a', false)).toEqual(['a']);
+    expect(toggleChoice(['a'], 'b', false)).toEqual(['b']);
+    // Re-picking the same option leaves it picked rather than clearing it —
+    // a question that demands an answer should never be emptied by a click.
+    expect(toggleChoice(['a'], 'a', false)).toEqual(['a']);
   });
 
-  test('past five it switches to a stacked list', () => {
-    expect(usesListView(6)).toBe(true);
-    expect(usesListView(20)).toBe(true);
+  test('a multi-answer question adds, and removes on a second click', () => {
+    expect(toggleChoice(null, 'a', true)).toEqual(['a']);
+    expect(toggleChoice(['a'], 'b', true)).toEqual(['a', 'b']);
+    expect(toggleChoice(['a', 'b'], 'a', true)).toEqual(['b']);
+    expect(toggleChoice(['a'], 'a', true)).toEqual([]);
+  });
+
+  test('keeps the order options were chosen in', () => {
+    expect(toggleChoice(['c', 'a'], 'b', true)).toEqual(['c', 'a', 'b']);
+  });
+});
+
+describe('parseAskSpec — multi', () => {
+  test('multi is preserved when set, and absent otherwise', () => {
+    const on = parseAskSpec('{"questions":[{"title":"t","multi":true,"options":[{"label":"a"}]}]}');
+    expect(on?.questions[0]?.multi).toBe(true);
+    const off = parseAskSpec('{"questions":[{"title":"t","options":[{"label":"a"}]}]}');
+    expect('multi' in (off?.questions[0] ?? {})).toBe(false);
   });
 });
