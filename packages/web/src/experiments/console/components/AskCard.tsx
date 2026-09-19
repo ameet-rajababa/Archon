@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactElement,
+} from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { composeAnswer, isComplete, type AskSpec } from '../primitives/ask';
@@ -11,6 +18,24 @@ interface AskCardProps {
    * case the card renders as a read-only record of what was asked.
    */
   onAnswer?: (text: string) => void;
+}
+
+/**
+ * The filled button, in both states.
+ *
+ * The disabled look is an inline style rather than a `disabled:bg-*` utility:
+ * the console scope resolves its palette through CSS variables, and the variant
+ * lost to the base background — which rendered a disabled Submit as magenta
+ * text on a magenta fill, i.e. unreadable exactly when it is telling you that
+ * you still have questions to answer.
+ */
+const PRIMARY_BUTTON =
+  'rounded-md px-3.5 py-1.5 font-mono text-[11.5px] font-semibold tracking-[0.06em] transition-[filter] enabled:hover:brightness-110 disabled:cursor-not-allowed';
+
+function primaryStyle(disabled: boolean): CSSProperties {
+  return disabled
+    ? { background: 'var(--surface-bright)', color: 'var(--text-tertiary)' }
+    : { background: 'var(--brand-magenta)', color: 'var(--background)' };
 }
 
 /** Keycap letters. Ten options is far past the point the list stops being readable. */
@@ -276,7 +301,8 @@ export function AskCard({ spec, onAnswer }: AskCardProps): ReactElement {
                     onClick={() => {
                       choose(ownDraft.trim());
                     }}
-                    className="rounded-md bg-accent-bright px-3 py-1.5 font-mono text-[11.5px] font-semibold text-black transition-[filter] hover:brightness-110 disabled:cursor-not-allowed disabled:bg-surface-bright disabled:text-text-tertiary"
+                    className={PRIMARY_BUTTON}
+                    style={primaryStyle(ownDraft.trim().length === 0)}
                   >
                     {index < total - 1 ? 'Save & next →' : 'Save'}
                   </button>
@@ -346,7 +372,8 @@ export function AskCard({ spec, onAnswer }: AskCardProps): ReactElement {
               type="button"
               disabled={!complete || sent}
               onClick={submit}
-              className="rounded-md bg-accent-bright px-3.5 py-1.5 font-mono text-[11.5px] font-semibold tracking-[0.06em] text-black transition-[filter] hover:brightness-110 disabled:cursor-not-allowed disabled:bg-surface-bright disabled:text-text-tertiary"
+              className={PRIMARY_BUTTON}
+              style={primaryStyle(!complete || sent)}
             >
               {sent ? 'Sent' : `Submit all ${String(total)}`}
             </button>
