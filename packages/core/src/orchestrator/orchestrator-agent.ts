@@ -28,7 +28,6 @@ import { toError } from '../utils/error';
 import { safeDeactivateSession } from '../state/session-transitions';
 import { getAgentProvider, getProviderCapabilities } from '@archon/providers';
 import { buildManageRunTool } from './manage-run-tool';
-import { buildChatSummaryTool } from './chat-summary-tool';
 import { getArchonWorkspacesPath, ensureArchonWorkspacesPath } from '@archon/paths';
 import { resolveWorkflowSourceRoot } from '../utils/workflow-source-root';
 import {
@@ -2632,7 +2631,6 @@ export async function handleMessage(
         }),
         // Scoped to this conversation, not the project: a summary describes one
         // chat, and the tool must not be able to write to a different one.
-        buildChatSummaryTool({ conversationDbId: conversation.id }),
       ];
     }
 
