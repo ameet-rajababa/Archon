@@ -279,12 +279,16 @@ export function ChatPage(): ReactElement {
           const conv = await skill.createConversation(projectId, text, files);
           setActiveConvId(conv.conversationId);
           setStartingNew(false);
-          invalidate(K.conversations(projectId));
           invalidate(K.messages(conv.conversationId));
         } else {
           await skill.sendMessage(activeConvId, text, files);
           invalidate(K.messages(activeConvId));
         }
+        // Sending can change the conversation list, not just its messages: a
+        // new chat appears in it, and sending to an archived chat un-archives
+        // it server-side. Without this the rail kept showing the chat as
+        // archived and the count never moved.
+        invalidateConversations();
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : 'Send failed.');
         setBusy(false); // unblock so the user can retry
