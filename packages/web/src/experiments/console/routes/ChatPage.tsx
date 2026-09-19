@@ -329,6 +329,7 @@ export function ChatPage(): ReactElement {
           content: seg.content,
           timestamp: now,
           toolCalls: [],
+          files: [],
           error: null,
           category: seg.category,
           dispatch: null,
