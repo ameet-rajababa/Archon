@@ -135,17 +135,21 @@ export function ChatPage(): ReactElement {
     })();
   };
 
-  const archiveConversations = (ids: string[], archived: boolean): void => {
+  const archiveConversations = (ids: string[], archived: boolean, next: string | null): void => {
     void (async (): Promise<void> => {
       try {
         for (const id of ids) {
           await skill.setConversationArchived(id, archived);
         }
-        // Archiving the chat you are reading would leave the page showing a
-        // conversation the rail no longer lists, so step out of it.
-        if (archived && activeConvId !== null && ids.includes(activeConvId)) {
-          setActiveConvId(null);
-          setStartingNew(true);
+        // Archiving the chat you are reading drops it out of the list the rail
+        // shows, so the page must move — but to the neighbour the rail named,
+        // not to a blank new chat. Being ejected to the composer after every
+        // archive turns tidying a rail into a fight. Only the scope being
+        // viewed matters: under `all` the chat stays listed either way, and
+        // under `archived` it is restoring, not archiving, that removes it.
+        const leavesList = scope === 'active' ? archived : scope === 'archived' ? !archived : false;
+        if (leavesList && activeConvId !== null && ids.includes(activeConvId)) {
+          selectConversation(next);
         }
         invalidateConversations();
       } catch (e: unknown) {

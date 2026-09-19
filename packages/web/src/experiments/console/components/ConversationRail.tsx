@@ -12,6 +12,7 @@ import {
 import { isBriefStale } from '../primitives/conversation';
 import { parseBrief } from '../primitives/brief';
 import { relativeTime } from '../lib/format';
+import { chooseNeighbourChat } from '../lib/last-chat';
 import {
   applyChatOrder,
   dropIndexAt,
@@ -39,7 +40,12 @@ interface ConversationRailProps {
   onSelect: (id: string | null) => void;
   onRename: (id: string, title: string) => void;
   onRecolor: (ids: string[], color: ConversationColor | null) => void;
-  onArchive: (ids: string[], archived: boolean) => void;
+  /**
+   * Archive or restore chats. `next` is the chat to open if archiving these
+   * takes the page out of the one it is reading — the rail names it because
+   * only the rail knows the displayed order.
+   */
+  onArchive: (ids: string[], archived: boolean, next: string | null) => void;
   /**
    * Open a chat's summary. The card shows only that one exists and how fresh
    * it is — the text itself is too long to sit in a rail without either
@@ -518,7 +524,14 @@ export function ConversationRail({
                     type="button"
                     role="menuitem"
                     onClick={() => {
-                      onArchive(recolorTargets(c.id), !c.archived);
+                      const ids = recolorTargets(c.id);
+                      onArchive(
+                        ids,
+                        !c.archived,
+                        activeConvId !== null && ids.includes(activeConvId)
+                          ? chooseNeighbourChat(visible, activeConvId, ids)
+                          : null
+                      );
                       setSelected(new Set());
                       setMenuFor(null);
                     }}

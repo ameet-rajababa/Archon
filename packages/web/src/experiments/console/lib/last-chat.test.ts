@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { chooseOpenChat, lastChatKey } from './last-chat';
+import { chooseNeighbourChat, chooseOpenChat, lastChatKey } from './last-chat';
 
 const list = (...ids: string[]) => ids.map(id => ({ id }));
 
@@ -27,5 +27,32 @@ describe('chooseOpenChat', () => {
   test('an empty project opens nothing', () => {
     expect(chooseOpenChat('gone', [])).toBeNull();
     expect(chooseOpenChat(null, [])).toBeNull();
+  });
+});
+
+describe('chooseNeighbourChat', () => {
+  test('takes the chat below the one leaving', () => {
+    expect(chooseNeighbourChat(list('a', 'b', 'c'), 'b', ['b'])).toBe('c');
+  });
+
+  test('falls back upwards at the bottom of the rail', () => {
+    expect(chooseNeighbourChat(list('a', 'b', 'c'), 'c', ['c'])).toBe('b');
+  });
+
+  test('skips the other chats going with it', () => {
+    // Bulk archive: b, c and d all leave, so the neighbour is e.
+    expect(chooseNeighbourChat(list('a', 'b', 'c', 'd', 'e'), 'b', ['b', 'c', 'd'])).toBe('e');
+  });
+
+  test('skips upwards past the others too', () => {
+    expect(chooseNeighbourChat(list('a', 'b', 'c'), 'c', ['b', 'c'])).toBe('a');
+  });
+
+  test('the last chat in the rail leaves nothing to open', () => {
+    expect(chooseNeighbourChat(list('a'), 'a', ['a'])).toBeNull();
+  });
+
+  test('a chat that is not displayed has no neighbour', () => {
+    expect(chooseNeighbourChat(list('a', 'b'), 'hidden', ['hidden'])).toBeNull();
   });
 });

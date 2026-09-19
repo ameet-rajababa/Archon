@@ -43,3 +43,34 @@ export function chooseOpenChat(
   if (remembered !== null && available.some(c => c.id === remembered)) return remembered;
   return available[0]?.id ?? null;
 }
+
+/**
+ * Which chat to open when the one being read leaves the list.
+ *
+ * The chat below it as displayed, else the one above it, else nothing. Landing
+ * on a neighbour is what makes archiving several chats in a row feel like
+ * working down the rail; stepping out to a blank new chat each time reads as
+ * the page throwing the user out.
+ *
+ * `leaving` is every chat going at once — a bulk archive must not select one of
+ * its own casualties.
+ */
+export function chooseNeighbourChat(
+  displayed: readonly { id: string }[],
+  activeId: string,
+  leaving: readonly string[]
+): string | null {
+  const gone = new Set(leaving);
+  const at = displayed.findIndex(c => c.id === activeId);
+  // Not on screen — filtered out, or already gone. Nothing to stay next to.
+  if (at < 0) return null;
+  for (let i = at + 1; i < displayed.length; i++) {
+    const id = displayed[i]?.id;
+    if (id !== undefined && !gone.has(id)) return id;
+  }
+  for (let i = at - 1; i >= 0; i--) {
+    const id = displayed[i]?.id;
+    if (id !== undefined && !gone.has(id)) return id;
+  }
+  return null;
+}
