@@ -12,7 +12,16 @@ import {
 import { isBriefStale } from '../primitives/conversation';
 import { parseBrief } from '../primitives/brief';
 import { relativeTime } from '../lib/format';
-import { applyChatOrder, readChatOrder, reorder, writeChatOrder } from '../lib/chat-order';
+import {
+  applyChatOrder,
+  dropIndexAt,
+  previewShift,
+  readChatOrder,
+  reorder,
+  rowBoxes,
+  writeChatOrder,
+  type RowBox,
+} from '../lib/chat-order';
 
 /** Which archived state the rail is showing. */
 export type ArchiveScope = 'active' | 'archived' | 'all';
@@ -90,6 +99,35 @@ export function ConversationRail({
   // Bumped after a drop so the list re-reads the stored order.
   const [orderTick, setOrderTick] = useState(0);
   const [dragId, setDragId] = useState<string | null>(null);
+  // Which row the cursor is over, and the row geometry as it stood when the
+  // drag began. Both are needed to draw the preview; see `previewShift`.
+  const [dropIndex, setDropIndex] = useState(-1);
+  const boxesRef = useRef<RowBox[]>([]);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollTopRef = useRef(0);
+  const rowRefs = useRef(new Map<string, HTMLDivElement>());
+  /**
+   * The row whose handle is under the mouse.
+   *
+   * `draggable` is armed on mousedown over the monogram and disarmed the moment
+   * the gesture ends, so a drag can only start from the handle. The alternative
+   * — marking the handle itself draggable — drags the handle, and the card the
+   * user is actually moving never leaves the list.
+   */
+  const [armed, setArmed] = useState<string | null>(null);
+
+  // A press on the handle that never became a drag must not leave the row
+  // draggable from anywhere on it.
+  useEffect(() => {
+    if (armed === null) return;
+    const disarm = (): void => {
+      setArmed(null);
+    };
+    window.addEventListener('mouseup', disarm);
+    return (): void => {
+      window.removeEventListener('mouseup', disarm);
+    };
+  }, [armed]);
 
   const visible = useMemo(() => {
     const byRecency = [...conversations].filter(c => matchesFilter(c, query)).sort(byMostRecent);
@@ -98,11 +136,37 @@ export function ConversationRail({
     // from localStorage, which useMemo cannot observe.
   }, [conversations, query, projectId, orderTick]);
 
-  const onDropOn = (targetId: string): void => {
-    if (dragId === null || dragId === targetId) return;
-    writeChatOrder(projectId, reorder(visible, dragId, targetId));
+  /** The gap between cards, kept in step with each row's `mb-0.5`. */
+  const ROW_GAP = 2;
+
+  const dragFrom = dragId === null ? -1 : visible.findIndex(c => c.id === dragId);
+
+  const endDrag = (): void => {
     setDragId(null);
-    setOrderTick(t => t + 1);
+    setDropIndex(-1);
+    setArmed(null);
+    boxesRef.current = [];
+  };
+
+  const beginDrag = (id: string, index: number): void => {
+    const rects = visible.map(c => {
+      const el = rowRefs.current.get(c.id);
+      const r = el?.getBoundingClientRect();
+      return { top: r?.top ?? 0, bottom: r?.bottom ?? 0 };
+    });
+    boxesRef.current = rowBoxes(rects, ROW_GAP);
+    scrollTopRef.current = scrollRef.current?.scrollTop ?? 0;
+    setDragId(id);
+    setDropIndex(index);
+  };
+
+  const onDropHere = (): void => {
+    const target = visible[dropIndex];
+    if (dragId !== null && target !== undefined && target.id !== dragId) {
+      writeChatOrder(projectId, reorder(visible, dragId, target.id));
+      setOrderTick(t => t + 1);
+    }
+    endDrag();
   };
 
   const commitRename = (id: string): void => {
@@ -221,7 +285,26 @@ export function ConversationRail({
         ))}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+      <div
+        ref={scrollRef}
+        className="min-h-0 flex-1 overflow-y-auto px-2 pb-2"
+        // The whole list answers the drag, not each row: rows slide under the
+        // cursor during the preview, so a per-row hit test would report
+        // whichever row had just moved into place rather than the one the user
+        // is pointing at.
+        onDragOver={e => {
+          if (dragId === null) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          const scrolledBy = (scrollRef.current?.scrollTop ?? 0) - scrollTopRef.current;
+          setDropIndex(dropIndexAt(boxesRef.current, e.clientY, scrolledBy));
+        }}
+        onDrop={e => {
+          if (dragId === null) return;
+          e.preventDefault();
+          onDropHere();
+        }}
+      >
         {pendingNew ? (
           <div
             className="mb-0.5 flex items-center gap-2.5 rounded-[10px] border px-2.5 py-2"
@@ -255,14 +338,20 @@ export function ConversationRail({
           </p>
         ) : null}
 
-        {visible.map(c => {
+        {visible.map((c, index) => {
           const token = colorToken(c.color);
           const isActive = c.id === activeConvId;
           const isSelected = selected.has(c.id);
+          const shift =
+            dragId === null ? 0 : previewShift(boxesRef.current, dragFrom, dropIndex, index);
           return (
             <div
               key={c.id}
-              className={`group relative mb-0.5 flex cursor-grab items-start gap-2.5 rounded-[10px] border px-2.5 py-2 transition-colors active:cursor-grabbing ${
+              ref={el => {
+                if (el === null) rowRefs.current.delete(c.id);
+                else rowRefs.current.set(c.id, el);
+              }}
+              className={`group relative mb-0.5 flex items-start gap-2.5 rounded-[10px] border px-2.5 py-2 transition-[background-color,border-color,opacity,transform] duration-150 ${
                 dragId === c.id ? 'opacity-40 ' : ''
               }${c.archived ? 'opacity-55 hover:opacity-100 ' : ''}${
                 isSelected
@@ -277,25 +366,19 @@ export function ConversationRail({
                   : isSelected
                     ? 'color-mix(in oklch, var(--brand-magenta), transparent 60%)'
                     : 'transparent',
+                // A transform, never a layout change: the geometry captured at
+                // drag start has to stay true for the whole gesture.
+                transform: shift === 0 ? undefined : `translateY(${String(shift)}px)`,
               }}
-              draggable={renamingId === null}
+              draggable={armed === c.id && renamingId === null}
               onDragStart={e => {
-                setDragId(c.id);
+                beginDrag(c.id, index);
                 e.dataTransfer.effectAllowed = 'move';
                 // Firefox refuses to start a drag without payload.
                 e.dataTransfer.setData('text/plain', c.id);
               }}
               onDragEnd={() => {
-                setDragId(null);
-              }}
-              onDragOver={e => {
-                if (dragId === null || dragId === c.id) return;
-                e.preventDefault();
-                e.dataTransfer.dropEffect = 'move';
-              }}
-              onDrop={e => {
-                e.preventDefault();
-                onDropOn(c.id);
+                endDrag();
               }}
               onContextMenu={e => {
                 e.preventDefault();
@@ -328,9 +411,16 @@ export function ConversationRail({
                 {isSelected ? '✓' : ''}
               </button>
 
+              {/* The monogram is the drag handle, and the only one. Dragging
+                  from anywhere on the card made every stray press-and-move
+                  across the rail a reorder. */}
               <span
                 aria-hidden
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border font-mono text-[12px] font-bold"
+                title="Drag to reorder"
+                onMouseDown={() => {
+                  setArmed(c.id);
+                }}
+                className="flex h-7 w-7 shrink-0 cursor-grab items-center justify-center rounded-lg border font-mono text-[12px] font-bold active:cursor-grabbing"
                 style={{
                   background: token ?? 'var(--surface-elevated)',
                   borderColor: token ?? 'var(--border)',
