@@ -5,7 +5,7 @@ import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import rehypeHighlight from 'rehype-highlight';
 import { AgentAvatar } from './AgentAvatar';
-import { formatClock } from '../lib/format';
+import { useClock } from '../lib/clock';
 import { formatBytes } from '../primitives/file';
 import type { Message } from '../primitives/message';
 
@@ -120,7 +120,7 @@ const ERROR_BLOCK = (msg: string): ReactElement => (
 export function MessageItem({ message, variant = 'chat' }: MessageItemProps): ReactElement {
   const kind = message.role;
   const content = message.content.trim();
-  const clock = formatClock(message.timestamp);
+  const clock = useClock()(message.timestamp);
   const log = variant === 'log';
 
   if (kind === 'user') {
