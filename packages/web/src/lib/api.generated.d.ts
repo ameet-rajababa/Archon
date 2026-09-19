@@ -3383,6 +3383,7 @@ export interface components {
       isolation_env_id: string | null;
       ai_assistant_type: string;
       title: string | null;
+      color: string | null;
       hidden: boolean;
       /** Format: date-time */
       deleted_at: string | null;
@@ -3408,6 +3409,8 @@ export interface components {
     };
     UpdateConversationBody: {
       title?: string;
+      /** @enum {string|null} */
+      color?: 'magenta' | 'violet' | 'blue' | 'green' | 'amber' | 'red' | null;
     };
     MessageListResponse: components['schemas']['Message'][];
     Message: {
