@@ -1,5 +1,12 @@
 import { describe, test, expect } from 'bun:test';
-import { parseAskSpec, splitReply, composeAnswer, isComplete, type AskQuestion } from './ask';
+import {
+  parseAskSpec,
+  splitReply,
+  composeAnswer,
+  isComplete,
+  usesListView,
+  type AskQuestion,
+} from './ask';
 
 const SPEC = {
   questions: [
@@ -129,5 +136,17 @@ describe('isComplete', () => {
     expect(isComplete(questions, ['a', null])).toBe(false);
     expect(isComplete(questions, ['a', '   '])).toBe(false);
     expect(isComplete(questions, [])).toBe(false);
+  });
+});
+
+describe('usesListView', () => {
+  test('a handful of questions keeps the pager', () => {
+    expect(usesListView(1)).toBe(false);
+    expect(usesListView(5)).toBe(false);
+  });
+
+  test('past five it switches to a stacked list', () => {
+    expect(usesListView(6)).toBe(true);
+    expect(usesListView(20)).toBe(true);
   });
 });

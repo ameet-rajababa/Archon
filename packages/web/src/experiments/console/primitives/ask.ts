@@ -177,6 +177,18 @@ export function composeAnswer(questions: AskQuestion[], answers: (string | null)
     .join('\n');
 }
 
+/**
+ * Past this many questions the pager stops helping: the dot strip is no longer
+ * scannable at a glance, and paging hides how much is left to do. Beyond it the
+ * card stacks every question instead.
+ */
+const LIST_VIEW_THRESHOLD = 5;
+
+/** Whether a set of this size renders as a stacked list rather than a pager. */
+export function usesListView(questionCount: number): boolean {
+  return questionCount > LIST_VIEW_THRESHOLD;
+}
+
 /** Whether every question has an answer — what gates submission. */
 export function isComplete(questions: AskQuestion[], answers: (string | null)[]): boolean {
   return questions.every((_, i) => {

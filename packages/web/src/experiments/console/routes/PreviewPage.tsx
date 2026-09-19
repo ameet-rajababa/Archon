@@ -233,6 +233,25 @@ const ASK_SAMPLE = parseAskSpec(
   })
 );
 
+/** Six questions — one past the threshold, so the preview shows the stacked list. */
+const ASK_LIST_SAMPLE = parseAskSpec(
+  JSON.stringify({
+    questions: Array.from({ length: 6 }, (_, i) => ({
+      title: `Question ${String(i + 1)} of a set too long to page through`,
+      chip: `repo-${String(i + 1)}`,
+      options: [
+        { label: 'Keep it.', detail: 'Still earning its place.' },
+        {
+          label: 'Archive it.',
+          detail: 'Nothing has touched it this quarter.',
+          recommended: i % 2 === 0,
+          why: i % 2 === 0 ? 'Cold, and nothing references it.' : undefined,
+        },
+      ],
+    })),
+  })
+);
+
 export function PreviewPage(): ReactElement {
   return (
     <div className="flex h-full flex-col overflow-y-auto">
@@ -379,6 +398,10 @@ export function PreviewPage(): ReactElement {
 
         <Section title="Ask card">
           <AskCard spec={ASK_SAMPLE ?? { questions: [] }} onAnswer={() => undefined} />
+        </Section>
+
+        <Section title="Ask card — list view (past five)">
+          <AskCard spec={ASK_LIST_SAMPLE ?? { questions: [] }} onAnswer={() => undefined} />
         </Section>
 
         <Section title="Borders">

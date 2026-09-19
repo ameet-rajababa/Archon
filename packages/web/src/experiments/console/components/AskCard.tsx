@@ -8,7 +8,13 @@ import {
 } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { composeAnswer, isComplete, type AskSpec } from '../primitives/ask';
+import {
+  composeAnswer,
+  isComplete,
+  usesListView,
+  type AskQuestion,
+  type AskSpec,
+} from '../primitives/ask';
 
 interface AskCardProps {
   spec: AskSpec;
@@ -67,67 +73,95 @@ function Inline({ text }: { text: string }): ReactElement {
  * costs nothing and needs no round trip. Sending once also means a set of seven
  * questions is one wait instead of seven.
  *
+ * Sending does not lock the card. Changing your mind after you have answered is
+ * the normal case, not an error, and the correction is just another message —
+ * so the card stays live and the button offers to send again, enabled only once
+ * an answer actually differs from what was sent.
+ *
+ * Past a handful of questions the pager stops helping: the dot strip is no
+ * longer scannable and paging hides how much is left. Beyond
+ * {@link usesListView}'s threshold the card drops the pager and stacks every
+ * question instead.
+ *
  * Submitting composes the message a person would have typed and sends it
  * through the ordinary composer path, so the agent needs no new channel — see
  * `primitives/ask.ts`.
  */
 export function AskCard({ spec, onAnswer }: AskCardProps): ReactElement {
   const { questions } = spec;
+  const total = questions.length;
+  const list = usesListView(total);
+
   const [index, setIndex] = useState(0);
   const [answers, setAnswers] = useState<(string | null)[]>(() => questions.map(() => null));
-  const [ownOpen, setOwnOpen] = useState(false);
+  /** Which question has its free-text box open, or null. Indexed because list mode shows them all. */
+  const [ownOpenFor, setOwnOpenFor] = useState<number | null>(null);
   const [ownDraft, setOwnDraft] = useState('');
-  const [sent, setSent] = useState(false);
+  /** The exact text last sent, so "send again" can tell a real change from a double-click. */
+  const [lastSent, setLastSent] = useState<string | null>(null);
   const ownRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const question = questions[index];
-  const total = questions.length;
   const answered = answers.filter(a => a !== null && a.trim().length > 0).length;
   const complete = isComplete(questions, answers);
-  const readOnly = onAnswer === undefined || sent;
+  const readOnly = onAnswer === undefined;
+  const composed = composeAnswer(questions, answers);
+  const changedSinceSend = composed !== lastSent;
+  const canSend = !readOnly && complete && changedSinceSend;
+
+  const closeOwn = useCallback((): void => {
+    setOwnOpenFor(null);
+    setOwnDraft('');
+  }, []);
 
   const goTo = useCallback(
     (next: number): void => {
       setIndex(Math.max(0, Math.min(total - 1, next)));
-      setOwnOpen(false);
-      setOwnDraft('');
+      closeOwn();
     },
-    [total]
+    [total, closeOwn]
   );
 
   const choose = useCallback(
-    (value: string): void => {
+    (slot: number, value: string): void => {
       setAnswers(prev => {
         const next = [...prev];
-        next[index] = value;
+        next[slot] = value;
         return next;
       });
-      setOwnOpen(false);
-      setOwnDraft('');
+      closeOwn();
       // Advance so a set can be answered without reaching for the mouse between
       // questions; the last answer stays put so the review state is visible.
-      if (index < total - 1) setIndex(index + 1);
+      // List mode shows everything at once, so there is nothing to advance to.
+      if (!list && slot === index && index < total - 1) setIndex(index + 1);
     },
-    [index, total]
+    [index, total, list, closeOwn]
   );
 
   const submit = useCallback((): void => {
-    if (onAnswer === undefined || !complete) return;
-    setSent(true);
-    onAnswer(composeAnswer(questions, answers));
-  }, [onAnswer, complete, questions, answers]);
+    if (onAnswer === undefined || !complete || !changedSinceSend) return;
+    setLastSent(composed);
+    onAnswer(composed);
+  }, [onAnswer, complete, changedSinceSend, composed]);
 
   // Keyboard: letters pick, arrows page, ⌘/Ctrl+Enter sends. Bound to the card
   // rather than the document so typing in the composer is never intercepted.
+  // Letters and arrows are pager-mode only — with every question on screen at
+  // once there is no "current" question for a letter to belong to.
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
-    if (readOnly || question === undefined) return;
+    if (readOnly) return;
     if (e.target instanceof HTMLTextAreaElement) {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault();
-        if (ownDraft.trim().length > 0) choose(ownDraft.trim());
+        if (ownOpenFor !== null && ownDraft.trim().length > 0) choose(ownOpenFor, ownDraft.trim());
       }
       return;
     }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      submit();
+      return;
+    }
+    if (list) return;
     if (e.key === 'ArrowLeft') {
       e.preventDefault();
       goTo(index - 1);
@@ -138,32 +172,36 @@ export function AskCard({ spec, onAnswer }: AskCardProps): ReactElement {
       goTo(index + 1);
       return;
     }
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-      e.preventDefault();
-      submit();
-      return;
-    }
+    const question = questions[index];
+    if (question === undefined) return;
     const slot = KEYS.indexOf(e.key.toUpperCase());
     if (slot === -1) return;
     const option = question.options[slot];
     if (option !== undefined) {
       e.preventDefault();
-      choose(option.label);
+      choose(index, option.label);
       return;
     }
     if (question.allowOwn !== false && slot === question.options.length) {
       e.preventDefault();
-      setOwnOpen(true);
+      setOwnOpenFor(index);
+      setOwnDraft('');
     }
   };
 
   useEffect(() => {
-    if (ownOpen) ownRef.current?.focus();
-  }, [ownOpen]);
+    if (ownOpenFor !== null) ownRef.current?.focus();
+  }, [ownOpenFor]);
 
-  if (question === undefined) return <></>;
+  if (total === 0) return <></>;
 
-  const chosen = answers[index];
+  const shown: readonly (readonly [AskQuestion | undefined, number])[] = list
+    ? questions.map((q, i) => [q, i] as const)
+    : [[questions[index], index] as const];
+  const headerChip = list ? undefined : questions[index]?.chip;
+
+  const sendLabel =
+    lastSent === null ? `Submit all ${String(total)}` : changedSinceSend ? 'Send again' : 'Sent';
 
   return (
     <div
@@ -179,9 +217,9 @@ export function AskCard({ spec, onAnswer }: AskCardProps): ReactElement {
         style={{ borderColor: 'var(--border)' }}
       >
         <span className="font-mono text-[10.5px] font-semibold tracking-[0.18em] uppercase text-text-secondary">
-          {sent ? (
+          {list ? (
             <>
-              Answered · {total} question{total === 1 ? '' : 's'}
+              <span className="text-text-primary">{total}</span> questions
             </>
           ) : (
             <>
@@ -190,13 +228,13 @@ export function AskCard({ spec, onAnswer }: AskCardProps): ReactElement {
             </>
           )}
         </span>
-        {question.chip !== undefined ? (
+        {headerChip !== undefined ? (
           <span className="rounded bg-surface-bright px-[7px] py-[2px] font-mono text-[11px] text-text-secondary">
-            {question.chip}
+            {headerChip}
           </span>
         ) : null}
 
-        {total > 1 ? (
+        {!list && total > 1 ? (
           <div className="ml-auto flex items-center gap-2.5">
             <div className="flex items-center gap-[5px]">
               {questions.map((q, i) => {
@@ -241,110 +279,37 @@ export function AskCard({ spec, onAnswer }: AskCardProps): ReactElement {
         ) : null}
       </header>
 
-      <div className="px-4 pt-3.5">
-        {question.evidence !== undefined ? (
-          <div
-            className="mb-3 border-l-2 pl-3 text-[13px] leading-[1.6] text-text-secondary"
-            style={{ borderColor: 'var(--border-bright)' }}
-          >
-            <Inline text={question.evidence} />
-          </div>
-        ) : null}
-        <div className="mb-3 text-[15px] leading-[1.4] font-semibold text-text-primary">
-          <Inline text={question.title} />
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-2 px-4 pb-3.5">
-        {question.options.map((option, i) => {
-          const isChosen = chosen === option.label;
-          return (
-            <OptionRow
-              key={option.label + String(i)}
-              slot={KEYS[i] ?? '?'}
-              label={option.label}
-              detail={option.detail}
-              recommended={option.recommended === true}
-              why={option.why}
-              chosen={isChosen}
+      <div className={list ? 'flex flex-col' : ''}>
+        {shown.map(([question, slot]) =>
+          question === undefined ? null : (
+            <QuestionBlock
+              key={question.title + String(slot)}
+              question={question}
+              slot={slot}
+              number={list ? slot + 1 : null}
+              chosen={answers[slot] ?? null}
               readOnly={readOnly}
-              onClick={() => {
-                choose(option.label);
+              ownOpen={ownOpenFor === slot}
+              ownDraft={ownDraft}
+              ownRef={ownRef}
+              isLast={slot === total - 1}
+              onOwnDraft={setOwnDraft}
+              onOpenOwn={() => {
+                const current = answers[slot];
+                const custom =
+                  current !== null &&
+                  current !== undefined &&
+                  !question.options.some(o => o.label === current);
+                setOwnOpenFor(slot);
+                setOwnDraft(custom ? current : '');
               }}
-            />
-          );
-        })}
-
-        {question.allowOwn !== false && !readOnly ? (
-          ownOpen ? (
-            <div
-              className="grid grid-cols-[30px_1fr] items-start gap-x-3 gap-y-[3px] rounded-lg border px-3.5 py-3"
-              style={{ borderColor: 'var(--brand-magenta)' }}
-            >
-              <Keycap slot={KEYS[question.options.length] ?? '?'} tone="chosen" />
-              <span className="text-[14.5px] font-semibold text-text-primary">Your own answer</span>
-              <div className="col-start-2 mt-2 flex flex-col gap-2">
-                <textarea
-                  ref={ownRef}
-                  value={ownDraft}
-                  onChange={e => {
-                    setOwnDraft(e.target.value);
-                  }}
-                  placeholder="Type your answer…"
-                  className="min-h-[62px] w-full resize-y rounded-md border bg-surface-inset px-3 py-2 text-[13.5px] leading-[1.5] text-text-primary outline-none placeholder:text-text-tertiary focus:border-accent-bright"
-                  style={{ borderColor: 'var(--border-bright)' }}
-                />
-                <div className="flex items-center gap-2.5">
-                  <button
-                    type="button"
-                    disabled={ownDraft.trim().length === 0}
-                    onClick={() => {
-                      choose(ownDraft.trim());
-                    }}
-                    className={PRIMARY_BUTTON}
-                    style={primaryStyle(ownDraft.trim().length === 0)}
-                  >
-                    {index < total - 1 ? 'Save & next →' : 'Save'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOwnOpen(false);
-                      setOwnDraft('');
-                    }}
-                    className="rounded-md border px-3 py-1.5 font-mono text-[11.5px] text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
-                    style={{ borderColor: 'var(--border-bright)' }}
-                  >
-                    Cancel
-                  </button>
-                  <span className="font-mono text-[11px] text-text-tertiary">⌘↵ to save</span>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <OptionRow
-              slot={KEYS[question.options.length] ?? '?'}
-              label="Type your own…"
-              chosen={
-                chosen !== null &&
-                chosen !== undefined &&
-                !question.options.some(o => o.label === chosen)
-              }
-              dashed
-              readOnly={false}
-              onClick={() => {
-                setOwnOpen(true);
-                setOwnDraft(
-                  chosen !== null &&
-                    chosen !== undefined &&
-                    !question.options.some(o => o.label === chosen)
-                    ? chosen
-                    : ''
-                );
+              onCancelOwn={closeOwn}
+              onChoose={value => {
+                choose(slot, value);
               }}
             />
           )
-        ) : null}
+        )}
       </div>
 
       <footer
@@ -363,23 +328,168 @@ export function AskCard({ spec, onAnswer }: AskCardProps): ReactElement {
         <div className="ml-auto flex items-center gap-3">
           {readOnly ? null : (
             <span className="font-mono text-[11px] text-text-tertiary">
-              {`A–${KEYS[question.options.length] ?? 'A'}`}
-              {total > 1 ? ' · ←/→ to page' : ''}
+              {list
+                ? '⌘↵ to send'
+                : `A–${KEYS[questions[index]?.options.length ?? 0] ?? 'A'} · ←/→ to page`}
             </span>
           )}
           {onAnswer !== undefined ? (
             <button
               type="button"
-              disabled={!complete || sent}
+              disabled={!canSend}
               onClick={submit}
               className={PRIMARY_BUTTON}
-              style={primaryStyle(!complete || sent)}
+              style={primaryStyle(!canSend)}
             >
-              {sent ? 'Sent' : `Submit all ${String(total)}`}
+              {sendLabel}
             </button>
           ) : null}
         </div>
       </footer>
+    </div>
+  );
+}
+
+/**
+ * One question: its evidence, its title, its options, and the free-text row.
+ *
+ * Shared by both layouts so the pager and the list cannot drift apart — the
+ * only difference between them is how many of these are on screen.
+ */
+function QuestionBlock({
+  question,
+  number,
+  chosen,
+  readOnly,
+  ownOpen,
+  ownDraft,
+  ownRef,
+  isLast,
+  onOwnDraft,
+  onOpenOwn,
+  onCancelOwn,
+  onChoose,
+}: {
+  question: AskQuestion;
+  slot: number;
+  /** Position label, shown only in list mode where there is no "question N of M" header. */
+  number: number | null;
+  chosen: string | null;
+  readOnly: boolean;
+  ownOpen: boolean;
+  ownDraft: string;
+  ownRef: React.RefObject<HTMLTextAreaElement | null>;
+  isLast: boolean;
+  onOwnDraft: (v: string) => void;
+  onOpenOwn: () => void;
+  onCancelOwn: () => void;
+  onChoose: (value: string) => void;
+}): ReactElement {
+  const ownSlot = KEYS[question.options.length] ?? '?';
+  const custom =
+    chosen !== null && chosen.length > 0 && !question.options.some(o => o.label === chosen);
+
+  return (
+    <div
+      className={number !== null && !isLast ? 'border-b' : ''}
+      style={number !== null && !isLast ? { borderColor: 'var(--border)' } : undefined}
+    >
+      <div className="px-4 pt-3.5">
+        {number !== null ? (
+          <div className="mb-2 flex items-center gap-2.5">
+            <span className="font-mono text-[10.5px] font-semibold tracking-[0.18em] uppercase text-text-tertiary">
+              {number}
+            </span>
+            {question.chip !== undefined ? (
+              <span className="rounded bg-surface-bright px-[7px] py-[2px] font-mono text-[11px] text-text-secondary">
+                {question.chip}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        {question.evidence !== undefined ? (
+          <div
+            className="mb-3 border-l-2 pl-3 text-[13px] leading-[1.6] text-text-secondary"
+            style={{ borderColor: 'var(--border-bright)' }}
+          >
+            <Inline text={question.evidence} />
+          </div>
+        ) : null}
+        <div className="mb-3 text-[15px] leading-[1.4] font-semibold text-text-primary">
+          <Inline text={question.title} />
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2 px-4 pb-3.5">
+        {question.options.map((option, i) => (
+          <OptionRow
+            key={option.label + String(i)}
+            slot={KEYS[i] ?? '?'}
+            label={option.label}
+            detail={option.detail}
+            recommended={option.recommended === true}
+            why={option.why}
+            chosen={chosen === option.label}
+            readOnly={readOnly}
+            onClick={() => {
+              onChoose(option.label);
+            }}
+          />
+        ))}
+
+        {question.allowOwn === false || readOnly ? null : ownOpen ? (
+          <div
+            className="grid grid-cols-[30px_1fr] items-start gap-x-3 gap-y-[3px] rounded-lg border px-3.5 py-3"
+            style={{ borderColor: 'var(--brand-magenta)' }}
+          >
+            <Keycap slot={ownSlot} tone="chosen" />
+            <span className="text-[14.5px] font-semibold text-text-primary">Your own answer</span>
+            <div className="col-start-2 mt-2 flex flex-col gap-2">
+              <textarea
+                ref={ownRef}
+                value={ownDraft}
+                onChange={e => {
+                  onOwnDraft(e.target.value);
+                }}
+                placeholder="Type your answer…"
+                className="min-h-[62px] w-full resize-y rounded-md border bg-surface-inset px-3 py-2 text-[13.5px] leading-[1.5] text-text-primary outline-none placeholder:text-text-tertiary focus:border-accent-bright"
+                style={{ borderColor: 'var(--border-bright)' }}
+              />
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  disabled={ownDraft.trim().length === 0}
+                  onClick={() => {
+                    onChoose(ownDraft.trim());
+                  }}
+                  className={PRIMARY_BUTTON}
+                  style={primaryStyle(ownDraft.trim().length === 0)}
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  onClick={onCancelOwn}
+                  className="rounded-md border px-3 py-1.5 font-mono text-[11.5px] text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+                  style={{ borderColor: 'var(--border-bright)' }}
+                >
+                  Cancel
+                </button>
+                <span className="font-mono text-[11px] text-text-tertiary">⌘↵ to save</span>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <OptionRow
+            slot={ownSlot}
+            label={custom ? (chosen ?? '') : 'Type your own…'}
+            chosen={custom}
+            dashed
+            readOnly={false}
+            onClick={onOpenOwn}
+          />
+        )}
+      </div>
     </div>
   );
 }
