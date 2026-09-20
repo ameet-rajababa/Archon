@@ -8,6 +8,8 @@
  */
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
 import { createLogger, captureChatTurn, canonicalizeProjectPath } from '@archon/paths';
 import type {
   IPlatformAdapter,
@@ -125,6 +127,30 @@ function getLog(): ReturnType<typeof createLogger> {
 const MAX_BATCH_ASSISTANT_CHUNKS = 20;
 /** Max total chunks (assistant + tool) to keep in batch mode */
 const MAX_BATCH_TOTAL_CHUNKS = 200;
+/**
+ * Path to the MCP config a chat turn should load, or undefined for none.
+ *
+ * Workflow DAG nodes declare their servers with `mcp:` in the node YAML and the
+ * provider loads them. Chat had no equivalent at all, so a server the user was
+ * running was reachable from a workflow and invisible in conversation — the
+ * same account, the same machine, two different answers to "can you read my
+ * Drive". This closes that, reusing the provider's existing loader rather than
+ * introducing a second config shape.
+ *
+ * Project file wins so a checkout can carry its own servers; the home file is
+ * the fleet default. Neither present leaves `nodeConfig.mcp` unset, which is
+ * exactly the behaviour before this existed.
+ *
+ * Deliberately NOT `strictMcpConfig`: that is the workflow-node boundary, where
+ * capability must be declared. A chat is the user's own session.
+ */
+function resolveChatMcpConfig(cwd: string): string | undefined {
+  for (const candidate of [join(cwd, '.mcp.json'), join(homedir(), '.archon', 'mcp.json')]) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
+
 function applyPresetToRequestOptions(
   provider: string,
   preset: ModelAliasPreset,
@@ -2533,6 +2559,12 @@ export async function handleMessage(
     };
     if (chatRequest.preset) {
       applyPresetToRequestOptions(providerKey, chatRequest.preset, requestOptions);
+    }
+
+    const chatMcpConfig = resolveChatMcpConfig(cwd);
+    if (chatMcpConfig !== undefined) {
+      requestOptions.nodeConfig = { ...(requestOptions.nodeConfig ?? {}), mcp: chatMcpConfig };
+      getLog().info({ conversationId, mcpPath: chatMcpConfig }, 'orchestrator.chat_mcp_config');
     }
 
     if (!conversation.title && !trimmedMessage.startsWith('/')) {
