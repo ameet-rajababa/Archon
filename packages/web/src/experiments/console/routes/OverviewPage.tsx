@@ -40,9 +40,14 @@ function Section({
  * Where a project is, and what to do about it.
  *
  * Ported from the prototype, with its ordering: the thing only YOU can clear
- * comes first, then what is executing, then what is open. State, not events —
- * "completed 56" is a lifetime counter and nothing you do changes because of
- * it, so it does not appear.
+ * comes first, then what is executing, then what is open.
+ *
+ * Below that it reads runs, chats, issues — the same order as the project's
+ * tabs and the rail's count columns. Three places showing the same three
+ * things in three different orders is three things to learn instead of one.
+ *
+ * State, not events — "completed 56" is a lifetime counter and nothing you do
+ * changes because of it, so it does not appear.
  */
 export function OverviewPage(): ReactElement {
   const { projectId = '' } = useParams<{ projectId: string }>();
@@ -127,7 +132,47 @@ export function OverviewPage(): ReactElement {
           <></>
         )}
 
-        {/* 3 — state, by type. */}
+        {/* 3 — the chats, because the overview is also where you resume. */}
+        <Section
+          label="Chats"
+          action={
+            <Link
+              to={`/console/p/${projectId}/chat`}
+              className="rounded border border-border px-2 py-0.5 font-mono text-[10.5px] text-text-secondary transition-colors hover:border-border-bright hover:text-text-primary"
+            >
+              Open
+            </Link>
+          }
+        >
+          {(chats ?? []).length === 0 ? (
+            <p className="text-[13px] text-text-tertiary">No chats yet.</p>
+          ) : (
+            <div className="flex flex-col overflow-hidden rounded-[10px] border border-border">
+              {(chats ?? []).slice(0, 5).map(c => (
+                <Link
+                  key={c.id}
+                  to={`/console/p/${projectId}/chat`}
+                  className="group flex items-center gap-2.5 border-b border-border px-3 py-2 last:border-b-0 hover:bg-surface-hover"
+                >
+                  <MessageCircle className="h-[14px] w-[14px] shrink-0 text-text-tertiary" />
+                  <span className="min-w-0 flex-1 truncate text-[13px] text-text-secondary group-hover:text-text-primary">
+                    {conversationLabel(c)}
+                  </span>
+                  {c.lastActivityAt !== null ? (
+                    <time
+                      dateTime={c.lastActivityAt}
+                      className="shrink-0 font-mono text-[10px] text-text-tertiary"
+                    >
+                      {relativeTime(c.lastActivityAt)}
+                    </time>
+                  ) : null}
+                </Link>
+              ))}
+            </div>
+          )}
+        </Section>
+
+        {/* 4 — state, by type. */}
         <Section
           label="Backlog"
           action={
@@ -194,46 +239,6 @@ export function OverviewPage(): ReactElement {
                 ) : null}
               </div>
             </>
-          )}
-        </Section>
-
-        {/* 4 — the chats, because the overview is also where you resume. */}
-        <Section
-          label="Chats"
-          action={
-            <Link
-              to={`/console/p/${projectId}/chat`}
-              className="rounded border border-border px-2 py-0.5 font-mono text-[10.5px] text-text-secondary transition-colors hover:border-border-bright hover:text-text-primary"
-            >
-              Open
-            </Link>
-          }
-        >
-          {(chats ?? []).length === 0 ? (
-            <p className="text-[13px] text-text-tertiary">No chats yet.</p>
-          ) : (
-            <div className="flex flex-col overflow-hidden rounded-[10px] border border-border">
-              {(chats ?? []).slice(0, 5).map(c => (
-                <Link
-                  key={c.id}
-                  to={`/console/p/${projectId}/chat`}
-                  className="group flex items-center gap-2.5 border-b border-border px-3 py-2 last:border-b-0 hover:bg-surface-hover"
-                >
-                  <MessageCircle className="h-[14px] w-[14px] shrink-0 text-text-tertiary" />
-                  <span className="min-w-0 flex-1 truncate text-[13px] text-text-secondary group-hover:text-text-primary">
-                    {conversationLabel(c)}
-                  </span>
-                  {c.lastActivityAt !== null ? (
-                    <time
-                      dateTime={c.lastActivityAt}
-                      className="shrink-0 font-mono text-[10px] text-text-tertiary"
-                    >
-                      {relativeTime(c.lastActivityAt)}
-                    </time>
-                  ) : null}
-                </Link>
-              ))}
-            </div>
           )}
         </Section>
       </div>
