@@ -49,6 +49,16 @@ const MAX_WAIT_MS = 300_000;
 // one is the better fix and a larger one; this removes the manual refresh
 // today. Gated on visibility so a background tab costs nothing.
 const LIST_POLL_MS = 8000;
+
+/**
+ * How often to ask which chats the server is working on.
+ *
+ * Faster than the list poll because this is the signal that says "moving" —
+ * being four seconds late to show a live dot is the difference between the
+ * rail looking trustworthy and looking asleep. The request is a single
+ * `/api/health` read and is skipped entirely while the tab is hidden.
+ */
+const LIVE_POLL_MS = 4000;
 /**
  * What Refresh sends. A visible user message rather than a silent back-channel:
  * the agent's summary tool writes to the chat's own record, so the request that
@@ -330,9 +340,19 @@ export function ChatPage(): ReactElement {
   // Recovery poll: while a reply is pending, refetch messages on a cadence so a
   // dropped or absent SSE event can't hide the reply. Hard-caps at MAX_WAIT_MS.
   const busySinceRef = useRef(0);
+  // Also held as state, because the working indicator needs to RENDER the
+  // elapsed time and a ref changing does not re-render anything. Set once per
+  // turn, so the clock counts from when the turn began rather than resetting
+  // on every refetch.
+  const [busySince, setBusySince] = useState<number | null>(null);
   useEffect(() => {
-    if (!busy || activeConvId === null) return;
-    busySinceRef.current = Date.now();
+    if (!busy || activeConvId === null) {
+      setBusySince(null);
+      return;
+    }
+    const startedAt = Date.now();
+    busySinceRef.current = startedAt;
+    setBusySince(startedAt);
     const id = setInterval(() => {
       if (Date.now() - busySinceRef.current > MAX_WAIT_MS) {
         setBusy(false);
@@ -344,6 +364,24 @@ export function ChatPage(): ReactElement {
       clearInterval(id);
     };
   }, [busy, activeConvId]);
+
+  // Which chats the SERVER says it is working on — including ones you are not
+  // looking at. Polled rather than pushed: the conversation lock lives in the
+  // server's memory, so there is no row to hang a trigger on and no event to
+  // subscribe to. Skipped entirely while the tab is hidden.
+  const { data: liveChatIds } = useEntity<readonly string[]>(K.activeChats, skill.getActiveChatIds);
+  useEffect(() => {
+    const tick = (): void => {
+      if (document.visibilityState === 'visible') invalidate(K.activeChats);
+    };
+    const id = setInterval(tick, LIVE_POLL_MS);
+    document.addEventListener('visibilitychange', tick);
+    return (): void => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  }, []);
+  const liveIds = useMemo(() => new Set(liveChatIds ?? []), [liveChatIds]);
 
   // Reveal the raw tool trace inline (toggled from the working indicator).
   const [showTools, setShowTools] = useState(false);
@@ -463,13 +501,16 @@ export function ChatPage(): ReactElement {
     ];
   }, [messageList, liveSegments, pendingUser]);
 
-  const currentActivity = useMemo<string | null>(() => {
+  // The tool itself, input included — the indicator turns it into a sentence.
+  // Passing only the name meant the line could say `Bash` and nothing more.
+  const currentActivity = useMemo<{ name: string; input?: Record<string, unknown> } | null>(() => {
     for (let i = messageList.length - 1; i >= 0; i--) {
       const m = messageList[i];
       if (m === undefined) continue;
       if (m.role === 'user') break;
       if (m.role === 'assistant' && m.toolCalls.length > 0) {
-        return m.toolCalls[m.toolCalls.length - 1]?.name ?? null;
+        const call = m.toolCalls[m.toolCalls.length - 1];
+        return call === undefined ? null : { name: call.name, input: call.input };
       }
     }
     return null;
@@ -482,6 +523,7 @@ export function ChatPage(): ReactElement {
         // menu all name chats in the project being left.
         key={projectId}
         conversations={conversations ?? []}
+        liveIds={liveIds}
         activeConvId={activeConvId}
         onSelect={selectConversation}
         onRename={renameConversation}
@@ -523,6 +565,7 @@ export function ChatPage(): ReactElement {
                   {busy ? (
                     <WorkingIndicator
                       activity={currentActivity}
+                      since={busySince}
                       expanded={showTools}
                       onToggle={() => {
                         setShowTools(v => !v);

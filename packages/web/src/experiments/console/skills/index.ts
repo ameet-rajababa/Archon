@@ -8,6 +8,7 @@
  */
 
 export * from './auth';
+export * from './activeChats';
 export * from './projects';
 export * from './workflows';
 export * from './worktrees';

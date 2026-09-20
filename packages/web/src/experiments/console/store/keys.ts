@@ -34,6 +34,7 @@ export const K = {
   updateCheck: 'update-check' as const,
   githubConnection: 'github-connection' as const,
   authStatus: 'auth-status' as const,
+  activeChats: 'active-chats' as const,
   providerConnections: 'provider-connections' as const,
   userAiPrefs: 'user-ai-prefs' as const,
   piModels: 'pi-models' as const,

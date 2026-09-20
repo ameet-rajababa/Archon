@@ -10,6 +10,7 @@ import {
   type ConversationSummary,
 } from '../primitives/conversation';
 import { relativeTime } from '../lib/format';
+import { LiveDot } from './LiveDot';
 import { chooseNeighbourChat } from '../lib/last-chat';
 import {
   applyChatOrder,
@@ -49,6 +50,13 @@ interface ConversationRailProps {
    * it is — the text itself is too long to sit in a rail without either
    * clamping it to uselessness or making every card a different height.
    */
+  /**
+   * Chats the server is working on RIGHT NOW. A card carries a live dot while
+   * it is in here, so you can tell from the rail that a chat you are not
+   * looking at is still moving — and, just as importantly, that a still one
+   * is genuinely idle rather than merely unobserved.
+   */
+  liveIds?: ReadonlySet<string>;
   /** Which archived state the list is showing; the rail does not fetch. */
   scope: ArchiveScope;
   onScopeChange: (scope: ArchiveScope) => void;
@@ -86,6 +94,7 @@ export function ConversationRail({
   archivedCount,
   pendingNew,
   projectId,
+  liveIds,
 }: ConversationRailProps): ReactElement {
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
@@ -470,7 +479,17 @@ export function ConversationRail({
                       <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-text-primary">
                         {conversationLabel(c)}
                       </span>
-                      {c.lastActivityAt !== null ? (
+                      {liveIds?.has(c.id) === true ? (
+                        // Replaces the timestamp rather than crowding it: "3m
+                        // ago" is the wrong thing to read about a chat that is
+                        // moving right now.
+                        <span className="flex shrink-0 items-center gap-1.5">
+                          <LiveDot size={8} />
+                          <span className="font-mono text-[10px] text-[color:var(--running)]">
+                            working
+                          </span>
+                        </span>
+                      ) : c.lastActivityAt !== null ? (
                         <time
                           dateTime={c.lastActivityAt}
                           className="shrink-0 font-mono text-[10px] text-text-tertiary"
