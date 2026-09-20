@@ -553,7 +553,15 @@ export function ChatPage(): ReactElement {
           </div>
         ) : null}
 
-        <ChatComposer onSend={onSend} draft={draft} onDraftChange={setDraft} disabled={busy} />
+        {/* Keyed by conversation: the composer holds its own in-flight text, so
+            switching chats must remount it to reseed from that chat's draft. */}
+        <ChatComposer
+          key={draftKey}
+          onSend={onSend}
+          draft={draft}
+          onDraftChange={setDraft}
+          disabled={busy}
+        />
       </div>
     </section>
   );

@@ -1,5 +1,7 @@
 import { Paperclip } from 'lucide-react';
 import {
+  useCallback,
+  useEffect,
   useRef,
   useState,
   type ClipboardEvent,
@@ -27,9 +29,13 @@ export interface ChatDraft {
 interface ChatComposerProps {
   onSend: (message: string, files?: File[]) => void;
   /**
-   * The draft is owned by the page and keyed by conversation. Held here it
-   * would follow the user between chats, so text typed in one appeared in
-   * another.
+   * The draft is owned by the page and keyed by conversation, so it survives
+   * switching chats instead of following the user between them.
+   *
+   * `draft.text` seeds this component and is not read again — while mounted,
+   * the local copy is authoritative. The page must therefore give the composer
+   * a `key` that changes with the conversation, so switching chats remounts it
+   * and reseeds from the right draft.
    */
   draft: ChatDraft;
   onDraftChange: (next: ChatDraft) => void;
@@ -60,16 +66,48 @@ export function ChatComposer({
   disabled,
   disabledReason,
 }: ChatComposerProps): ReactElement {
-  const value = draft.text;
+  /**
+   * The in-flight text is LOCAL. It used to live on the page, so every
+   * keystroke ran setState there and re-rendered the whole chat tree — the
+   * rail, the transcript, every tool card — to produce about nine DOM changes.
+   * Measured at 333ms per key against 34ms for every other input in the
+   * console; the composer was the only box in the app that could not keep up
+   * with typing.
+   *
+   * Files stay on the page. They change a handful of times per draft, never
+   * per keystroke, so they cost nothing where they are.
+   */
+  const [value, setValue] = useState(draft.text);
   const files = draft.files;
-  // Each of these rebuilds the whole draft from the current props, so they must
-  // not be chained — two in a row and the second undoes the first. Anything
-  // changing both fields calls onDraftChange once.
-  const setValue = (text: string): void => {
-    onDraftChange({ text, files });
-  };
+
+  // Read by commit(), which must send the CURRENT text without being
+  // reconstructed on every keystroke (that would defeat the point).
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  const filesRef = useRef(files);
+  filesRef.current = files;
+  const committedRef = useRef(draft.text);
+
+  /**
+   * Push the local text up to the page's per-conversation record. Called on
+   * blur, on send, on any file change, and on unmount — which is what makes
+   * switching chats keep what you had typed. Never called per keystroke.
+   */
+  const commit = useCallback((): void => {
+    if (valueRef.current === committedRef.current) return;
+    committedRef.current = valueRef.current;
+    onDraftChange({ text: valueRef.current, files: filesRef.current });
+  }, [onDraftChange]);
+
+  // Unmount is the chat switch: the page re-keys this component, so the
+  // callback captured here still belongs to the conversation being left.
+  useEffect(() => commit, [commit]);
+
   const setFiles = (next: File[]): void => {
-    onDraftChange({ text: value, files: next });
+    // A file change commits the text alongside it — one call, so neither
+    // field can undo the other.
+    committedRef.current = valueRef.current;
+    onDraftChange({ text: valueRef.current, files: next });
   };
   const [fileError, setFileError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -160,9 +198,8 @@ export function ChatComposer({
     const trimmed = value.trim();
     if (trimmed.length === 0 || disabled) return;
     onSend(trimmed, files.length > 0 ? [...files] : undefined);
-    // One call, not setValue('') then setFiles([]). Each of those rebuilds the
-    // whole draft from the props it closed over, so the second would restore
-    // the text the first had just cleared.
+    setValue('');
+    committedRef.current = '';
     onDraftChange({ text: '', files: [] });
     setFileError(null);
     if (fileInputRef.current !== null) fileInputRef.current.value = '';
@@ -285,6 +322,7 @@ export function ChatComposer({
               grow(e.target);
             }}
             onKeyDown={onKeyDown}
+            onBlur={commit}
             onPaste={onPaste}
             rows={1}
             placeholder={placeholder}
