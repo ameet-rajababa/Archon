@@ -14,24 +14,6 @@ interface ProjectRowProps {
   onEditEnv?: () => void;
 }
 
-function KeyIcon({ size = 16 }: { size?: number }): ReactElement {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4" />
-    </svg>
-  );
-}
-
 function DotsIcon({ size = 17 }: { size?: number }): ReactElement {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
@@ -136,21 +118,14 @@ export function ProjectRow({
       }}
       aria-pressed={selected}
       title={`${displayName}\n${formatProjectLocator(project)}\n\nDouble-click to rename`}
-      className={`group relative flex w-full cursor-pointer items-center gap-[10px] rounded-[8px] border px-2.5 py-[5px] text-left transition-colors ${
-        selected ? 'bg-surface-elevated' : 'bg-transparent hover:bg-surface-hover'
+      // Height pinned to the ICON, never to the contents. Anything that can
+      // appear or disappear — the menu button, a count, a badge — would
+      // otherwise decide how tall the row is, and the rail would reflow as you
+      // move through it.
+      className={`group relative flex h-[27px] w-full cursor-pointer items-center gap-[10px] rounded-[7px] px-2.5 py-[5px] text-left transition-colors ${
+        selected ? 'bg-surface-hover' : 'bg-transparent hover:bg-surface-hover'
       }`}
-      // Inline because the console scope's wildcard `border-color: var(--border)`
-      // rule repaints Tailwind border-color utilities (see theme.css).
-      style={{ borderColor: selected ? 'var(--border-bright)' : 'transparent' }}
     >
-      {/* Brand gradient strip — the unmistakable "this is selected" cue. */}
-      {selected ? (
-        <span
-          aria-hidden
-          className="brand-bar pointer-events-none absolute -left-px bottom-[9px] top-[9px] w-[3px] rounded-r-[3px]"
-        />
-      ) : null}
-
       {/* A bare coloured glyph. The tinted monogram square was decoration
           standing in for information the glyph already carries — six of them
           down the rail read as a column of swatches rather than a list of
@@ -160,7 +135,7 @@ export function ProjectRow({
         <ProjectGlyph projectId={project.id} glyph={identity.glyph} color={color} />
       </span>
 
-      <div className="flex min-w-0 flex-1 flex-col leading-tight">
+      <div className="flex min-w-0 flex-1 items-center leading-[17px]">
         {editing ? (
           <input
             ref={inputRef}
@@ -194,8 +169,10 @@ export function ProjectRow({
               e.stopPropagation();
               setEditing(true);
             }}
-            className={`truncate text-[13px] font-semibold tracking-[-0.1px] ${
-              selected ? 'text-text-primary' : 'text-text-secondary group-hover:text-text-primary'
+            className={`truncate text-[13px] tracking-[-0.1px] ${
+              selected
+                ? 'font-medium text-text-primary'
+                : 'font-normal text-text-secondary group-hover:text-text-primary'
             }`}
           >
             {label}
@@ -209,45 +186,16 @@ export function ProjectRow({
           the quiet projects shouting. */}
       <ProjectCountCells projectId={project.id} />
 
-      {/* LIVE pulse on the selected project — hidden while hovering so the
-          env/⋯ actions can take its slot. */}
-      {selected ? (
-        <span
-          title="Active project"
-          className="inline-flex shrink-0 items-center gap-[5px] font-mono text-[10px] font-semibold uppercase tracking-[0.05em] text-success group-hover:hidden"
-        >
-          <i
-            aria-hidden
-            className="h-1.5 w-1.5 animate-pulse rounded-full bg-success shadow-[0_0_0_3px_color-mix(in_oklch,var(--success),transparent_82%)]"
-          />
-          live
-        </span>
-      ) : null}
-
       {/* Hover actions: env vars + ⋯ menu. */}
+      {/* The slot is always reserved and only its CONTENTS fade, so revealing
+          the menu button can never reflow the row. The old version swapped a
+          LIVE badge out for the buttons on the selected row, which is exactly
+          the flicker that reads as jumpiness. */}
       <div
-        className={`flex shrink-0 items-center gap-0.5 transition-opacity ${
-          selected
-            ? menuOpen
-              ? 'flex'
-              : 'hidden group-hover:flex'
-            : 'opacity-0 group-hover:opacity-100'
+        className={`flex h-[17px] w-[19px] shrink-0 items-center justify-end transition-opacity ${
+          menuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
         }`}
       >
-        {onEditEnv !== undefined ? (
-          <button
-            type="button"
-            onClick={e => {
-              e.stopPropagation();
-              onEditEnv();
-            }}
-            title="Environment variables"
-            aria-label="Environment variables"
-            className="flex h-[29px] w-[29px] items-center justify-center rounded-lg text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text-primary"
-          >
-            <KeyIcon />
-          </button>
-        ) : null}
         {onRemove !== undefined ? (
           <div className="relative">
             <button
@@ -259,8 +207,12 @@ export function ProjectRow({
               title="More actions"
               aria-label="More actions"
               aria-expanded={menuOpen}
-              className={`flex h-[29px] w-[29px] items-center justify-center rounded-lg transition-colors hover:bg-surface-hover hover:text-text-primary ${
-                menuOpen ? 'bg-surface-hover text-text-primary' : 'text-text-tertiary'
+              // Sized to the ROW, not to a comfortable button. At 29px it set
+              // the row's height — the content is a 17px glyph, and a control
+              // that only appears on hover must not decide how tall every row
+              // is when it is not there.
+              className={`flex h-[19px] w-[19px] items-center justify-center rounded transition-colors hover:bg-surface-bright hover:text-text-primary ${
+                menuOpen ? 'bg-surface-bright text-text-primary' : 'text-text-tertiary'
               }`}
             >
               <DotsIcon />
@@ -292,6 +244,20 @@ export function ProjectRow({
                   <TrashIcon />
                   Remove project
                 </button>
+                {onEditEnv !== undefined ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={e => {
+                      e.stopPropagation();
+                      setMenuOpen(false);
+                      onEditEnv();
+                    }}
+                    className="flex w-full items-center gap-2.5 rounded-lg px-[11px] py-[9px] text-left text-[13px] font-semibold text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+                  >
+                    Environment variables
+                  </button>
+                ) : null}
               </div>
             ) : null}
           </div>

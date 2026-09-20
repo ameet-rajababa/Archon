@@ -1,8 +1,10 @@
+import { Search, Inbox, Play } from 'lucide-react';
 import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router';
 import { Settings, PenTool, type LucideIcon } from 'lucide-react';
 import { ProjectRow } from './ProjectRow';
 import { ProjectCountHeader } from './ProjectCountCells';
+import type { RunCounts } from '../skills';
 import { EnvVarsDialog } from './EnvVarsDialog';
 import { useEntity, invalidate } from '../store/cache';
 import { K } from '../store/keys';
@@ -11,6 +13,8 @@ import type { Project } from '../primitives/project';
 
 interface ProjectRailProps {
   onAddProject: () => void;
+  /** Opens the command palette — the rail's search row is a shortcut to it. */
+  onSearch: () => void;
 }
 
 async function handleRemove(projectId: string): Promise<void> {
@@ -22,6 +26,29 @@ async function handleRemove(projectId: string): Promise<void> {
 function extractProjectId(pathname: string): string | null {
   const m = /^\/console\/p\/([^/]+)/.exec(pathname);
   return m === null ? null : m[1];
+}
+
+/**
+ * Runs executing right now, across every project.
+ *
+ * The glyph is what says "runs" — a bare "2 running" leaves the reader to
+ * guess what is running, which is a question this exact line has been asked
+ * twice. Renders nothing at zero.
+ */
+function GlobalRunning(): ReactElement | null {
+  const { data } = useEntity<RunCounts>(K.countsGlobal, skill.listGlobalCounts);
+  const n = data?.running ?? 0;
+  if (n === 0) return null;
+  return (
+    <span
+      title={`${n} run${n === 1 ? '' : 's'} executing right now, across all projects`}
+      className="flex shrink-0 items-center gap-[5px] font-mono text-[11px]"
+      style={{ color: 'var(--running)' }}
+    >
+      <Play className="h-[11px] w-[11px]" />
+      {n} running
+    </span>
+  );
 }
 
 const RAIL_WIDTH_KEY = 'archon.console.railWidth';
@@ -86,12 +113,15 @@ function RailNavLink({
  * <main> that hosts them), so `useParams()` returns `{}` here even on a
  * project URL. We extract the project id from the pathname directly.
  */
-export function ProjectRail({ onAddProject }: ProjectRailProps): ReactElement {
+export function ProjectRail({ onAddProject, onSearch }: ProjectRailProps): ReactElement {
   const navigate = useNavigate();
   const location = useLocation();
   const scope = extractProjectId(location.pathname) ?? 'all';
   const [envProject, setEnvProject] = useState<Project | null>(null);
-  const [query, setQuery] = useState('');
+  /* The filter box became the Search row. `query` stays as the empty
+     default so the list logic below is untouched and can be wired to the
+     palette's own filter later without another rewrite. */
+  const query = '';
   const [width, setWidth] = useState<number>(readRailWidth);
   const [resizing, setResizing] = useState(false);
   const widthRef = useRef(width);
@@ -148,61 +178,43 @@ export function ProjectRail({ onAddProject }: ProjectRailProps): ReactElement {
     >
       {/* Header: brand + label + count + filter */}
       <div className="px-3.5 pb-2.5 pt-4">
-        <div className="flex items-center gap-2.5 px-1 pb-4">
+        <div className="flex items-center gap-2.5 px-1 pb-2">
           <img
             src="/favicon.png"
             alt=""
             aria-hidden="true"
-            width={22}
-            height={22}
+            width={18}
+            height={18}
             className="shrink-0 select-none"
             draggable={false}
           />
           <span className="brand-text text-base font-semibold tracking-tight">Archon</span>
-          <span className="rounded-full border border-border px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest text-text-tertiary">
-            console
-          </span>
         </div>
-        <div className="flex items-center gap-2 px-1 pb-3">
-          <span className="font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-text-tertiary">
-            Projects
-          </span>
-          <span className="rounded-full border border-border bg-surface-elevated px-2 py-px font-mono text-[10.5px] font-bold text-text-secondary">
-            {(projects ?? []).length}
-          </span>
-        </div>
-        <div
-          className="flex h-[34px] items-center gap-2 rounded-[9px] border bg-surface px-2.5 text-text-tertiary transition-colors focus-within:text-text-secondary"
-          style={{ borderColor: 'var(--border)' }}
+        {/* A ROW, not a text field. The box was permanent chrome for something
+            done occasionally, and the palette already jumps to a project by
+            name — across every project, not just the visible list. */}
+        <button
+          type="button"
+          onClick={onSearch}
+          title="Search  ⌘K"
+          className="group flex w-full items-center gap-[10px] rounded-[7px] px-2.5 py-[5px] text-left transition-colors hover:bg-surface-hover"
         >
-          <span aria-hidden className="font-mono text-[12px] leading-none">
-            ⌕
+          <span
+            aria-hidden
+            className="flex h-[17px] w-[17px] shrink-0 items-center justify-center text-text-tertiary"
+          >
+            <Search className="h-[15px] w-[15px]" />
           </span>
-          <input
-            value={query}
-            onChange={e => {
-              setQuery(e.target.value);
-            }}
-            placeholder="Filter projects…"
-            spellCheck={false}
-            className="min-w-0 flex-1 bg-transparent text-[13px] text-text-primary outline-none placeholder:text-text-tertiary"
-          />
-          {query.length > 0 ? (
-            <button
-              type="button"
-              onClick={() => {
-                setQuery('');
-              }}
-              title="Clear"
-              aria-label="Clear filter"
-              className="rounded p-0.5 text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text-primary"
-            >
-              <span aria-hidden className="text-[11px] leading-none">
-                ✕
-              </span>
-            </button>
-          ) : null}
-        </div>
+          <span className="min-w-0 flex-1 truncate text-[13px] text-text-secondary group-hover:text-text-primary">
+            Search
+          </span>
+          <span
+            className="shrink-0 rounded border px-[5px] py-px font-mono text-[10.5px] text-text-tertiary"
+            style={{ borderColor: 'var(--border-bright)' }}
+          >
+            ⌘K
+          </span>
+        </button>
       </div>
 
       {/* ALL scope */}
@@ -215,19 +227,17 @@ export function ProjectRail({ onAddProject }: ProjectRailProps): ReactElement {
           title="All projects"
           aria-label="All projects"
           aria-pressed={allSelected}
-          className={`relative flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-1.5 text-left text-[13px] font-medium transition-colors ${
+          className={`relative flex w-full items-center gap-[10px] rounded-[7px] px-2.5 py-[5px] text-left text-[13px] transition-colors ${
             allSelected
-              ? 'bg-surface-elevated text-text-primary'
-              : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+              ? 'bg-surface-hover font-medium text-text-primary'
+              : 'font-normal text-text-secondary hover:bg-surface-hover hover:text-text-primary'
           }`}
         >
-          {allSelected ? (
-            <span
-              aria-hidden
-              className="brand-bar pointer-events-none absolute -left-px bottom-[9px] top-[9px] w-[3px] rounded-r-[3px]"
-            />
-          ) : null}
-          <span>All projects</span>
+          <span aria-hidden className="flex h-[17px] w-[17px] shrink-0 items-center justify-center">
+            <Inbox className="h-[15px] w-[15px]" />
+          </span>
+          <span className="min-w-0 flex-1 truncate">All projects</span>
+          <GlobalRunning />
         </button>
       </div>
 
