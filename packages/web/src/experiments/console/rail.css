@@ -258,3 +258,121 @@
 .rail-panel.is-peeking .rail-grip {
   display: none;
 }
+
+/* ── IDENTITY PICKER ────────────────────────────────────────────────────
+   Ported from the prototype: a popover anchored to the row's glyph, with a
+   preset colour row, a tab per vocabulary, and a ranked search. */
+.pick {
+  position: fixed;
+  z-index: 70;
+  width: 392px;
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius-panel, 10px);
+  background: var(--surface-elevated);
+  box-shadow: 0 24px 60px -20px rgb(0 0 0 / 0.7);
+  overflow: hidden;
+}
+.pick-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+.pick-tabs button {
+  position: relative;
+  height: 38px;
+  padding: 0 4px;
+  margin-right: 14px;
+  font-size: var(--text-body);
+  color: var(--text-tertiary);
+}
+.pick-tabs button[aria-pressed='true'] {
+  color: var(--text-primary);
+}
+.pick-tabs button[aria-pressed='true']::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent);
+}
+.pick-colors {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 13px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.pick-colors button {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  transition: transform 0.1s;
+}
+.pick-colors button:hover {
+  transform: scale(1.08);
+}
+.pick-colors button svg {
+  width: 13px;
+  height: 13px;
+  color: #fff;
+}
+.pick-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 13px;
+  border-bottom: 1px solid var(--border);
+}
+.pick-search input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  outline: none;
+  font-size: var(--text-body);
+  color: var(--text-primary);
+}
+.pick-search input::placeholder {
+  color: var(--text-tertiary);
+}
+.pick-count {
+  font-size: var(--text-micro);
+  color: var(--text-tertiary);
+  font-family: ui-monospace, Menlo, monospace;
+}
+.pick-grid {
+  display: grid;
+  grid-template-columns: repeat(13, 1fr);
+  gap: 2px;
+  padding: 9px;
+  max-height: 268px;
+  overflow-y: auto;
+}
+.pick-grid.is-emoji {
+  grid-template-columns: repeat(10, 1fr);
+  font-size: 18px;
+}
+.pick-grid button {
+  aspect-ratio: 1;
+  border-radius: 5px;
+  display: grid;
+  place-items: center;
+  color: var(--text-secondary);
+}
+.pick-grid button:hover {
+  background: var(--surface-hover);
+}
+.pick-grid button[aria-pressed='true'] {
+  box-shadow: inset 0 0 0 1.5px currentColor;
+}
+.pick-empty {
+  padding: 22px 13px;
+  text-align: center;
+  font-size: var(--text-small);
+  color: var(--text-tertiary);
+}

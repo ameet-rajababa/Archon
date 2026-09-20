@@ -1,5 +1,6 @@
 import { GripVertical } from 'lucide-react';
-import { useEffect, useRef, useState, type ReactElement } from 'react';
+import { IdentityPicker } from './IdentityPicker';
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { ProjectGlyph } from '../lib/project-glyph';
 import { getIdentity, resolveColor } from '../lib/project-identity';
 import { ProjectCountCells } from './ProjectCountCells';
@@ -70,7 +71,17 @@ export function ProjectRow({
   onDragBegin,
   onDragEnd,
 }: ProjectRowProps): ReactElement {
-  const identity = getIdentity(project.id);
+  /** Bumped when the identity changes, to re-read it from localStorage. */
+  const [identityTick, setIdentityTick] = useState(0);
+  // localStorage is invisible to React, so the tick is what makes this re-read
+  // after the picker writes. Referenced inside the factory rather than only in
+  // the dependency list, so it is a real input and not a lint exception.
+  const identity = useMemo(() => {
+    // The tick is a cache-buster, not an input: localStorage is invisible to
+    // React, so something has to tell this to re-read after the picker writes.
+    void identityTick;
+    return getIdentity(project.id);
+  }, [project.id, identityTick]);
   const color = resolveColor(project.id, identity);
   const displayName = useDisplayName(project.id, project.name);
   // Group headers already show the owner — strip it from the row label
@@ -90,6 +101,8 @@ export function ProjectRow({
    * rest of the row an ordinary button.
    */
   const [armed, setArmed] = useState(false);
+  /** Anchor rect for the identity picker, or null when it is closed. */
+  const [pickerAt, setPickerAt] = useState<DOMRect | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -121,185 +134,212 @@ export function ProjectRow({
   };
 
   return (
-    <div
-      onClick={editing || menuOpen ? undefined : onClick}
-      onContextMenu={e => {
-        if (onRemove === undefined || editing) return;
-        e.preventDefault();
-        setMenuOpen(true);
-      }}
-      role="button"
-      tabIndex={editing ? -1 : 0}
-      onKeyDown={e => {
-        if (editing) return;
-        if (e.key === 'Enter' || e.key === ' ') {
+    <>
+      <div
+        onClick={editing || menuOpen ? undefined : onClick}
+        onContextMenu={e => {
+          if (onRemove === undefined || editing) return;
           e.preventDefault();
-          onClick();
-        }
-      }}
-      aria-pressed={selected}
-      title={`${displayName}\n${formatProjectLocator(project)}\n\nDouble-click to rename`}
-      ref={registerRow}
-      draggable={armed && !editing && !menuOpen}
-      onDragStart={e => {
-        onDragBegin?.();
-        e.dataTransfer.effectAllowed = 'move';
-        // Firefox refuses to start a drag with no payload.
-        e.dataTransfer.setData('text/plain', project.id);
-      }}
-      onDragEnd={() => {
-        onDragEnd?.();
-      }}
-      style={{
-        // A transform, never a layout change: the geometry captured at drag
-        // start has to stay true for the whole gesture.
-        transform: shift === 0 ? undefined : `translateY(${String(shift)}px)`,
-        opacity: dragging ? 0.4 : undefined,
-        transition: 'transform 150ms, opacity 150ms',
-      }}
-      className="rail-row group"
-    >
-      {/* A bare coloured glyph. The tinted monogram square was decoration
+          setMenuOpen(true);
+        }}
+        role="button"
+        tabIndex={editing ? -1 : 0}
+        onKeyDown={e => {
+          if (editing) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onClick();
+          }
+        }}
+        aria-pressed={selected}
+        title={`${displayName}\n${formatProjectLocator(project)}\n\nDouble-click to rename`}
+        ref={registerRow}
+        draggable={armed && !editing && !menuOpen}
+        onDragStart={e => {
+          onDragBegin?.();
+          e.dataTransfer.effectAllowed = 'move';
+          // Firefox refuses to start a drag with no payload.
+          e.dataTransfer.setData('text/plain', project.id);
+        }}
+        onDragEnd={() => {
+          onDragEnd?.();
+        }}
+        style={{
+          // A transform, never a layout change: the geometry captured at drag
+          // start has to stay true for the whole gesture.
+          transform: shift === 0 ? undefined : `translateY(${String(shift)}px)`,
+          opacity: dragging ? 0.4 : undefined,
+          transition: 'transform 150ms, opacity 150ms',
+        }}
+        className="rail-row group"
+      >
+        {/* A bare coloured glyph. The tinted monogram square was decoration
           standing in for information the glyph already carries — six of them
           down the rail read as a column of swatches rather than a list of
           projects. Colour lives here now rather than on chats: a chat is read
           once, a project is navigated to for months. */}
-      {/* The grip. Arming the drag on the handle rather than on the whole row
+        {/* The grip. Arming the drag on the handle rather than on the whole row
           keeps a plain click feeling like a click, and keeps text selectable.
           It occupies the icon's own slot and swaps in on hover, so nothing
           moves — the row's geometry is identical either way. */}
-      <span
-        aria-hidden
-        className="rail-ico"
-        onMouseEnter={() => {
-          if (onDragBegin !== undefined) setArmed(true);
-        }}
-        onMouseLeave={() => {
-          setArmed(false);
-        }}
-        style={{ cursor: armed ? 'grab' : undefined }}
-      >
-        {armed ? (
-          <GripVertical className="h-[15px] w-[15px] text-text-tertiary" />
-        ) : (
-          <ProjectGlyph projectId={project.id} glyph={identity.glyph} color={color} />
-        )}
-      </span>
+        <span
+          aria-hidden
+          className="rail-ico"
+          onMouseEnter={() => {
+            if (onDragBegin !== undefined) setArmed(true);
+          }}
+          onMouseLeave={() => {
+            setArmed(false);
+          }}
+          style={{ cursor: armed ? 'grab' : undefined }}
+        >
+          {armed ? (
+            <GripVertical className="h-[15px] w-[15px] text-text-tertiary" />
+          ) : (
+            <ProjectGlyph projectId={project.id} glyph={identity.glyph} color={color} />
+          )}
+        </span>
 
-      <div className="rail-hide flex min-w-0 flex-1 items-center">
-        {editing ? (
-          <input
-            ref={inputRef}
-            value={draft}
-            autoFocus
-            onChange={e => {
-              setDraft(e.target.value);
-            }}
-            onKeyDown={e => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                commit();
-              } else if (e.key === 'Escape') {
-                e.preventDefault();
-                cancel();
-              }
-              e.stopPropagation();
-            }}
-            onBlur={commit}
-            onClick={e => {
-              e.stopPropagation();
-            }}
-            onDoubleClick={e => {
-              e.stopPropagation();
-            }}
-            className="w-full rounded border border-border-bright bg-surface px-1 py-0.5 text-[13px] font-medium text-text-primary focus:outline-none"
-          />
-        ) : (
-          <span
-            onDoubleClick={e => {
-              e.stopPropagation();
-              setEditing(true);
-            }}
-            className="rail-text tracking-[-0.1px]"
-          >
-            {label}
-          </span>
-        )}
-      </div>
+        <div className="rail-hide flex min-w-0 flex-1 items-center">
+          {editing ? (
+            <input
+              ref={inputRef}
+              value={draft}
+              autoFocus
+              onChange={e => {
+                setDraft(e.target.value);
+              }}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  commit();
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  cancel();
+                }
+                e.stopPropagation();
+              }}
+              onBlur={commit}
+              onClick={e => {
+                e.stopPropagation();
+              }}
+              onDoubleClick={e => {
+                e.stopPropagation();
+              }}
+              className="w-full rounded border border-border-bright bg-surface px-1 py-0.5 text-[13px] font-medium text-text-primary focus:outline-none"
+            />
+          ) : (
+            <span
+              onDoubleClick={e => {
+                e.stopPropagation();
+                setEditing(true);
+              }}
+              className="rail-text tracking-[-0.1px]"
+            >
+              {label}
+            </span>
+          )}
+        </div>
 
-      {/* Counts as a TABLE, not a row of tokens: fixed-width cells so the eye
+        {/* Counts as a TABLE, not a row of tokens: fixed-width cells so the eye
           reads DOWN a column instead of re-parsing each row, and blank for
           zero — an empty cell says "none" faster than a 0 does, and it stops
           the quiet projects shouting. */}
-      <ProjectCountCells projectId={project.id} />
+        <ProjectCountCells projectId={project.id} />
 
-      {/* Hover actions: env vars + ⋯ menu. */}
-      {/* The slot is always reserved and only its CONTENTS fade, so revealing
+        {/* Hover actions: env vars + ⋯ menu. */}
+        {/* The slot is always reserved and only its CONTENTS fade, so revealing
           the menu button can never reflow the row. The old version swapped a
           LIVE badge out for the buttons on the selected row, which is exactly
           the flicker that reads as jumpiness. */}
-      <div className={`rail-hide rail-actions ${menuOpen ? '' : 'rail-reveal'}`}>
-        {onRemove !== undefined ? (
-          <div className="relative">
-            <button
-              type="button"
-              onClick={e => {
-                e.stopPropagation();
-                setMenuOpen(v => !v);
-              }}
-              title="More actions"
-              aria-label="More actions"
-              aria-expanded={menuOpen}
-              className="rail-ibtn"
-            >
-              <DotsIcon />
-            </button>
-            {menuOpen ? (
-              <div
-                role="menu"
+        <div className={`rail-hide rail-actions ${menuOpen ? '' : 'rail-reveal'}`}>
+          {onRemove !== undefined ? (
+            <div className="relative">
+              <button
+                type="button"
                 onClick={e => {
                   e.stopPropagation();
+                  setMenuOpen(v => !v);
                 }}
-                className="absolute right-0 top-full z-30 mt-1 min-w-[178px] rounded-[11px] border bg-surface-hover p-[5px] shadow-[0_18px_44px_-18px_rgba(0,0,0,0.85)]"
-                // Inline because the console scope's wildcard border-color
-                // rule repaints Tailwind border utilities (see theme.css).
-                style={{ borderColor: 'var(--border-bright)' }}
+                title="More actions"
+                aria-label="More actions"
+                aria-expanded={menuOpen}
+                className="rail-ibtn"
               >
-                <button
-                  type="button"
-                  role="menuitem"
+                <DotsIcon />
+              </button>
+              {menuOpen ? (
+                <div
+                  role="menu"
                   onClick={e => {
                     e.stopPropagation();
-                    setMenuOpen(false);
-                    const confirmed = window.confirm(
-                      `Remove project "${displayName}"?\n\nLocal files and worktrees are not deleted.`
-                    );
-                    if (confirmed) onRemove();
                   }}
-                  className="flex w-full items-center gap-2.5 rounded-lg px-[11px] py-[9px] text-left text-[13px] font-semibold text-error transition-colors hover:bg-error/10"
+                  className="absolute right-0 top-full z-30 mt-1 min-w-[178px] rounded-[11px] border bg-surface-hover p-[5px] shadow-[0_18px_44px_-18px_rgba(0,0,0,0.85)]"
+                  // Inline because the console scope's wildcard border-color
+                  // rule repaints Tailwind border utilities (see theme.css).
+                  style={{ borderColor: 'var(--border-bright)' }}
                 >
-                  <TrashIcon />
-                  Remove project
-                </button>
-                {onEditEnv !== undefined ? (
                   <button
                     type="button"
                     role="menuitem"
                     onClick={e => {
                       e.stopPropagation();
                       setMenuOpen(false);
-                      onEditEnv();
+                      const confirmed = window.confirm(
+                        `Remove project "${displayName}"?\n\nLocal files and worktrees are not deleted.`
+                      );
+                      if (confirmed) onRemove();
+                    }}
+                    className="flex w-full items-center gap-2.5 rounded-lg px-[11px] py-[9px] text-left text-[13px] font-semibold text-error transition-colors hover:bg-error/10"
+                  >
+                    <TrashIcon />
+                    Remove project
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={e => {
+                      e.stopPropagation();
+                      setMenuOpen(false);
+                      const row = (e.currentTarget as HTMLElement).closest('.rail-row');
+                      setPickerAt(row?.getBoundingClientRect() ?? null);
                     }}
                     className="flex w-full items-center gap-2.5 rounded-lg px-[11px] py-[9px] text-left text-[13px] font-semibold text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
                   >
-                    Environment variables
+                    Icon &amp; colour
                   </button>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
+                  {onEditEnv !== undefined ? (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={e => {
+                        e.stopPropagation();
+                        setMenuOpen(false);
+                        onEditEnv();
+                      }}
+                      className="flex w-full items-center gap-2.5 rounded-lg px-[11px] py-[9px] text-left text-[13px] font-semibold text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+                    >
+                      Environment variables
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       </div>
-    </div>
+      {pickerAt !== null ? (
+        <IdentityPicker
+          projectId={project.id}
+          anchor={pickerAt}
+          onChange={() => {
+            setIdentityTick(t => t + 1);
+          }}
+          onClose={() => {
+            setPickerAt(null);
+          }}
+        />
+      ) : null}
+    </>
   );
 }
