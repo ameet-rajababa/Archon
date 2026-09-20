@@ -22,7 +22,7 @@ export function SettingsPage(): ReactElement {
         <h1 className="text-[22px] font-extrabold tracking-[-0.4px] text-text-primary">Settings</h1>
       </header>
       <div className="flex-1 overflow-y-auto px-10 pb-14 pt-5">
-        <div className="mx-auto flex max-w-[680px] flex-col gap-[22px]">
+        <div className="mx-auto flex max-w-[680px] flex-col gap-5">
           <ModelTiersPanel />
           <AliasesPanel />
           <AgentsPanel />
