@@ -41,7 +41,11 @@ export function ProjectHeader(): ReactElement {
     () => (projectId === undefined ? Promise.resolve(null) : skill.getProject(projectId))
   );
   const { data: feed } = useEntity<FeedShape>(K.runs(scope), () =>
-    skill.listRuns(projectId === undefined ? {} : { codebaseId: projectId })
+    skill.listRuns(
+      projectId === undefined
+        ? { limit: skill.RUN_LIMIT }
+        : { codebaseId: projectId, limit: skill.RUN_LIMIT }
+    )
   );
   const { data: projects } = useEntity<Project[]>(K.projects, () => skill.listProjects());
 

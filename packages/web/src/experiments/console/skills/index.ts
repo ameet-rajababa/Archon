@@ -7,6 +7,7 @@
  * expressed as a skill verb, the verb set is wrong, not the UI.
  */
 
+export * from './auth';
 export * from './projects';
 export * from './workflows';
 export * from './worktrees';

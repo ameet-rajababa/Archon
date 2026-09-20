@@ -38,6 +38,14 @@ function normalizeCounts(c: Partial<RunCounts>): RunCounts {
   };
 }
 
+/**
+ * The server caps `limit` at 200 and silently defaults to 50 when omitted.
+ * Every caller passes this, because all three share the `runs:*` cache key —
+ * two different limits under one key means whichever request lands first
+ * decides what the others see.
+ */
+export const RUN_LIMIT = 200;
+
 export async function listRuns(
   opts: ListRunsOptions = {}
 ): Promise<{ runs: Run[]; counts: RunCounts; total: number }> {

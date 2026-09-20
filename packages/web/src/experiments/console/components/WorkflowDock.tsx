@@ -54,7 +54,7 @@ export function WorkflowDock({
   const [expanded, setExpanded] = useState(false);
 
   const { data } = useEntity<FeedData>(K.runs(projectId), () =>
-    skill.listRuns({ codebaseId: projectId })
+    skill.listRuns({ codebaseId: projectId, limit: skill.RUN_LIMIT })
   );
 
   const active = (data?.runs ?? []).filter(

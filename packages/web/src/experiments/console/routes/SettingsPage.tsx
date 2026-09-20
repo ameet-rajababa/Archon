@@ -6,6 +6,7 @@ import { AssistantConfigPanel } from '../components/AssistantConfigPanel';
 import { SystemPanel } from '../components/SystemPanel';
 import { AppearancePanel } from '../components/AppearancePanel';
 import { GithubIdentityPanel } from '../components/GithubIdentityPanel';
+import { AccountPanel } from '../components/AccountPanel';
 
 /**
  * Global (installation-wide) console "AI Settings" — sectioned: Model Tiers (the
@@ -29,6 +30,7 @@ export function SettingsPage(): ReactElement {
           <AppearancePanel />
           <SystemPanel />
           <GithubIdentityPanel />
+          <AccountPanel />
         </div>
       </div>
     </div>

@@ -205,6 +205,8 @@ interface RunsFeedProps {
   selectedRunId: string | null;
   /** Run ids whose approval is currently shown in the pending-input banner. */
   promotedRunIds: ReadonlySet<string>;
+  /** How many runs exist in this scope, which may exceed how many were fetched. */
+  total: number;
 }
 
 /**
@@ -223,6 +225,7 @@ function RunsFeed({
   draftProject,
   selectedRunId,
   promotedRunIds,
+  total,
 }: RunsFeedProps): ReactElement {
   const active = runs.filter(r => r.status === 'running' || r.status === 'paused');
   const recent = runs.filter(
@@ -268,6 +271,13 @@ function RunsFeed({
           </div>
         </section>
       ) : null}
+
+      {/* A cap that is not stated reads as completeness. */}
+      {total > runs.length ? (
+        <p className="text-[11.5px] text-text-tertiary">
+          Showing the {runs.length} most recent of {total} runs.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -302,8 +312,14 @@ export function RunsPage(): ReactElement {
   // Not persisted — the run is still paused, so it re-surfaces on reload.
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(() => new Set());
 
+  // An explicit limit, not the server's silent default. Asking for nothing got
+  // 50 rows and no sign that a 51st existed — the response carries `total`, and
+  // the page declared it on FeedData and never rendered it. 200 is the server's
+  // own cap; asking for more is refused, so this is "everything it will give".
   const { data, loading, error } = useEntity<FeedData>(K.runs(scope), () =>
-    skill.listRuns(scope === 'all' ? {} : { codebaseId: scope })
+    skill.listRuns(
+      scope === 'all' ? { limit: skill.RUN_LIMIT } : { codebaseId: scope, limit: skill.RUN_LIMIT }
+    )
   );
 
   // Dashboard SSE keeps the runs feed in sync: every workflow_status /
@@ -566,6 +582,7 @@ export function RunsPage(): ReactElement {
             draftProject={draftProject}
             selectedRunId={selectedRunId}
             promotedRunIds={promotedRunIds}
+            total={data?.total ?? runs.length}
           />
         )}
       </div>
