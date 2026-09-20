@@ -395,6 +395,26 @@ export function ChatPage(): ReactElement {
    */
   const working = busy || (activeConvId !== null && liveIds.has(activeConvId));
 
+  /**
+   * When the clock starts.
+   *
+   * A turn this tab began has an exact start. One it did not — a reload, a
+   * second window, a chat driven from Slack — has no knowable start, so the
+   * clock counts from the last thing that was SAID instead. That is not a
+   * guess dressed as precision: it is exactly the number worth reading during
+   * a long silent stretch, because it is how long the silence has lasted.
+   */
+  const workingSince = useMemo<number | null>(() => {
+    if (busySince !== null) return busySince;
+    if (!working || activeConvId === null) return null;
+    // Read from `conversations` rather than the `activeConversation` binding,
+    // which is declared further down the component.
+    const last = (conversations ?? []).find(c => c.id === activeConvId)?.lastActivityAt;
+    if (last === null || last === undefined) return null;
+    const t = Date.parse(last);
+    return Number.isNaN(t) ? null : t;
+  }, [busySince, working, activeConvId, conversations]);
+
   // Reveal the raw tool trace inline (toggled from the working indicator).
   const [showTools, setShowTools] = useState(false);
 
@@ -577,10 +597,7 @@ export function ChatPage(): ReactElement {
                   {working ? (
                     <WorkingIndicator
                       activity={currentActivity}
-                      // Only this tab knows when its own turn began. For a turn
-                      // started elsewhere the honest answer is no clock, rather
-                      // than a number measured from when you happened to look.
-                      since={busySince}
+                      since={workingSince}
                       expanded={showTools}
                       onToggle={() => {
                         setShowTools(v => !v);
