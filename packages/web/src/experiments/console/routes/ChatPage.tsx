@@ -11,6 +11,8 @@ import { StreamContextProvider } from '../lib/stream-context';
 import { useConversationSSE } from '../lib/sse';
 import { useEntity, invalidate } from '../store/cache';
 import { K } from '../store/keys';
+import { awaitingInputIds } from '../primitives/chat-status';
+import type { Run } from '../primitives/run';
 import { baselineUserIds, echoHasLanded } from '../primitives/pending-echo';
 import { useFollowTail } from '../hooks/useFollowTail';
 import { useArrowScroll } from '../hooks/useArrowScroll';
@@ -383,6 +385,23 @@ export function ChatPage(): ReactElement {
   const liveIds = useMemo(() => new Set(liveChatIds ?? []), [liveChatIds]);
 
   /**
+   * Chats whose run is paused on an approval.
+   *
+   * Reads the project's runs feed — the same cache key WorkflowDock already
+   * populates, so this costs no extra request. An approval belongs to a RUN,
+   * and the run is what knows which conversation dispatched it; there is no
+   * way to ask a conversation directly.
+   */
+  const { data: runFeed } = useEntity<{ runs: Run[] }>(
+    projectId === undefined ? 'noop:no-project-runs' : K.runs(projectId),
+    () =>
+      projectId === undefined
+        ? Promise.resolve({ runs: [] })
+        : skill.listRuns({ codebaseId: projectId, limit: skill.RUN_LIMIT })
+  );
+  const awaitingIds = useMemo(() => awaitingInputIds(runFeed?.runs ?? []), [runFeed?.runs]);
+
+  /**
    * Is THIS chat working? `busy` only knows about a turn this tab started, so
    * on a reload, in a second window, or on a chat driven from Slack or the
    * CLI, the indicator was absent while the agent was mid-tool — the screen
@@ -568,6 +587,7 @@ export function ChatPage(): ReactElement {
         key={projectId}
         conversations={conversations ?? []}
         liveIds={liveIds}
+        awaitingIds={awaitingIds}
         activeConvId={activeConvId}
         onSelect={selectConversation}
         onRename={renameConversation}

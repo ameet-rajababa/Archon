@@ -7,7 +7,10 @@ import {
   type ConversationSummary,
 } from '../primitives/conversation';
 import { relativeTime } from '../lib/format';
-import { LiveDot } from './LiveDot';
+import { chatStatus, STATUS_LABEL, STATUS_TITLE } from '../primitives/chat-status';
+
+/** Shared empty set, so an absent prop does not allocate one per row per render. */
+const EMPTY_SET: ReadonlySet<string> = new Set();
 import { chooseNeighbourChat } from '../lib/last-chat';
 import {
   applyChatOrder,
@@ -53,6 +56,12 @@ interface ConversationRailProps {
    * is genuinely idle rather than merely unobserved.
    */
   liveIds?: ReadonlySet<string>;
+  /**
+   * Chats with a run paused on an approval — your move, not the machine's.
+   * Kept separate from `liveIds` because the two come from different places:
+   * working is the server's conversation lock, awaiting belongs to a run.
+   */
+  awaitingIds?: ReadonlySet<string>;
   /** Which archived state the list is showing; the rail does not fetch. */
   scope: ArchiveScope;
   onScopeChange: (scope: ArchiveScope) => void;
@@ -90,6 +99,7 @@ export function ConversationRail({
   pendingNew,
   projectId,
   liveIds,
+  awaitingIds,
 }: ConversationRailProps): ReactElement {
   /* The filter box became nothing: a permanent text field for a list this
      short was chrome, and ⌘K already jumps to any chat by name. `query` stays
@@ -338,6 +348,10 @@ export function ConversationRail({
 
         {visible.map((c, index) => {
           const isActive = c.id === activeConvId;
+          const status = chatStatus(c.id, {
+            working: liveIds ?? EMPTY_SET,
+            awaiting: awaitingIds ?? EMPTY_SET,
+          });
           const shift =
             dragId === null ? 0 : previewShift(boxesRef.current, dragFrom, dropIndex, index);
           return (
@@ -393,10 +407,12 @@ export function ConversationRail({
                 </span>
               ) : null}
 
-              {/* Smaller and quieter than a project's glyph, so a chat and a
-                  project read as different KINDS of thing. */}
-              <span aria-hidden className="chat-kind">
-                <MessageCircle />
+              {/* Status on the LEFT, where the eye lands first on a list you
+                  scan rather than read. Idle keeps the chat glyph — it is the
+                  one state with nothing to announce, so the mark goes back to
+                  saying what kind of row this is. */}
+              <span aria-hidden title={STATUS_TITLE[status]} className={`chat-status is-${status}`}>
+                {status === 'idle' ? <MessageCircle /> : <i />}
               </span>
 
               {renamingId === c.id ? (
@@ -430,14 +446,11 @@ export function ConversationRail({
                       timestamp sits UNDER it instead of competing for the
                       same line. */}
                   <span className="rail-text">{conversationLabel(c)}</span>
-                  {liveIds?.has(c.id) === true ? (
-                    // Replaces the timestamp rather than crowding it: "3m ago"
-                    // is the wrong thing to read about a chat that is moving
-                    // right now.
-                    <span className="chat-stamp flex items-center gap-1.5">
-                      <LiveDot size={7} />
-                      <span style={{ color: 'var(--running)' }}>working</span>
-                    </span>
+                  {/* The word replaces the timestamp rather than crowding it:
+                      "3m ago" is the wrong thing to read about a chat that is
+                      moving right now, or waiting on you. */}
+                  {status !== 'idle' ? (
+                    <span className={`chat-stamp is-${status}`}>{STATUS_LABEL[status]}</span>
                   ) : c.lastActivityAt !== null ? (
                     <time dateTime={c.lastActivityAt} className="chat-stamp">
                       {relativeTime(c.lastActivityAt)}
