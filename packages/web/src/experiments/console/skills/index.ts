@@ -11,6 +11,7 @@ export * from './auth';
 export * from './activeChats';
 export * from './projectCounts';
 export * from './issues';
+export * from './presentation';
 export * from './projects';
 export * from './workflows';
 export * from './worktrees';

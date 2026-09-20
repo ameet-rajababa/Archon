@@ -4875,6 +4875,59 @@ export function registerApiRoutes(
     }
   });
 
+  /**
+   * GET/PATCH /api/projects/:projectId/presentation — the console's own view of
+   * a project: icon, colour, hand-arranged rail position, and brief.
+   *
+   * These lived in localStorage so the rail could ship without a restart. The
+   * consequence was not designable-around: none of it followed you to another
+   * machine, and a cleared browser lost all of it.
+   *
+   * PATCH merges rather than replaces, so two tabs editing different fields
+   * cannot silently drop each other's work.
+   */
+  app.get('/api/projects/:projectId/presentation', async c => {
+    const projectId = c.req.param('projectId');
+    const found = await codebaseDb.getCodebasePresentation(projectId);
+    if (found === null) return c.json({ error: 'Project not found' }, 404);
+    return c.json(found);
+  });
+
+  app.patch('/api/projects/:projectId/presentation', async c => {
+    const projectId = c.req.param('projectId');
+    if ((await codebaseDb.getCodebase(projectId)) === null) {
+      return c.json({ error: 'Project not found' }, 404);
+    }
+
+    let body: { presentation?: unknown; sortOrder?: unknown };
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: 'Invalid JSON' }, 400);
+    }
+
+    const patch =
+      typeof body.presentation === 'object' && body.presentation !== null
+        ? (body.presentation as Record<string, unknown>)
+        : null;
+    const hasSort = 'sortOrder' in body;
+    const sortOrder =
+      typeof body.sortOrder === 'number' && Number.isFinite(body.sortOrder)
+        ? Math.trunc(body.sortOrder)
+        : null;
+
+    if (patch === null && !hasSort) return c.json({ error: 'Nothing to update' }, 400);
+
+    try {
+      if (patch !== null) await codebaseDb.updateCodebasePresentation(projectId, patch);
+      if (hasSort) await codebaseDb.updateCodebaseSortOrder(projectId, sortOrder);
+      return c.json(await codebaseDb.getCodebasePresentation(projectId));
+    } catch (err) {
+      getLog().warn({ err, projectId }, 'presentation.update_failed');
+      return c.json({ error: 'Could not save' }, 500);
+    }
+  });
+
   // NOTE: Uses app.get() instead of registerOpenApiRoute because:
   //  1. Wildcard path params (*) are not representable in OpenAPI 3.0
   //  2. Response is raw text/markdown, not JSON

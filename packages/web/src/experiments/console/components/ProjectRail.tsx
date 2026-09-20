@@ -3,6 +3,7 @@ import { useRailPeek } from '../lib/use-rail-peek';
 import { RAIL_AUTO_COLLAPSE_PX, useViewportWidth } from '../lib/use-viewport';
 import { applyManualOrder, dropIndexAt, previewShift, reorder, rowBoxes } from '../lib/chat-order';
 import { readProjectOrder, writeProjectOrder } from '../lib/project-order';
+import { pushOrder, syncPresentation } from '../lib/presentation-sync';
 
 /** Matches `margin-bottom: var(--row-gap)` on .rail-row at comfortable density. */
 const PROJECT_ROW_GAP = 2;
@@ -214,6 +215,22 @@ export function ProjectRail({ onAddProject, onSearch }: ProjectRailProps): React
    * position. Grouping and a hand-chosen order are mutually exclusive, and the
    * order you choose is the more useful of the two.
    */
+  /**
+   * Reconcile with the server once, when the project list is first known.
+   *
+   * Not on every render and not per row: this is a migration and a pull, and
+   * doing it per row would issue one request per project per navigation.
+   */
+  const syncedRef = useRef(false);
+  useEffect(() => {
+    const ids = (projects ?? []).map(p => p.id);
+    if (syncedRef.current || ids.length === 0) return;
+    syncedRef.current = true;
+    void syncPresentation(ids).then(() => {
+      setOrderTick(t => t + 1);
+    });
+  }, [projects]);
+
   const flat = useMemo(() => applyManualOrder(filtered, readProjectOrder()), [filtered, orderTick]);
 
   /* ── drag to arrange ────────────────────────────────────────────────────
@@ -245,7 +262,9 @@ export function ProjectRail({ onAddProject, onSearch }: ProjectRailProps): React
   const commitDrag = (): void => {
     const target = flat[dropIndex];
     if (dragId !== null && target !== undefined && target.id !== dragId) {
-      writeProjectOrder(reorder(flat, dragId, target.id));
+      const next = reorder(flat, dragId, target.id);
+      writeProjectOrder(next);
+      pushOrder(next);
       // localStorage is invisible to useMemo; this is what makes it recompute.
       setOrderTick(t => t + 1);
     }

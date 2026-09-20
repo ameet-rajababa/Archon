@@ -218,3 +218,72 @@ export async function deleteCodebase(id: string): Promise<void> {
   await pool.query('DELETE FROM remote_agent_codebases WHERE id = $1', [id]);
   getLog().info({ codebaseId: id }, 'db.codebase_delete_completed');
 }
+
+/**
+ * The console's own view of a project: icon, colour, brief, rail position.
+ *
+ * Opaque to the server. Nothing here interprets the blob — these are
+ * presentation, nothing queries by icon, and a shape that keeps growing as the
+ * console grows should not cost a migration each time.
+ */
+export interface CodebasePresentation {
+  presentation: Record<string, unknown> | null;
+  sortOrder: number | null;
+}
+
+export async function getCodebasePresentation(id: string): Promise<CodebasePresentation | null> {
+  const res = await pool.query<{ presentation: unknown; sort_order: number | null }>(
+    'SELECT presentation, sort_order FROM remote_agent_codebases WHERE id = $1',
+    [id]
+  );
+  const row = res.rows[0];
+  if (row === undefined) return null;
+  // SQLite hands JSON back as text; Postgres hands back an object.
+  const raw = typeof row.presentation === 'string' ? safeParse(row.presentation) : row.presentation;
+  return {
+    presentation: typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : null,
+    sortOrder: row.sort_order,
+  };
+}
+
+function safeParse(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Merge a patch into the presentation blob.
+ *
+ * Read-modify-write in JS rather than Postgres' `jsonb ||`, because the same
+ * code has to work on SQLite. The merge is shallow, which is what "set the
+ * icon, leave the brief alone" has to mean.
+ *
+ * Two tabs saving different fields in the same instant can lose one of them.
+ * That is a real race and an acceptable one here: the loser is a single
+ * presentation field on a single-user console, and the alternative is
+ * dialect-specific SQL for a value nothing queries.
+ */
+export async function updateCodebasePresentation(
+  id: string,
+  patch: Record<string, unknown>
+): Promise<void> {
+  const dialect = getDialect();
+  const current = await getCodebasePresentation(id);
+  const next = { ...(current?.presentation ?? {}), ...patch };
+  await pool.query(
+    `UPDATE remote_agent_codebases SET presentation = $1, updated_at = ${dialect.now()} WHERE id = $2`,
+    [JSON.stringify(next), id]
+  );
+}
+
+/** NULL means never dragged, and sorts last — a new project does not jump to the top. */
+export async function updateCodebaseSortOrder(id: string, sortOrder: number | null): Promise<void> {
+  const dialect = getDialect();
+  await pool.query(
+    `UPDATE remote_agent_codebases SET sort_order = $1, updated_at = ${dialect.now()} WHERE id = $2`,
+    [sortOrder, id]
+  );
+}

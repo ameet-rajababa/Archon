@@ -2,6 +2,7 @@ import { Pencil } from 'lucide-react';
 import { useState, type ReactElement } from 'react';
 import { EMPTY_BRIEF, getBrief, isEmpty, setBrief, type ProjectBrief } from '../lib/project-brief';
 import { relativeTime } from '../lib/format';
+import { pushBrief } from '../lib/presentation-sync';
 
 const FIELDS: readonly {
   key: keyof Omit<ProjectBrief, 'updatedAt'>;
@@ -30,6 +31,7 @@ export function ProjectBriefCard({ projectId }: { projectId: string }): ReactEle
 
   const commit = (key: keyof Omit<ProjectBrief, 'updatedAt'>, value: string): void => {
     setBrief(projectId, { [key]: value });
+    pushBrief(projectId);
     setLocal(getBrief(projectId));
   };
 

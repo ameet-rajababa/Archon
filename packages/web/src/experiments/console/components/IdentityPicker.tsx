@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { ICON_PATHS } from '../lib/glyph-data';
 import { searchEmoji, searchIcons } from '../lib/glyph-search';
 import { IDENTITY_COLORS, getIdentity, resolveColor, setIdentity } from '../lib/project-identity';
+import { pushIdentity } from '../lib/presentation-sync';
 
 /**
  * Choose a project's icon and colour.
@@ -86,6 +87,7 @@ export function IdentityPicker({
             style={{ background: c.value }}
             onClick={() => {
               setIdentity(projectId, { color: c.key });
+              pushIdentity(projectId);
               onChange();
             }}
           >
@@ -123,6 +125,7 @@ export function IdentityPicker({
               style={tab === 'icons' ? { color } : undefined}
               onClick={() => {
                 setIdentity(projectId, { glyph: k });
+                pushIdentity(projectId);
                 onChange();
                 onClose();
               }}

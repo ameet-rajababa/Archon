@@ -1,0 +1,114 @@
+/**
+ * Keeps the local presentation stores and the server in step.
+ *
+ * The icon, the rail order and the brief are all read SYNCHRONOUSLY during
+ * render — the rail draws a glyph on its first frame — so they stay in
+ * localStorage. This pushes every change up and pulls the server's copy down,
+ * which is what makes them follow you to another machine.
+ *
+ * Every server call is failure-tolerant on purpose. The route does not exist
+ * until the container restarts, and a console that broke its own icons while
+ * waiting for a deploy would be a worse bug than the one being fixed. Before
+ * the restart this behaves exactly as it did; after it, the same writes start
+ * landing.
+ */
+import * as skill from '../skills';
+import { getIdentity, setIdentity } from './project-identity';
+import { getBrief, setBrief } from './project-brief';
+import { readProjectOrder, writeProjectOrder } from './project-order';
+
+const MIGRATED = 'archon.console.presentationMigrated';
+
+/** Fire-and-forget. A failed save leaves localStorage authoritative. */
+export function pushIdentity(projectId: string): void {
+  const id = getIdentity(projectId);
+  void skill
+    .savePresentation(projectId, { presentation: { color: id.color, glyph: id.glyph } })
+    .catch(() => undefined);
+}
+
+export function pushBrief(projectId: string): void {
+  const b = getBrief(projectId);
+  void skill
+    .savePresentation(projectId, {
+      presentation: {
+        brief: { why: b.why, doing: b.doing, where: b.where, updatedAt: b.updatedAt },
+      },
+    })
+    .catch(() => undefined);
+}
+
+/** The rail order is a list, so it is written as a position per project. */
+export function pushOrder(order: readonly string[]): void {
+  order.forEach((projectId, index) => {
+    void skill.savePresentation(projectId, { sortOrder: index }).catch(() => undefined);
+  });
+}
+
+/**
+ * Pull the server's copy down, and push local values up the first time.
+ *
+ * Direction matters and is decided per project, not globally: the server wins
+ * when it has anything, because it is the shared copy. A browser that has
+ * something the server does not is the pre-migration case, and that is the one
+ * time local wins — otherwise a second machine opening the console would
+ * overwrite the first machine's choices with its own empty defaults.
+ */
+export async function syncPresentation(projectIds: readonly string[]): Promise<void> {
+  let migrated: Record<string, true> = {};
+  try {
+    const raw = localStorage.getItem(MIGRATED);
+    const parsed: unknown = raw === null ? null : JSON.parse(raw);
+    if (typeof parsed === 'object' && parsed !== null) migrated = parsed as Record<string, true>;
+  } catch {
+    migrated = {};
+  }
+
+  const localOrder = readProjectOrder();
+  const serverOrder: { id: string; at: number }[] = [];
+
+  for (const projectId of projectIds) {
+    let remote: skill.PresentationResponse;
+    try {
+      remote = await skill.getPresentation(projectId);
+    } catch {
+      // Route missing (pre-restart) or offline. Nothing to reconcile.
+      continue;
+    }
+
+    const p = remote.presentation;
+    const serverHasIdentity = p != null && (p.color != null || p.glyph != null);
+    const serverHasBrief = p?.brief != null && (p.brief.why ?? '') + (p.brief.doing ?? '') !== '';
+
+    if (serverHasIdentity) {
+      setIdentity(projectId, { color: p.color ?? null, glyph: p.glyph ?? null });
+    } else if (!migrated[projectId]) {
+      pushIdentity(projectId);
+    }
+
+    if (serverHasBrief && p.brief != null) {
+      setBrief(projectId, {
+        why: p.brief.why ?? '',
+        doing: p.brief.doing ?? '',
+        where: p.brief.where ?? '',
+      });
+    } else if (!migrated[projectId]) {
+      pushBrief(projectId);
+    }
+
+    if (remote.sortOrder !== null) serverOrder.push({ id: projectId, at: remote.sortOrder });
+    migrated[projectId] = true;
+  }
+
+  if (serverOrder.length > 0) {
+    writeProjectOrder(serverOrder.sort((a, b) => a.at - b.at).map(o => o.id));
+  } else if (localOrder.length > 0) {
+    pushOrder(localOrder);
+  }
+
+  try {
+    localStorage.setItem(MIGRATED, JSON.stringify(migrated));
+  } catch {
+    /* the sync still ran; it will simply run again next time */
+  }
+}
