@@ -321,7 +321,10 @@ export function ProjectRail({ onAddProject, onSearch }: ProjectRailProps): React
             <span aria-hidden className="rail-ico" style={{ color: 'var(--text-secondary)' }}>
               <PanelLeft />
             </span>
-            <span className="rail-hide brand-text text-base font-semibold tracking-tight">
+            {/* leading pinned to the row's 17px content box. .rail-row has a
+                fixed height so hovering cannot make the rail jump, and the
+                wordmark's default 1.5 line-height overflowed it by 4px. */}
+            <span className="rail-hide brand-text text-base font-semibold leading-[17px] tracking-tight">
               Archon
             </span>
           </button>

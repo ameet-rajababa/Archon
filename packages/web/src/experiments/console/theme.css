@@ -195,3 +195,19 @@
 .console-root .react-flow__attribution a {
   color: var(--text-secondary);
 }
+
+/* A strip that scrolls sideways once its content stops fitting, without a
+   visible scrollbar changing the strip's height. Toolbars use it so every
+   control stays reachable at tablet width instead of the page itself
+   scrolling sideways and pushing controls off the right edge. */
+.console-root .scroll-x-quiet {
+  overflow-x: auto;
+  scrollbar-width: none;
+  /* Fade the last 26px so a control cut by the edge reads as "there is more
+     this way" rather than as a rendering fault. Costs nothing when the
+     content fits: there is nothing under the fade to dim. */
+  mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent 100%);
+}
+.console-root .scroll-x-quiet::-webkit-scrollbar {
+  display: none;
+}

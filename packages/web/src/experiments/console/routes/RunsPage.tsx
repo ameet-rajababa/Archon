@@ -512,9 +512,15 @@ export function RunsPage(): ReactElement {
     <section className="flex h-full flex-col">
       {/* Status sub-tabs and search on one strip. The project name, path and
           Runs/Chat tabs moved to the layout's header — see ProjectLayout. */}
-      <div className="flex shrink-0 items-center gap-4 border-b border-border px-6">
-        <FilterChips value={filter} onChange={setFilter} counts={counts} />
-        <div className="ml-auto py-2">
+      <div className="flex min-w-0 shrink-0 items-center gap-4 border-b border-border px-6">
+        {/* The chips scroll inside their own strip rather than pushing the
+            search box off the right edge. At 768px the five chips plus a
+            300px search box are 170px wider than the viewport, and the whole
+            page was scrolling sideways to fit them. */}
+        <div className="scroll-x-quiet min-w-0 flex-1">
+          <FilterChips value={filter} onChange={setFilter} counts={counts} />
+        </div>
+        <div className="shrink-0 py-2">
           <div
             className="flex h-[38px] w-[300px] max-w-[34vw] shrink-0 items-center gap-2 rounded-[10px] border bg-surface-elevated px-3 text-text-tertiary transition-colors focus-within:text-text-secondary"
             // Inline because the console scope's wildcard border-color rule

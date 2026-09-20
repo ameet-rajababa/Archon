@@ -27,7 +27,7 @@ const ORDER: readonly {
 
 export function FilterChips({ value, onChange, counts }: FilterChipsProps): ReactElement {
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex w-max items-center gap-1.5">
       {ORDER.map(({ filter, label, countKey }) => {
         const active = value === filter;
         const n = counts[countKey];
