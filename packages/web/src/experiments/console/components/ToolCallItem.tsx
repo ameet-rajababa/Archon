@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from 'react';
+import { memo, useState, type ReactElement } from 'react';
 import { formatRelativeToBaseline } from '../lib/format';
 import { useClock } from '../lib/clock';
 import { useStreamContext } from '../lib/stream-context';
@@ -29,7 +29,7 @@ function argsSummary(input: Record<string, unknown>): string {
  * name + args preview · duration · chevron. Clicking toggles the expanded
  * args/result detail below the row.
  */
-export function ToolCallItem({ call, timestamp }: ToolCallItemProps): ReactElement {
+function ToolCallItemImpl({ call, timestamp }: ToolCallItemProps): ReactElement {
   const [expanded, setExpanded] = useState(false);
   const { runStartedAt } = useStreamContext();
   const displayed = formatRelativeToBaseline(timestamp, runStartedAt);
@@ -120,3 +120,16 @@ export function ToolCallItem({ call, timestamp }: ToolCallItemProps): ReactEleme
     </div>
   );
 }
+
+/** Memoized for the same reason as MessageItem — see the note there. */
+/* eslint-disable-next-line @typescript-eslint/naming-convention --
+   A memoized component is a const, and a component must be PascalCase for JSX
+   to treat it as one. The rule cannot express "const holding a component". */
+export const ToolCallItem = memo(
+  ToolCallItemImpl,
+  (a, b) =>
+    a.call.name === b.call.name &&
+    a.call.output === b.call.output &&
+    a.call.durationMs === b.call.durationMs &&
+    a.timestamp === b.timestamp
+);

@@ -1,5 +1,5 @@
 import { Paperclip } from 'lucide-react';
-import type { ReactElement } from 'react';
+import { memo, type ReactElement } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
@@ -123,11 +123,7 @@ const ERROR_BLOCK = (msg: string): ReactElement => (
  * border-utility colors otherwise (see `theme.css`, mirrored in
  * `StreamCard.tsx`).
  */
-export function MessageItem({
-  message,
-  variant = 'chat',
-  onAnswer,
-}: MessageItemProps): ReactElement {
+function MessageItemImpl({ message, variant = 'chat', onAnswer }: MessageItemProps): ReactElement {
   const kind = message.role;
   const content = message.content.trim();
   const clock = useClock()(message.timestamp);
@@ -278,3 +274,30 @@ export function MessageItem({
     </div>
   );
 }
+
+/**
+ * A rendered message is expensive — markdown parsing, code highlighting, ask
+ * cards — and the transcript refetches wholesale every few seconds while the
+ * agent works. Without this, 700 unchanged messages re-render on every poll
+ * and block the main thread for half a second, which is precisely when you are
+ * typing your next one.
+ *
+ * Compared by value, not by reference: each refetch builds new objects, so
+ * reference equality would never hit. A persisted message never changes, and
+ * the one case that does — the last message growing as a reply streams — is
+ * caught by comparing `content`.
+ */
+/* eslint-disable-next-line @typescript-eslint/naming-convention --
+   A memoized component is a const, and a component must be PascalCase for JSX
+   to treat it as one. The rule cannot express "const holding a component". */
+export const MessageItem = memo(MessageItemImpl, (a, b) => {
+  return (
+    a.message.id === b.message.id &&
+    a.message.content === b.message.content &&
+    a.message.category === b.message.category &&
+    a.message.toolCalls.length === b.message.toolCalls.length &&
+    a.message.error === b.message.error &&
+    a.variant === b.variant &&
+    a.onAnswer === b.onAnswer
+  );
+});

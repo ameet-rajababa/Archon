@@ -427,6 +427,12 @@ export function ChatPage(): ReactElement {
   // so without this the arrows land in an empty textarea and do nothing.
   useArrowScroll(scrollRef, { onUserScroll: noteUserIntent });
 
+  // Held in a ref so `onAnswer` below can be referentially stable without
+  // threading every dependency of onSend through a useCallback. Memoized
+  // message items compare this prop, so an inline lambda here would defeat
+  // the memo entirely — the thing it is there to prevent.
+  const onSendRef = useRef<(text: string, files?: File[]) => void>(() => undefined);
+
   const onSend = (text: string, files?: File[]): void => {
     if (projectId === undefined) return;
     setError(null);
@@ -535,6 +541,13 @@ export function ChatPage(): ReactElement {
 
   // The tool itself, input included — the indicator turns it into a sentence.
   // Passing only the name meant the line could say `Bash` and nothing more.
+  onSendRef.current = onSend;
+
+  /** Stable across renders; flips only between itself and `undefined`. */
+  const answerAsk = useCallback((text: string): void => {
+    onSendRef.current(text);
+  }, []);
+
   const currentActivity = useMemo<{ name: string; input?: Record<string, unknown> } | null>(() => {
     for (let i = messageList.length - 1; i >= 0; i--) {
       const m = messageList[i];
@@ -586,13 +599,7 @@ export function ChatPage(): ReactElement {
                   <ChatStream
                     messages={renderedMessages}
                     showTools={showTools}
-                    onAnswer={
-                      busy
-                        ? undefined
-                        : (text: string): void => {
-                            onSend(text);
-                          }
-                    }
+                    onAnswer={busy ? undefined : answerAsk}
                   />
                   {working ? (
                     <WorkingIndicator
