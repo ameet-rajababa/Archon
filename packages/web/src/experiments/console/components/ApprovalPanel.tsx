@@ -132,11 +132,22 @@ export function ApprovalPanel({ run }: ApprovalPanelProps): ReactElement {
       onClick={stopPropagation}
       onKeyDown={stopPropagation}
     >
+      {/* The heading is unconditional; the message is not.
+          An approval without a message used to render as two bare buttons —
+          Approve and Reject and no statement of what you were approving. The
+          heading is the one thing that is always true about this panel. */}
+      <p className="mb-1 text-[12px] font-semibold uppercase tracking-[0.12em] text-warning">
+        Approval needed
+      </p>
       {run.approval?.message.length ? (
-        <p className="mb-2 text-[12px] uppercase tracking-[0.12em] text-warning">
+        <p className="mb-2 text-[12.5px] leading-[1.45] text-text-secondary">
           {run.approval.message}
         </p>
-      ) : null}
+      ) : (
+        <p className="mb-2 text-[12.5px] leading-[1.45] text-text-tertiary">
+          The run is paused and will not continue until you answer.
+        </p>
+      )}
 
       {mode === null ? (
         <div className="flex items-stretch gap-2">

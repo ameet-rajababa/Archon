@@ -14,6 +14,15 @@ interface StreamToolbarProps {
   onToggleToolCalls: (next: boolean) => void;
   showSystem: boolean;
   onToggleSystem: (next: boolean) => void;
+  /**
+   * Hide everything that is not an error.
+   *
+   * Not a third independent checkbox in practice: when a long run has gone
+   * wrong, the question is "what broke", and answering it by unticking two
+   * boxes leaves prose and artifacts still in the way.
+   */
+  errorsOnly: boolean;
+  onToggleErrorsOnly: (next: boolean) => void;
   toolCallCount: number;
   messageCount: number;
   artifactCount: number | null;
@@ -113,6 +122,8 @@ export function StreamToolbar({
   showToolCalls,
   onToggleToolCalls,
   showSystem,
+  errorsOnly,
+  onToggleErrorsOnly,
   onToggleSystem,
   toolCallCount,
   messageCount,
@@ -181,6 +192,7 @@ export function StreamToolbar({
           ) : null}
           <Checkbox label="Tool calls" checked={showToolCalls} onChange={onToggleToolCalls} />
           <Checkbox label="System" checked={showSystem} onChange={onToggleSystem} />
+          <Checkbox label="Errors only" checked={errorsOnly} onChange={onToggleErrorsOnly} />
         </div>
       ) : null}
     </div>

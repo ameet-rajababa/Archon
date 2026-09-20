@@ -21,6 +21,7 @@ interface RunStreamProps {
   events: RunEvent[];
   showToolCalls: boolean;
   showSystem: boolean;
+  errorsOnly: boolean;
   /** `'all'` shows every node; otherwise restrict the stream to one node's entries. */
   selectedNodeId: string;
 }
@@ -136,6 +137,7 @@ export function RunStream({
   events,
   showToolCalls,
   showSystem,
+  errorsOnly,
   selectedNodeId,
 }: RunStreamProps): ReactElement {
   // Single source for the folded nodes — consumed by both the timeline (one
@@ -267,7 +269,25 @@ export function RunStream({
     return { start, end: next !== undefined ? new Date(next.startedAt).getTime() : Infinity };
   }, [nodeRuns, selectedNodeId]);
 
+  /**
+   * What counts as an error when the stream is narrowed to them.
+   *
+   * A system entry whose event is an `error`, a node that failed, and a
+   * message carrying an inline error. Not just `kind === 'error'`: a failed
+   * node is the most useful thing on the page when something has gone wrong,
+   * and it arrives as a node transition rather than as an error event.
+   */
+  const isErrorEntry = (e: (typeof timeline)[number]): boolean => {
+    if (e.kind === 'system') return e.event.kind === 'error';
+    if (e.kind === 'node') return e.node.status === 'failed';
+    if (e.kind === 'message') return e.message.error !== null;
+    return false;
+  };
+
   const visible = timeline.filter(e => {
+    // Checked first: it is a narrowing, so anything it rejects is not worth
+    // asking the other questions about.
+    if (errorsOnly && !isErrorEntry(e)) return false;
     if (e.kind === 'tool' && !showToolCalls) return false;
     if (e.kind === 'system' && !showSystem) return false;
     if (e.kind === 'system_row' && !showSystem) return false;

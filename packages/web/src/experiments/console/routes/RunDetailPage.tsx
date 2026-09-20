@@ -113,6 +113,10 @@ export function RunDetailPage(): ReactElement {
   const { projectId, runId } = useParams<{ projectId: string; runId: string }>();
   const navigate = useNavigate();
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  // Not persisted, unlike the other two: narrowing to errors answers "what
+  // broke on THIS run", and carrying it to the next one would open a healthy
+  // run with its whole timeline hidden and no clue why.
+  const [errorsOnly, setErrorsOnly] = useState(false);
   const [showToolCalls, setShowToolCalls] = useState<boolean>(() =>
     readToggle(TOGGLE_KEYS.toolCalls, true)
   );
@@ -421,6 +425,8 @@ export function RunDetailPage(): ReactElement {
         setShowSystem(next);
         writeToggle(TOGGLE_KEYS.system, next);
       }}
+      errorsOnly={errorsOnly}
+      onToggleErrorsOnly={setErrorsOnly}
       toolCallCount={toolCallCount}
       messageCount={messageList.length}
       artifactCount={artifactFiles?.length ?? null}
@@ -459,6 +465,7 @@ export function RunDetailPage(): ReactElement {
                         events={events}
                         showToolCalls={showToolCalls}
                         showSystem={showSystem}
+                        errorsOnly={errorsOnly}
                         selectedNodeId={selectedNodeId}
                       />
                     </div>
