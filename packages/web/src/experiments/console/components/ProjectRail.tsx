@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react
 import { Link, useNavigate, useLocation } from 'react-router';
 import { Settings, PenTool, type LucideIcon } from 'lucide-react';
 import { ProjectRow } from './ProjectRow';
+import { ProjectCountHeader } from './ProjectCountCells';
 import { EnvVarsDialog } from './EnvVarsDialog';
 import { useEntity, invalidate } from '../store/cache';
 import { K } from '../store/keys';
@@ -21,12 +22,6 @@ async function handleRemove(projectId: string): Promise<void> {
 function extractProjectId(pathname: string): string | null {
   const m = /^\/console\/p\/([^/]+)/.exec(pathname);
   return m === null ? null : m[1];
-}
-
-/** Owner = the part of `owner/repo` before the first slash; bare names group under themselves. */
-function ownerOf(name: string): string {
-  const idx = name.indexOf('/');
-  return idx === -1 ? name : name.slice(0, idx);
 }
 
 const RAIL_WIDTH_KEY = 'archon.console.railWidth';
@@ -113,21 +108,15 @@ export function ProjectRail({ onAddProject }: ProjectRailProps): ReactElement {
     return list.filter(p => `${p.name} ${p.path}`.toLowerCase().includes(q));
   }, [projects, query]);
 
-  const groups = useMemo(() => {
-    const out: { owner: string; items: Project[] }[] = [];
-    const seen = new Map<string, { owner: string; items: Project[] }>();
-    for (const p of filtered) {
-      const owner = ownerOf(p.name);
-      let g = seen.get(owner);
-      if (g === undefined) {
-        g = { owner, items: [] };
-        seen.set(owner, g);
-        out.push(g);
-      }
-      g.items.push(p);
-    }
-    return out;
-  }, [filtered]);
+  /**
+   * One flat list, not owner groups.
+   *
+   * The owner still identifies the project — it is in the row's tooltip and in
+   * the name when it differs from the display name — but it no longer dictates
+   * position. Grouping and a hand-chosen order are mutually exclusive, and the
+   * order you choose is the more useful of the two.
+   */
+  const flat = filtered;
 
   // Pointer-driven resize; width clamps to [RAIL_MIN, RAIL_MAX] and persists
   // on release. Pointer capture keeps the drag alive outside the handle.
@@ -252,34 +241,35 @@ export function ProjectRail({ onAddProject }: ProjectRailProps): ReactElement {
             {error.message}
           </span>
         ) : null}
-        {groups.map(g => (
-          <div key={g.owner} className="mb-2">
-            <div className="flex items-center gap-2 px-2 pb-1 pt-2">
-              <span className="max-w-[70%] truncate font-mono text-[10.5px] font-semibold tracking-[0.05em] text-text-tertiary">
-                {g.owner}
-              </span>
-              <span aria-hidden className="h-px flex-1 bg-border/60" />
-            </div>
-            {g.items.map(p => (
-              <ProjectRow
-                key={p.id}
-                project={p}
-                selected={scope === p.id}
-                onClick={() => {
-                  navigate(`/console/p/${p.id}`);
-                }}
-                onRemove={() => {
-                  void handleRemove(p.id);
-                  if (scope === p.id) navigate('/console');
-                }}
-                onEditEnv={() => {
-                  setEnvProject(p);
-                }}
-              />
-            ))}
+        {/* Column headers. Same geometry as a row's cells, so the glyphs sit
+            exactly above the numbers they name. Rendered once, above a FLAT
+            list: owner group headers and a hand-sorted order cannot both be
+            true, and the order you choose is the more useful of the two. */}
+        {flat.length > 0 ? (
+          <div className="flex items-center gap-[10px] px-2.5 pb-1 pt-1.5">
+            <span className="h-[17px] w-[17px] shrink-0" />
+            <span className="min-w-0 flex-1" />
+            <ProjectCountHeader />
           </div>
+        ) : null}
+        {flat.map(p => (
+          <ProjectRow
+            key={p.id}
+            project={p}
+            selected={scope === p.id}
+            onClick={() => {
+              navigate(`/console/p/${p.id}`);
+            }}
+            onRemove={() => {
+              void handleRemove(p.id);
+              if (scope === p.id) navigate('/console');
+            }}
+            onEditEnv={() => {
+              setEnvProject(p);
+            }}
+          />
         ))}
-        {groups.length === 0 && error === undefined ? (
+        {flat.length === 0 && error === undefined ? (
           <div className="px-3 py-6 text-center text-[12.5px] text-text-tertiary">
             No projects match “{query}”.
           </div>

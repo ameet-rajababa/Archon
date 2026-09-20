@@ -70,6 +70,7 @@ export function useDashboardSSE(): void {
         } else {
           invalidate('conversations');
         }
+        invalidate('projectCounts');
         convDirty = undefined;
       }, 120);
     };
@@ -80,6 +81,9 @@ export function useDashboardSSE(): void {
       if (ev.type === 'workflow_status' || ev.type === 'dag_node') {
         // Refetch every runs:* key (runs:all, runs:project:<id>).
         invalidate('runs');
+        // The rail's own numbers live under a separate key, so they need
+        // naming here or they would freeze while the runs feed stayed live.
+        invalidate('projectCounts');
         // Also refresh any open run-detail cache so the detail page picks
         // up status / node-transition changes without its own SSE round-trip.
         if (typeof ev.runId === 'string') {

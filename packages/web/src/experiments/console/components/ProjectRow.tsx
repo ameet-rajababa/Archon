@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
+import { ProjectGlyph } from '../lib/project-glyph';
+import { getIdentity, resolveColor } from '../lib/project-identity';
+import { ProjectCountCells } from './ProjectCountCells';
 import { useDisplayName, setDisplayName } from '../lib/display-name';
 import { formatProjectLocator } from '../lib/format';
 import type { Project } from '../primitives/project';
@@ -72,6 +75,8 @@ export function ProjectRow({
   onRemove,
   onEditEnv,
 }: ProjectRowProps): ReactElement {
+  const identity = getIdentity(project.id);
+  const color = resolveColor(project.id, identity);
   const displayName = useDisplayName(project.id, project.name);
   // Group headers already show the owner — strip it from the row label
   // unless the user renamed the project (then show their name verbatim).
@@ -79,7 +84,6 @@ export function ProjectRow({
     displayName === project.name && project.name.includes('/')
       ? project.name.slice(project.name.indexOf('/') + 1)
       : displayName;
-  const monogram = (label[0] ?? '?').toUpperCase();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(displayName);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -131,8 +135,8 @@ export function ProjectRow({
         }
       }}
       aria-pressed={selected}
-      title={`${displayName} · double-click to rename`}
-      className={`group relative flex w-full cursor-pointer items-center gap-[11px] rounded-[10px] border px-2.5 py-2 text-left transition-colors ${
+      title={`${displayName}\n${formatProjectLocator(project)}\n\nDouble-click to rename`}
+      className={`group relative flex w-full cursor-pointer items-center gap-[10px] rounded-[8px] border px-2.5 py-[5px] text-left transition-colors ${
         selected ? 'bg-surface-elevated' : 'bg-transparent hover:bg-surface-hover'
       }`}
       // Inline because the console scope's wildcard `border-color: var(--border)`
@@ -147,16 +151,13 @@ export function ProjectRow({
         />
       ) : null}
 
-      {/* Monogram tile — gradient-filled when active */}
-      <span
-        aria-hidden
-        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg font-mono text-[13px] font-bold transition-colors ${
-          selected
-            ? 'brand-bar text-white'
-            : 'border border-border bg-surface-elevated text-text-secondary group-hover:text-text-primary'
-        }`}
-      >
-        {monogram}
+      {/* A bare coloured glyph. The tinted monogram square was decoration
+          standing in for information the glyph already carries — six of them
+          down the rail read as a column of swatches rather than a list of
+          projects. Colour lives here now rather than on chats: a chat is read
+          once, a project is navigated to for months. */}
+      <span aria-hidden className="flex h-[17px] w-[17px] shrink-0 items-center justify-center">
+        <ProjectGlyph projectId={project.id} glyph={identity.glyph} color={color} />
       </span>
 
       <div className="flex min-w-0 flex-1 flex-col leading-tight">
@@ -200,10 +201,13 @@ export function ProjectRow({
             {label}
           </span>
         )}
-        <span className="truncate font-mono text-[10.5px] text-text-tertiary">
-          {formatProjectLocator(project)}
-        </span>
       </div>
+
+      {/* Counts as a TABLE, not a row of tokens: fixed-width cells so the eye
+          reads DOWN a column instead of re-parsing each row, and blank for
+          zero — an empty cell says "none" faster than a 0 does, and it stops
+          the quiet projects shouting. */}
+      <ProjectCountCells projectId={project.id} />
 
       {/* LIVE pulse on the selected project — hidden while hovering so the
           env/⋯ actions can take its slot. */}

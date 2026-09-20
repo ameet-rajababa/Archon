@@ -35,6 +35,8 @@ export const K = {
   githubConnection: 'github-connection' as const,
   authStatus: 'auth-status' as const,
   activeChats: 'active-chats' as const,
+  /** Rail row numbers. Its own key — see the note in skills/projectCounts.ts. */
+  projectCounts: (projectId: string): string => `projectCounts:${projectId}`,
   providerConnections: 'provider-connections' as const,
   userAiPrefs: 'user-ai-prefs' as const,
   piModels: 'pi-models' as const,
