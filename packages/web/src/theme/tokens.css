@@ -1,0 +1,316 @@
+/*
+ * Appearance token layer — three families of variable, in three layers.
+ *
+ *   LAYER 1  PRIMITIVES   raw ramps. No component ever names these.
+ *   LAYER 2  SEMANTIC     what the UI asks for (--surface, --accent, --text-*).
+ *                         Redefined once per [data-theme][data-mode] pair.
+ *   LAYER 3  COMPONENT    type scale, shape, density. Resolved from layer 2.
+ *
+ * WHY A NEW FILE RATHER THAN EDITS TO theme.css: upstream develops
+ * experiments/console faster than any other part of packages/web (65 commits in
+ * 90 days). A file that does not exist upstream cannot conflict with it. This
+ * file and one import line in main.tsx are the whole footprint.
+ *
+ * WHY THE `[data-theme] .console-root` SELECTORS: theme.css defines its palette
+ * ON `.console-root`. Custom properties resolve from the closest defining
+ * ancestor, so a definition on <html> loses to `.console-root` no matter what
+ * order the stylesheets load in. Targeting the same element at higher
+ * specificity (0,2,0 vs 0,1,0) is what makes this file win without editing
+ * theme.css at all.
+ */
+
+/* ══ LAYER 1 — PRIMITIVES ══════════════════════════════════════════════ */
+:root {
+  /* Linear family — near-neutral surfaces, faint cool cast (hue 265).
+     Chroma stays at or below 0.008 on every surface. That restraint is the
+     whole "easy on the eyes" property; it is not an accident of taste. */
+  --ln-0: oklch(1 0 0);
+  --ln-1: oklch(0.98 0.002 265);
+  --ln-2: oklch(0.965 0.003 265);
+  --ln-3: oklch(0.94 0.004 265);
+  --ln-4: oklch(0.915 0.004 265);
+  --ln-5: oklch(0.78 0.006 265);
+  --ln-6: oklch(0.62 0.008 265);
+  --ln-7: oklch(0.48 0.008 265);
+  --ln-8: oklch(0.32 0.007 265);
+  --ln-9: oklch(0.255 0.006 265);
+  --ln-10: oklch(0.19 0.005 265);
+  --ln-11: oklch(0.145 0.004 265);
+  --ln-12: oklch(0.12 0.004 265);
+  --ln-accent: oklch(0.58 0.145 278);
+  --ln-accent-lt: oklch(0.52 0.155 278);
+
+  /* Archon family — the brand magenta, chroma calmed 0.295 -> 0.22. The
+     original is near the top of the displayable range and reads as a hazard
+     rather than a brand when it lands on every focus ring and primary button. */
+  --ar-magenta: oklch(0.64 0.22 330);
+  --ar-magenta-lt: oklch(0.52 0.21 330);
+  --ar-violet: oklch(0.56 0.19 305);
+  --ar-teal: oklch(0.755 0.15 168);
+
+  /* Label palette — eight hues that must stay mutually distinguishable in
+     BOTH modes, so they are defined once and never aliased to a status token.
+     (A 'green' label and a 'teal' one rendered the same pixel when --success
+     aliased --brand-teal; that must not become possible again.) */
+  --lbl-rose: oklch(0.62 0.17 15);
+  --lbl-coral: oklch(0.64 0.15 40);
+  --lbl-amber: oklch(0.68 0.14 75);
+  --lbl-olive: oklch(0.62 0.13 120);
+  --lbl-teal: oklch(0.66 0.13 170);
+  --lbl-blue: oklch(0.64 0.15 245);
+  --lbl-violet: oklch(0.58 0.17 300);
+  --lbl-plum: oklch(0.56 0.16 330);
+}
+
+/* ══ LAYER 2 — SEMANTIC ════════════════════════════════════════════════
+   Four blocks: family x mode. `system` is a resolver, not a fifth palette —
+   appearance.ts writes only `light` or `dark` into data-mode.
+   ══════════════════════════════════════════════════════════════════════ */
+
+[data-theme='linear'][data-mode='dark'] .console-root {
+  --surface: var(--ln-11);
+  --surface-inset: var(--ln-12);
+  --surface-elevated: var(--ln-10);
+  --surface-hover: var(--ln-9);
+  --surface-variant: var(--ln-10);
+  --surface-bright: var(--ln-8);
+  --border: var(--ln-9);
+  --border-bright: var(--ln-8);
+  --outline-variant: var(--ln-7);
+  --text-primary: oklch(0.97 0.002 265);
+  --text-secondary: var(--ln-5);
+  --text-tertiary: var(--ln-6);
+  --accent: var(--ln-accent);
+  --accent-bright: var(--ln-accent);
+  --accent-hover: oklch(0.64 0.15 278);
+  --accent-muted: oklch(0.58 0.145 278 / 0.3);
+  --accent-soft: oklch(0.58 0.145 278 / 0.16);
+  --accent-ring: oklch(0.58 0.145 278 / 0.4);
+  --primary: var(--ln-accent);
+  --primary-foreground: oklch(0.99 0 0);
+  --ring: var(--ln-accent);
+  --background: var(--ln-11);
+}
+
+[data-theme='linear'][data-mode='light'] .console-root {
+  /* The surface ladder INVERTS in light mode, and getting it wrong is subtle.
+     In dark, `inset` is the darkest and `elevated` the lightest, so an elevated
+     tile pops off an inset rail. Carrying that ordering into light mode pushes
+     `elevated` toward pure white while `inset` is already near-white — and the
+     project monogram (elevated) disappeared into the rail (inset), 1.5% apart.
+     Light mode wants a genuinely tinted recess and a white raised surface. */
+  --surface: var(--ln-0);
+  --surface-inset: oklch(0.958 0.004 265);
+  --surface-elevated: oklch(0.995 0.001 265);
+  --surface-hover: oklch(0.945 0.005 265);
+  --surface-variant: var(--ln-2);
+  --surface-bright: oklch(0.9 0.005 265);
+  --border: var(--ln-4);
+  --border-bright: var(--ln-5);
+  --outline-variant: var(--ln-6);
+  --text-primary: oklch(0.22 0.006 265);
+  --text-secondary: var(--ln-7);
+  --text-tertiary: var(--ln-6);
+  --accent: var(--ln-accent-lt);
+  --accent-bright: var(--ln-accent-lt);
+  --accent-hover: oklch(0.46 0.16 278);
+  --accent-muted: oklch(0.52 0.155 278 / 0.26);
+  --accent-soft: oklch(0.52 0.155 278 / 0.1);
+  --accent-ring: oklch(0.52 0.155 278 / 0.32);
+  --primary: var(--ln-accent-lt);
+  --primary-foreground: oklch(1 0 0);
+  --ring: var(--ln-accent-lt);
+  --background: var(--ln-0);
+}
+
+[data-theme='archon'][data-mode='dark'] .console-root {
+  --surface: oklch(0.175 0.007 265);
+  --surface-inset: oklch(0.13 0.006 265);
+  --surface-elevated: oklch(0.205 0.009 265);
+  --surface-hover: oklch(0.235 0.01 265);
+  --surface-variant: oklch(0.21 0.009 265);
+  --surface-bright: oklch(0.275 0.012 265);
+  --border: oklch(0.275 0.012 265);
+  --border-bright: oklch(0.355 0.016 265);
+  --outline-variant: oklch(0.4 0.018 265);
+  --text-primary: oklch(0.975 0.004 265);
+  --text-secondary: oklch(0.745 0.014 265);
+  --text-tertiary: oklch(0.56 0.017 265);
+  --accent: var(--ar-magenta);
+  --accent-bright: var(--ar-magenta);
+  --accent-hover: oklch(0.7 0.21 330);
+  --accent-muted: oklch(0.64 0.22 330 / 0.3);
+  --accent-soft: oklch(0.64 0.22 330 / 0.14);
+  --accent-ring: oklch(0.64 0.22 330 / 0.4);
+  --primary: var(--ar-magenta);
+  --primary-foreground: oklch(0.99 0 0);
+  --ring: var(--ar-magenta);
+  --background: oklch(0.145 0.006 265);
+}
+
+[data-theme='archon'][data-mode='light'] .console-root {
+  /* Same inversion as the Linear light block above — see the note there. */
+  --surface: oklch(0.998 0.001 320);
+  --surface-inset: oklch(0.955 0.006 320);
+  --surface-elevated: oklch(1 0 0);
+  --surface-hover: oklch(0.94 0.008 320);
+  --surface-variant: oklch(0.975 0.004 320);
+  --surface-bright: oklch(0.9 0.008 320);
+  --border: oklch(0.91 0.006 320);
+  --border-bright: oklch(0.8 0.01 320);
+  --outline-variant: oklch(0.7 0.012 320);
+  --text-primary: oklch(0.225 0.01 320);
+  --text-secondary: oklch(0.48 0.012 320);
+  --text-tertiary: oklch(0.62 0.012 320);
+  --accent: var(--ar-magenta-lt);
+  --accent-bright: var(--ar-magenta-lt);
+  --accent-hover: oklch(0.46 0.22 330);
+  --accent-muted: oklch(0.52 0.21 330 / 0.26);
+  --accent-soft: oklch(0.52 0.21 330 / 0.1);
+  --accent-ring: oklch(0.52 0.21 330 / 0.3);
+  --primary: var(--ar-magenta-lt);
+  --primary-foreground: oklch(1 0 0);
+  --ring: var(--ar-magenta-lt);
+  --background: oklch(0.998 0.001 320);
+}
+
+/* ══ STATUS — distinct from accent so a theme swap cannot break meaning ══
+   Light mode needs its own values: a colour tuned against charcoal reads as a
+   stain on white, and several fail contrast outright at dark-mode lightness. */
+[data-mode='dark'] .console-root {
+  --running: oklch(0.72 0.155 245);
+  --running-soft: oklch(0.72 0.155 245 / 0.14);
+  --success: oklch(0.72 0.15 168);
+  --success-soft: oklch(0.72 0.15 168 / 0.14);
+  --warning: oklch(0.8 0.14 85);
+  --warning-soft: oklch(0.8 0.14 85 / 0.14);
+  --error: oklch(0.68 0.2 18);
+  --error-soft: oklch(0.68 0.2 18 / 0.14);
+  --node-script: oklch(0.7 0.14 140);
+  --node-cancel: oklch(0.62 0.19 10);
+}
+[data-mode='light'] .console-root {
+  --running: oklch(0.52 0.17 245);
+  --running-soft: oklch(0.52 0.17 245 / 0.1);
+  --success: oklch(0.5 0.13 168);
+  --success-soft: oklch(0.5 0.13 168 / 0.1);
+  --warning: oklch(0.58 0.13 75);
+  --warning-soft: oklch(0.58 0.13 75 / 0.12);
+  --error: oklch(0.54 0.21 18);
+  --error-soft: oklch(0.54 0.21 18 / 0.1);
+  --node-script: oklch(0.52 0.14 140);
+  --node-cancel: oklch(0.52 0.2 10);
+}
+
+/* ══ BRAND ALIASES — a deliberate shim, not the end state ═══════════════
+ * 69 references across 18 files name `var(--brand-magenta)` and friends
+ * directly, and 31 more use the .brand-bar / .brand-text gradient utilities.
+ * A component naming a brand primitive renders THAT COLOUR IN EVERY THEME,
+ * which would have made every input in the Linear theme glow magenta on focus.
+ *
+ * Re-pointing all 100 by hand means editing 29 files, 11 of them in upstream's
+ * 90-day hot set — a large conflict surface landing in one merge window.
+ * Redefining the primitives per family instead makes all 100 resolve correctly
+ * with zero component edits.
+ *
+ * THIS IS A SHIM. Components still say "brand" when they mean "accent", which
+ * is wrong and reads as wrong. Those 29 files are all opened during phases 3
+ * and 4; re-point each reference then, while already in the file.
+ */
+[data-theme='linear'] .console-root {
+  --brand-magenta: var(--accent);
+  --brand-magenta-2: var(--accent-hover);
+  --brand-violet: var(--accent);
+  --brand-teal: var(--success);
+  --brand-teal-2: var(--success);
+  --brand-blue: var(--running);
+  --brand-green: var(--lbl-olive);
+  /* Decision, 2026-09-19: the duotone gradient is Archon-only. Resolving it to
+     a flat accent here means it CANNOT appear in the Linear theme — the
+     restriction holds by construction rather than by remembering to obey it. */
+  --brand-gradient: var(--accent);
+  --brand-gradient-soft: var(--accent-soft);
+}
+[data-theme='archon'] .console-root {
+  --brand-magenta: var(--ar-magenta);
+  --brand-magenta-2: oklch(0.72 0.2 335);
+  --brand-violet: var(--ar-violet);
+  --brand-teal: var(--ar-teal);
+  --brand-teal-2: oklch(0.7 0.14 175);
+  --brand-blue: oklch(0.72 0.155 245);
+  --brand-green: oklch(0.72 0.17 150);
+  --brand-gradient: linear-gradient(
+    135deg,
+    var(--ar-magenta) 0%,
+    var(--ar-violet) 50%,
+    var(--ar-teal) 100%
+  );
+  --brand-gradient-soft: linear-gradient(
+    135deg,
+    oklch(0.64 0.22 330 / 0.18) 0%,
+    oklch(0.56 0.19 305 / 0.12) 50%,
+    oklch(0.755 0.15 168 / 0.18) 100%
+  );
+}
+[data-theme='archon'][data-mode='light'] .console-root {
+  --brand-magenta: var(--ar-magenta-lt);
+  --brand-gradient: linear-gradient(
+    135deg,
+    var(--ar-magenta-lt) 0%,
+    var(--ar-violet) 50%,
+    var(--ar-teal) 100%
+  );
+}
+
+/* ══ TYPOGRAPHY — one family per theme ═════════════════════════════════
+   theme.css sets Geist on `.console-root`. Same-element override again. */
+[data-theme='linear'] .console-root {
+  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-feature-settings: normal;
+  letter-spacing: -0.005em;
+}
+[data-theme='linear'] .console-root .font-mono,
+[data-theme='linear'] .console-root code,
+[data-theme='linear'] .console-root pre,
+[data-theme='linear'] .console-root kbd,
+[data-theme='linear'] .console-root samp {
+  font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  font-feature-settings: normal;
+}
+
+/* ══ LAYER 3 — COMPONENT TOKENS ════════════════════════════════════════
+ * The type scale is defined here but NOT YET APPLIED. 597 of 931 text sizes in
+ * the console are arbitrary pixel literals (`text-[10.5px]`), which ignore a
+ * root font-size. Shipping the size control before phase 4 converts them would
+ * ship a control that moves 36% of the text on screen — worse than none.
+ * The scale and the --ui-scale hook are here so phase 4 has a target to
+ * convert TOWARD; the picker stays out of the UI until it works.
+ */
+:root {
+  --text-micro: 0.6875rem;
+  --lh-micro: 1.45;
+  --text-small: 0.75rem;
+  --lh-small: 1.5;
+  --text-body: 0.8125rem;
+  --lh-body: 1.6;
+  --text-medium: 0.875rem;
+  --lh-medium: 1.55;
+  --text-large: 1rem;
+  --lh-large: 1.45;
+  --text-title: 1.25rem;
+  --lh-title: 1.3;
+
+  --radius-control: 6px;
+  --radius-card: 8px;
+  --radius-panel: 10px;
+  --radius-pill: 999px;
+}
+[data-text='small'] {
+  --ui-scale: 0.925;
+}
+[data-text='default'] {
+  --ui-scale: 1;
+}
+[data-text='large'] {
+  --ui-scale: 1.075;
+}
