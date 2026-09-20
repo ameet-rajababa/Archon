@@ -110,7 +110,12 @@
   --outline-variant: var(--ln-6);
   --text-primary: oklch(0.22 0.006 265);
   --text-secondary: var(--ln-7);
-  --text-tertiary: var(--ln-6);
+  /* NOT var(--ln-6). That step is tuned for dark, where it reads 5.5:1 against
+     the dark inset. Inherited unchanged into light it lands at 3.2:1 — counts,
+     timestamps and every other tertiary label failed AA. One ramp step cannot
+     serve both modes here because contrast runs the other way. Solved against
+     the WORST light surface in the theme (--surface-hover), not the average. */
+  --text-tertiary: oklch(0.529 0.008 265);
   --accent: var(--ln-accent-lt);
   --accent-bright: var(--ln-accent-lt);
   --accent-hover: oklch(0.46 0.16 278);
@@ -135,7 +140,7 @@
   --outline-variant: oklch(0.4 0.018 265);
   --text-primary: oklch(0.975 0.004 265);
   --text-secondary: oklch(0.745 0.014 265);
-  --text-tertiary: oklch(0.56 0.017 265);
+  --text-tertiary: oklch(0.602 0.017 265); /* was .56 — 4.1:1, fails the other way */
   --accent: var(--ar-magenta);
   --accent-bright: var(--ar-magenta);
   --accent-hover: oklch(0.7 0.21 330);
@@ -161,7 +166,7 @@
   --outline-variant: oklch(0.7 0.012 320);
   --text-primary: oklch(0.225 0.01 320);
   --text-secondary: oklch(0.48 0.012 320);
-  --text-tertiary: oklch(0.62 0.012 320);
+  --text-tertiary: oklch(0.526 0.012 320); /* was .62 — 3.2:1 on the inset */
   --accent: var(--ar-magenta-lt);
   --accent-bright: var(--ar-magenta-lt);
   --accent-hover: oklch(0.46 0.22 330);
