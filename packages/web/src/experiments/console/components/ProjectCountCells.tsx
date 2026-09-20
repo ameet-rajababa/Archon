@@ -24,10 +24,13 @@ function Cell({
 }: {
   value: number | null;
   title: string;
-  tone?: 'running';
+  tone?: 'running' | 'attention';
 }): ReactElement {
   return (
-    <span title={title} className={`cell${tone === 'running' ? ' live' : ''}`}>
+    <span
+      title={title}
+      className={`cell${tone === 'running' ? ' live' : ''}${tone === 'attention' ? ' needs-you' : ''}`}
+    >
       {value !== null && value > 0 ? value : ''}
     </span>
   );
@@ -41,6 +44,7 @@ function ProjectCountCellsImpl({ projectId }: { projectId: string }): ReactEleme
   const chats = data?.chats ?? null;
   const runs = data?.runs ?? null;
   const running = data?.running ?? 0;
+  const paused = data?.paused ?? 0;
 
   return (
     <span className="rail-hide rail-counts">
@@ -48,13 +52,21 @@ function ProjectCountCellsImpl({ projectId }: { projectId: string }): ReactEleme
         value={chats}
         title={chats === null ? 'Chats' : `${chats} active chat${chats === 1 ? '' : 's'}`}
       />
+      {/* Amber wins over blue: waiting on YOU outranks the machine being busy. */}
       <Cell
         value={runs}
-        tone={running > 0 ? 'running' : undefined}
+        tone={paused > 0 ? 'attention' : running > 0 ? 'running' : undefined}
         title={
           runs === null
-            ? 'Runs'
-            : `${runs} run${runs === 1 ? '' : 's'}${running > 0 ? `, ${running} running now` : ''}`
+            ? 'Runs in play'
+            : runs === 0
+              ? 'Nothing running'
+              : [
+                  running > 0 ? `${running} running` : null,
+                  paused > 0 ? `${paused} waiting on you` : null,
+                ]
+                  .filter(Boolean)
+                  .join(', ') || `${runs} in play`
         }
       />
       <Cell

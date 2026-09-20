@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 import { useLocation, useParams } from 'react-router';
 import { ProjectViewTabs } from './ProjectViewTabs';
+import { ProjectStateChip } from './ProjectStateChip';
 import { useEntity } from '../store/cache';
 import { K } from '../store/keys';
 import * as skill from '../skills';
@@ -57,9 +58,14 @@ export function ProjectHeader(): ReactElement {
     <header className="flex shrink-0 flex-col gap-3 border-b border-border px-6 pb-0 pt-4">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <h1 className="truncate text-base font-medium text-text-primary">
-            {projectId === undefined ? 'All projects' : (project?.name ?? 'Project')}
-          </h1>
+          <span className="flex min-w-0 items-center gap-2.5">
+            <h1 className="truncate text-base font-medium text-text-primary">
+              {projectId === undefined ? 'All projects' : (project?.name ?? 'Project')}
+            </h1>
+            {/* Where this project is, in one or two words. Beside the name
+                because it is a property of the project, not of the page. */}
+            {projectId !== undefined ? <ProjectStateChip projectId={projectId} /> : null}
+          </span>
           {/* Always rendered, even while loading: an absent second line would
               change the header's height and shift the page under the reader. */}
           <p className="truncate text-xs text-text-tertiary">

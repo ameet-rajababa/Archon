@@ -376,3 +376,10 @@
   font-size: var(--text-small);
   color: var(--text-tertiary);
 }
+
+/* Waiting on YOU. Amber outranks the running blue, because the machine being
+   busy is not a call to action and an approval request is. */
+.rail-counts .cell.needs-you {
+  color: var(--warning, oklch(0.78 0.15 80));
+  font-weight: 600;
+}

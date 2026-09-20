@@ -16,9 +16,34 @@ import { requestJson } from '../lib/http';
 
 export interface ProjectCounts {
   chats: number;
+  /**
+   * Runs IN PLAY — running, paused or queued. Not the lifetime total.
+   *
+   * The total was the largest number in the rail and carried the least
+   * information: wix-access read 57, of which 45 were completed, 9 failed and
+   * 3 cancelled — not one of them needed anything. Meanwhile vault's single
+   * executing run was buried inside 22.
+   *
+   * It also now means the same kind of thing as the chats column beside it,
+   * which has always counted ACTIVE chats rather than every chat ever.
+   *
+   * Failures are deliberately excluded: a failed run is terminal, so it is
+   * history until you choose to act on it, and it belongs on the Runs tab.
+   */
   runs: number;
-  /** Runs executing right now — the rail tints this one. */
+  /** Executing right now. */
   running: number;
+  /** Waiting on YOU — an approval or an input request. Outranks running. */
+  paused: number;
+  /**
+   * Failures among the MOST RECENT runs, not over all time.
+   *
+   * The lifetime figure has the same disease the lifetime total had: wix-access
+   * has 9 failed runs and every one of them is old, so a health word derived
+   * from it said "Off track" permanently and could never say anything else. A
+   * health signal that cannot recover is not a signal.
+   */
+  failed: number;
   /**
    * Open issues, or null when the repo cannot be asked — no repository, a
    * non-GitHub remote, no token, GitHub unreachable. null renders as an empty
@@ -29,8 +54,9 @@ export interface ProjectCounts {
 }
 
 interface RunsCountsResponse {
-  counts?: { all?: number; running?: number };
+  counts?: { all?: number; running?: number; paused?: number; pending?: number; failed?: number };
   total?: number;
+  runs?: { status?: string }[];
 }
 
 export async function getProjectCounts(projectId: string): Promise<ProjectCounts> {
@@ -39,7 +65,10 @@ export async function getProjectCounts(projectId: string): Promise<ProjectCounts
   // blank the other's number.
   const [chats, runs, issues] = await Promise.allSettled([
     requestJson<unknown[]>(`/api/conversations?codebaseId=${q}&mine=true&archived=active`),
-    requestJson<RunsCountsResponse>(`/api/dashboard/runs?codebaseId=${q}&limit=1`),
+    // limit=10, not 1: `counts` is lifetime, so recent health has to be read
+    // from the runs themselves. Ten is enough to distinguish "this keeps
+    // failing" from "one failed a month ago" and still a small response.
+    requestJson<RunsCountsResponse>(`/api/dashboard/runs?codebaseId=${q}&limit=10`),
     requestJson<{ issues?: { state?: string }[]; reason?: string | null }>(
       `/api/projects/${q}/issues`
     ),
@@ -57,11 +86,16 @@ export async function getProjectCounts(projectId: string): Promise<ProjectCounts
       ? null
       : issuesValue.issues.filter(i => i.state === 'OPEN').length;
 
+  const running = runsValue?.counts?.running ?? 0;
+  const paused = runsValue?.counts?.paused ?? 0;
+  const pending = runsValue?.counts?.pending ?? 0;
+
   return {
     chats: chatCount,
-    // `total` is the honest count; `counts.all` can be capped by the limit.
-    runs: runsValue?.total ?? runsValue?.counts?.all ?? 0,
-    running: runsValue?.counts?.running ?? 0,
+    runs: running + paused + pending,
+    running,
+    paused,
+    failed: (runsValue?.runs ?? []).filter(r => r.status === 'failed').length,
     issues: openIssues,
   };
 }
