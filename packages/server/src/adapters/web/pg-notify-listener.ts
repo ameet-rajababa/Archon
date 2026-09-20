@@ -1,21 +1,25 @@
 /**
- * Postgres real-time bridge: `LISTEN archon_dashboard_event` and wake the
- * DashboardEventPoller to drain immediately on each notification — so out-of-process
- * (CLI) workflow runs stream to the console with near-zero latency on Postgres.
+ * Postgres real-time bridge: `LISTEN <channel>` and run a handler on each
+ * notification, reconnecting with backoff when the connection drops.
  *
- * The notification carries no payload to emit; it only triggers `poller.drainNow()`.
- * That keeps the cursor + row→SSE mapping + dedup in ONE place (the poller), so a
- * dropped or coalesced notification can never desync state — the cursor drain is
- * authoritative, and the poller's interval backstop reconciles anything missed
- * across a `LISTEN` reconnect.
+ * Two channels use it.
+ *
+ * `archon_dashboard_event` wakes the DashboardEventPoller to drain immediately,
+ * so out-of-process (CLI) workflow runs stream to the console with near-zero
+ * latency. That notification carries no payload worth emitting — it only
+ * triggers `poller.drainNow()`, which keeps the cursor + row→SSE mapping + dedup
+ * in ONE place, so a dropped or coalesced notification can never desync state.
+ *
+ * `archon_conversation_event` has no events table behind it, so the handler
+ * forwards the notification straight to the dashboard stream. The client treats
+ * it the same way it treats every other event — as a reason to refetch, never
+ * as state — so a coalesced or dropped one costs at most a stale list until the
+ * next notification.
  */
 import { createLogger } from '@archon/paths';
 import type { DbNotificationListener } from '@archon/core/db/adapters/types';
-import { WORKFLOW_EVENT_NOTIFY_CHANNEL } from '@archon/core/db/adapters/types';
-import type { DashboardEventPoller } from './dashboard-event-poller';
 
 const log = createLogger('adapter.web.pg-notify');
-const CHANNEL = WORKFLOW_EVENT_NOTIFY_CHANNEL;
 const MAX_BACKOFF_MS = 30_000;
 
 export class PgNotifyListener {
@@ -26,7 +30,8 @@ export class PgNotifyListener {
 
   constructor(
     private readonly notifier: DbNotificationListener,
-    private readonly poller: DashboardEventPoller,
+    private readonly channel: string,
+    private readonly onNotify: (payload: string) => void,
     private readonly initialBackoffMs = 1000
   ) {
     this.backoffMs = initialBackoffMs;
@@ -41,9 +46,9 @@ export class PgNotifyListener {
     if (this.stopped) return;
     try {
       const unsubscribe = await this.notifier.listen(
-        CHANNEL,
-        () => {
-          void this.poller.drainNow();
+        this.channel,
+        (payload: string) => {
+          this.onNotify(payload);
         },
         () => {
           this.scheduleReconnect();
@@ -57,7 +62,7 @@ export class PgNotifyListener {
       }
       this.unsubscribe = unsubscribe;
       this.backoffMs = this.initialBackoffMs; // reset on a successful connect
-      log.info({ channel: CHANNEL }, 'pg_notify.listening');
+      log.info({ channel: this.channel }, 'pg_notify.listening');
     } catch (err) {
       log.warn({ err }, 'pg_notify.connect_failed');
       this.scheduleReconnect();

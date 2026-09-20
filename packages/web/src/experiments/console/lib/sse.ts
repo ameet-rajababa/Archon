@@ -21,6 +21,7 @@ import type { LiveEvent } from '../primitives/live-text';
 interface ParsedEvent {
   type?: string;
   runId?: string;
+  codebaseId?: string | null;
   locked?: boolean;
   content?: string;
   category?: string;
@@ -41,14 +42,37 @@ function parse(raw: string): ParsedEvent | null {
  * invalidations are idempotent.
  *
  * Events we care about:
- *   workflow_status   — run created / status changed / completed / failed
- *   dag_node          — active-node lifecycle changes, rendered together on
- *                       each ActiveRunCard
+ *   workflow_status      — run created / status changed / completed / failed
+ *   dag_node             — active-node lifecycle changes, rendered together on
+ *                          each ActiveRunCard
+ *   conversation_changed — a chat created, renamed, archived, recolored, or
+ *                          touched by new activity (Postgres only)
  */
 export function useDashboardSSE(): void {
   useEffect(() => {
     // Use SSE_BASE_URL so dev bypasses the Vite proxy (which buffers SSE).
     const es = new EventSource(`${SSE_BASE_URL}/api/stream/__dashboard__`);
+
+    // Activity on a busy chat fires one notification per message, so the
+    // refetch is coalesced the same way the per-conversation stream coalesces
+    // streamed text. 120ms is below noticing and well above a burst.
+    let convDirty: string | null | undefined;
+    let convTimer: ReturnType<typeof setTimeout> | null = null;
+    const flushConversations = (): void => {
+      if (convTimer !== null) return;
+      convTimer = setTimeout(() => {
+        convTimer = null;
+        // A known codebase invalidates just that project's lists; an unknown one
+        // (a chat with no codebase) falls back to the prefix, which fans out to
+        // every `conversations:*` key including the `:archived-count` variants.
+        if (typeof convDirty === 'string' && convDirty !== '') {
+          invalidate(K.conversations(convDirty));
+        } else {
+          invalidate('conversations');
+        }
+        convDirty = undefined;
+      }, 120);
+    };
 
     es.onmessage = (e: MessageEvent<string>): void => {
       const ev = parse(e.data);
@@ -61,6 +85,13 @@ export function useDashboardSSE(): void {
         if (typeof ev.runId === 'string') {
           invalidate(K.run(ev.runId));
         }
+        return;
+      }
+      if (ev.type === 'conversation_changed') {
+        // Two notifications for different projects inside one debounce window
+        // must not let the second one narrow the first. Widen to the prefix.
+        convDirty = convDirty === undefined || convDirty === ev.codebaseId ? ev.codebaseId : null;
+        flushConversations();
       }
     };
 
@@ -75,6 +106,7 @@ export function useDashboardSSE(): void {
     };
 
     return (): void => {
+      if (convTimer !== null) clearTimeout(convTimer);
       es.close();
     };
   }, []);

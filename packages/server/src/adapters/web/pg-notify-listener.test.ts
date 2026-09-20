@@ -16,7 +16,9 @@ describe('PgNotifyListener', () => {
     const drainNow = mock(() => Promise.resolve());
     const poller = { drainNow } as unknown as DashboardEventPoller;
 
-    const listener = new PgNotifyListener(notifier, poller);
+    const listener = new PgNotifyListener(notifier, 'archon_dashboard_event', () =>
+      poller.drainNow()
+    );
     await listener.start();
 
     expect(notifier.listen).toHaveBeenCalledTimes(1);
@@ -36,9 +38,7 @@ describe('PgNotifyListener', () => {
     const notifier: DbNotificationListener = {
       listen: mock(() => Promise.resolve(unsub)),
     };
-    const listener = new PgNotifyListener(notifier, {
-      drainNow: mock(() => Promise.resolve()),
-    } as unknown as DashboardEventPoller);
+    const listener = new PgNotifyListener(notifier, 'archon_dashboard_event', () => {});
 
     await listener.start();
     listener.stop();
@@ -60,7 +60,8 @@ describe('PgNotifyListener', () => {
     };
     const listener = new PgNotifyListener(
       notifier,
-      { drainNow: mock(() => Promise.resolve()) } as unknown as DashboardEventPoller,
+      'archon_dashboard_event',
+      () => {},
       5 // tiny backoff so the test doesn't wait a second
     );
 

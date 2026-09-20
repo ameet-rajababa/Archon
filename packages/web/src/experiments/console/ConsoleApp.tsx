@@ -14,6 +14,7 @@ import { SettingsPage } from './routes/SettingsPage';
 import { invalidate } from './store/cache';
 import { K } from './store/keys';
 import { useKeymap, type Binding } from './lib/keymap';
+import { useDashboardSSE } from './lib/sse';
 import { SHORTCUTS } from './lib/shortcuts';
 import './theme.css';
 
@@ -25,6 +26,12 @@ import './theme.css';
  * paths relative to /console.
  */
 export function ConsoleApp(): ReactElement {
+  // Mounted at the ROOT, not per route. The rail renders on every screen and
+  // carries live run counts and the chat list, so a subscription that only
+  // existed on RunsPage and inside the WorkflowDock left those numbers frozen
+  // everywhere else while still looking live. One connection, always open.
+  useDashboardSSE();
+
   const [addOpen, setAddOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);

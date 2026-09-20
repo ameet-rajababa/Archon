@@ -77,6 +77,10 @@ import { SSETransport } from './adapters/web/transport';
 import { WorkflowEventBridge } from './adapters/web/workflow-bridge';
 import { DashboardEventPoller } from './adapters/web/dashboard-event-poller';
 import { PgNotifyListener } from './adapters/web/pg-notify-listener';
+import {
+  WORKFLOW_EVENT_NOTIFY_CHANNEL,
+  CONVERSATION_EVENT_NOTIFY_CHANNEL,
+} from '@archon/core/db/adapters/types';
 import { registerApiRoutes } from './routes/api';
 import { registerGithubWebhookRoute } from './routes/webhooks';
 import {
@@ -381,10 +385,37 @@ export async function startServer(opts: ServerOptions = {}): Promise<void> {
   const dashboardPoller = new DashboardEventPoller();
   const dbNotifier = getDbNotificationListener();
   let pgNotifyListener: PgNotifyListener | undefined;
+  let conversationNotifyListener: PgNotifyListener | undefined;
   if (dbNotifier) {
     dashboardPoller.start(transport, 10_000);
-    pgNotifyListener = new PgNotifyListener(dbNotifier, dashboardPoller);
+    pgNotifyListener = new PgNotifyListener(dbNotifier, WORKFLOW_EVENT_NOTIFY_CHANNEL, () => {
+      void dashboardPoller.drainNow();
+    });
     await pgNotifyListener.start();
+
+    // Conversation lifecycle — a chat created, renamed, archived, recolored, or
+    // touched by new activity. There is no events table to drain, so the
+    // notification is forwarded straight to the dashboard stream; the console
+    // reacts by refetching, exactly as it does for workflow events.
+    //
+    // Postgres only. On SQLite there are no triggers and no NOTIFY, so the chat
+    // list falls back to the console's own visibility-gated poll. That is a
+    // real difference in behavior, not a silent one.
+    conversationNotifyListener = new PgNotifyListener(
+      dbNotifier,
+      CONVERSATION_EVENT_NOTIFY_CHANNEL,
+      (codebaseId: string) => {
+        transport.emitWorkflowEvent(
+          '__dashboard__',
+          JSON.stringify({
+            type: 'conversation_changed',
+            codebaseId: codebaseId === '' ? null : codebaseId,
+            timestamp: Date.now(),
+          })
+        );
+      }
+    );
+    await conversationNotifyListener.start();
   } else {
     dashboardPoller.start(transport, 1_500);
   }
@@ -1027,6 +1058,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<void> {
           gitea?.stop();
           gitlab?.stop();
           pgNotifyListener?.stop();
+          conversationNotifyListener?.stop();
           dashboardPoller.stop();
           await webAdapter.stop();
         } catch (error) {

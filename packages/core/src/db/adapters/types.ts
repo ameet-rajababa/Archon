@@ -63,6 +63,15 @@ export interface IDatabase {
 export const WORKFLOW_EVENT_NOTIFY_CHANNEL = 'archon_dashboard_event';
 
 /**
+ * Postgres NOTIFY channel for conversation lifecycle — a chat created, renamed,
+ * archived, recolored, or touched by new activity. Separate from the workflow
+ * channel because the two have different shapes: workflow notifications wake a
+ * cursor drain over an events TABLE, while a conversation has no event table
+ * and the notification itself is the whole signal.
+ */
+export const CONVERSATION_EVENT_NOTIFY_CHANNEL = 'archon_conversation_event';
+
+/**
  * Optional capability for databases that support push notifications
  * (Postgres `LISTEN/NOTIFY`). Kept as a NARROW interface separate from
  * `IDatabase` — only the Postgres adapter implements it; SQLite has no
