@@ -182,3 +182,16 @@
 .console-root .brand-bar-soft {
   background: var(--brand-gradient-soft);
 }
+
+/* React Flow paints its attribution link at a hardcoded #999, which reads
+   2.0:1 on the light canvas. The link must remain visible under the library's
+   licence, so it is recoloured rather than hidden. */
+.console-root .react-flow__attribution {
+  /* The library also paints a translucent white panel behind the link, which
+     is a light patch on the dark canvas and a grey one on the light canvas.
+     Owning the panel is what makes the recolour above actually land. */
+  background: var(--surface);
+}
+.console-root .react-flow__attribution a {
+  color: var(--text-secondary);
+}

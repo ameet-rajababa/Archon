@@ -68,6 +68,11 @@
    ══════════════════════════════════════════════════════════════════════ */
 
 [data-theme='linear'][data-mode='dark'] .console-root {
+  /* .brand-bar is a flat fill in this theme (see the brand-alias note below).
+     Its labels are white, and --accent at L .58 leaves them at 4.45:1 — just
+     under AA. One shade darker clears it without moving --accent, which is
+     the brand value and is used for borders and fills that are not text. */
+  --brand-gradient: oklch(0.57 0.145 278);
   --surface: var(--ln-11);
   --surface-inset: var(--ln-12);
   --surface-elevated: var(--ln-10);
@@ -79,9 +84,11 @@
   --outline-variant: var(--ln-7);
   --text-primary: oklch(0.97 0.002 265);
   --text-secondary: var(--ln-5);
-  --text-tertiary: var(--ln-6);
+  --text-tertiary: oklch(0.636 0.008 265); /* was --ln-6 (.62) — 4.33:1 on hover */
   --accent: var(--ln-accent);
-  --accent-bright: var(--ln-accent);
+  /* --accent is the brand fill; --accent-bright is the same hue lifted until it
+     clears AA as text on --surface-hover, the darkest surface it lands on. */
+  --accent-bright: oklch(0.644 0.145 278);
   --accent-hover: oklch(0.64 0.15 278);
   --accent-muted: oklch(0.58 0.145 278 / 0.3);
   --accent-soft: oklch(0.58 0.145 278 / 0.16);
@@ -140,9 +147,9 @@
   --outline-variant: oklch(0.4 0.018 265);
   --text-primary: oklch(0.975 0.004 265);
   --text-secondary: oklch(0.745 0.014 265);
-  --text-tertiary: oklch(0.602 0.017 265); /* was .56 — 4.1:1, fails the other way */
+  --text-tertiary: oklch(0.622 0.017 265); /* .56 failed dark, .602 failed on hover */
   --accent: var(--ar-magenta);
-  --accent-bright: var(--ar-magenta);
+  --accent-bright: oklch(0.65 0.22 330); /* lifted from .64 — 4.42:1 on hover */
   --accent-hover: oklch(0.7 0.21 330);
   --accent-muted: oklch(0.64 0.22 330 / 0.3);
   --accent-soft: oklch(0.64 0.22 330 / 0.14);
@@ -191,20 +198,48 @@
   --warning-soft: oklch(0.8 0.14 85 / 0.14);
   --error: oklch(0.68 0.2 18);
   --error-soft: oklch(0.68 0.2 18 / 0.14);
+  /* The other six --node-* live in the production :root in index.css with one
+     value for both modes. Dark-tuned, they read 1.8-3.0:1 on their own 15%
+     badge tint in light mode. Only the ones that actually fail are restated. */
+  --node-command: oklch(0.63 0.18 250); /* was .62 — 4.45:1 */
+  --node-prompt: oklch(0.655 0.19 290); /* was .58 — 3.58:1 */
   --node-script: oklch(0.7 0.14 140);
   --node-cancel: oklch(0.62 0.19 10);
+  /* Issue types borrow the status palette. They need the same three
+     distinguishable hues and the same per-mode contrast tuning, and a second
+     set would drift out of AA the first time one of these was retuned. */
+  --type-bug: var(--error);
+  --type-feature: var(--running);
+  --type-task: var(--warning);
 }
 [data-mode='light'] .console-root {
-  --running: oklch(0.52 0.17 245);
-  --running-soft: oklch(0.52 0.17 245 / 0.1);
-  --success: oklch(0.5 0.13 168);
-  --success-soft: oklch(0.5 0.13 168 / 0.1);
-  --warning: oklch(0.58 0.13 75);
-  --warning-soft: oklch(0.58 0.13 75 / 0.12);
-  --error: oklch(0.54 0.21 18);
-  --error-soft: oklch(0.54 0.21 18 / 0.1);
+  --running: oklch(0.518 0.13 245); /* chroma cut — .17 read 4.43:1 on hover */
+  --running-soft: oklch(0.518 0.13 245 / 0.1);
+  --success: oklch(0.495 0.13 168); /* .5 read 4.43:1 on its own soft tint */
+  --success-soft: oklch(0.495 0.13 168 / 0.1);
+  --warning: oklch(0.525 0.11 75); /* was .58 — 3.66:1 on hover, the worst pair in the theme */
+  --warning-soft: oklch(0.525 0.11 75 / 0.12);
+  --error: oklch(0.52 0.21 18); /* .54 read 4.34:1 on a stacked error tint */
+  --error-soft: oklch(0.52 0.21 18 / 0.1);
+  /* See the dark block: all six fail in light mode at their :root values.
+     Solved against the MEASURED badge background, not a modelled one: the
+     badge tint is 15% of the token, and these badges appear on the builder's
+     grey panel as well as on a white node card. Ratios below are against the
+     darker of the two; solving against the card alone left Bash at 4.14:1. */
+  --node-command: oklch(0.45 0.18 250); /* was .62 — 2.55:1 */
+  --node-prompt: oklch(0.48 0.19 290); /* was .58 — 3.21:1 */
+  --node-bash: oklch(0.465 0.15 75); /* was .75 — 1.71:1 */
+  --node-loop: oklch(0.41 0.18 170); /* was .62 — 2.23:1 */
+  --node-approval: oklch(0.47 0.17 40); /* was .72 — 1.94:1 */
+  --node-wait: oklch(0.425 0.13 205); /* was .76 — 1.53:1 */
   --node-script: oklch(0.52 0.14 140);
   --node-cancel: oklch(0.52 0.2 10);
+  /* Issue types borrow the status palette. They need the same three
+     distinguishable hues and the same per-mode contrast tuning, and a second
+     set would drift out of AA the first time one of these was retuned. */
+  --type-bug: var(--error);
+  --type-feature: var(--running);
+  --type-task: var(--warning);
 }
 
 /* ══ BRAND ALIASES — a deliberate shim, not the end state ═══════════════

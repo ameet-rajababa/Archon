@@ -137,8 +137,8 @@ function MessageItemImpl({ message, variant = 'chat', onAnswer }: MessageItemPro
           <span
             className="rounded px-[7px] py-[2px] text-[10px] font-bold uppercase tracking-[0.14em]"
             style={{
-              color: 'var(--brand-magenta)',
-              background: 'color-mix(in oklch, var(--brand-magenta), transparent 88%)',
+              color: 'var(--accent-bright)',
+              background: 'color-mix(in oklch, var(--accent), transparent 88%)',
             }}
           >
             You
@@ -185,8 +185,8 @@ function MessageItemImpl({ message, variant = 'chat', onAnswer }: MessageItemPro
         <span
           className="rounded px-[7px] py-[2px] text-[10px] font-bold uppercase tracking-[0.14em]"
           style={{
-            color: 'var(--brand-teal)',
-            background: 'color-mix(in oklch, var(--brand-teal), transparent 88%)',
+            color: 'var(--success)',
+            background: 'color-mix(in oklch, var(--success), transparent 88%)',
           }}
         >
           {label}

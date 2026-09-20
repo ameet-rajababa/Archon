@@ -189,23 +189,30 @@ body {
 
    To regenerate after a highlight.js upgrade: strip comments from
    node_modules/highlight.js/styles/github.min.css, prefix every selector with
-   [data-mode='light'], and drop background from the bare .hljs rules. */
+   [data-mode='light'], and drop background from the bare .hljs rules.
+
+   Then re-apply these four AA corrections — GitHub's own values are tuned for
+   a pure-white page and fail against our tinted code-block surfaces:
+     keyword  #d73a49 -> #c53543   (4.01:1)
+     built_in #e36209 -> #b34d07   (3.06:1)
+     comment  #6a737d -> #646d76   (4.22:1)
+     name     #22863a -> #1f7c35   (4.06:1) */
 [data-mode='light'] pre code.hljs{display:block;overflow-x:auto;padding:1em}
 [data-mode='light'] code.hljs{padding:3px 5px}
 [data-mode='light'] .hljs{color:#24292e}
-[data-mode='light'] .hljs-doctag,[data-mode='light'] .hljs-keyword,[data-mode='light'] .hljs-meta .hljs-keyword,[data-mode='light'] .hljs-template-tag,[data-mode='light'] .hljs-template-variable,[data-mode='light'] .hljs-type,[data-mode='light'] .hljs-variable.language_{color:#d73a49}
+[data-mode='light'] .hljs-doctag,[data-mode='light'] .hljs-keyword,[data-mode='light'] .hljs-meta .hljs-keyword,[data-mode='light'] .hljs-template-tag,[data-mode='light'] .hljs-template-variable,[data-mode='light'] .hljs-type,[data-mode='light'] .hljs-variable.language_{color:#c53543}
 [data-mode='light'] .hljs-title,[data-mode='light'] .hljs-title.class_,[data-mode='light'] .hljs-title.class_.inherited__,[data-mode='light'] .hljs-title.function_{color:#6f42c1}
 [data-mode='light'] .hljs-attr,[data-mode='light'] .hljs-attribute,[data-mode='light'] .hljs-literal,[data-mode='light'] .hljs-meta,[data-mode='light'] .hljs-number,[data-mode='light'] .hljs-operator,[data-mode='light'] .hljs-selector-attr,[data-mode='light'] .hljs-selector-class,[data-mode='light'] .hljs-selector-id,[data-mode='light'] .hljs-variable{color:#005cc5}
 [data-mode='light'] .hljs-meta .hljs-string,[data-mode='light'] .hljs-regexp,[data-mode='light'] .hljs-string{color:#032f62}
-[data-mode='light'] .hljs-built_in,[data-mode='light'] .hljs-symbol{color:#e36209}
-[data-mode='light'] .hljs-code,[data-mode='light'] .hljs-comment,[data-mode='light'] .hljs-formula{color:#6a737d}
-[data-mode='light'] .hljs-name,[data-mode='light'] .hljs-quote,[data-mode='light'] .hljs-selector-pseudo,[data-mode='light'] .hljs-selector-tag{color:#22863a}
+[data-mode='light'] .hljs-built_in,[data-mode='light'] .hljs-symbol{color:#b34d07}
+[data-mode='light'] .hljs-code,[data-mode='light'] .hljs-comment,[data-mode='light'] .hljs-formula{color:#646d76}
+[data-mode='light'] .hljs-name,[data-mode='light'] .hljs-quote,[data-mode='light'] .hljs-selector-pseudo,[data-mode='light'] .hljs-selector-tag{color:#1f7c35}
 [data-mode='light'] .hljs-subst{color:#24292e}
 [data-mode='light'] .hljs-section{color:#005cc5;font-weight:700}
 [data-mode='light'] .hljs-bullet{color:#735c0f}
 [data-mode='light'] .hljs-emphasis{color:#24292e;font-style:italic}
 [data-mode='light'] .hljs-strong{color:#24292e;font-weight:700}
-[data-mode='light'] .hljs-addition{color:#22863a;background-color:#f0fff4}
+[data-mode='light'] .hljs-addition{color:#1f7c35;background-color:#f0fff4}
 [data-mode='light'] .hljs-deletion{color:#b31d28;background-color:#ffeef0}
 
 @layer base {

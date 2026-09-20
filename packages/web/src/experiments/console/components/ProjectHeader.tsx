@@ -78,7 +78,9 @@ export function ProjectHeader(): ReactElement {
         {activity !== null ? (
           <span
             className="flex shrink-0 items-center gap-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.12em]"
-            style={{ color: needsYou ? 'var(--warning)' : 'var(--brand-blue)' }}
+            // --brand-* are fills with no light-mode value; text must use the
+            // semantic tokens, which are tuned per mode and verified at AA.
+            style={{ color: needsYou ? 'var(--warning)' : 'var(--running)' }}
           >
             <span aria-hidden className="h-[6px] w-[6px] rounded-full bg-current" />
             {activity}

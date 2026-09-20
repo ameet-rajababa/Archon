@@ -596,8 +596,11 @@ function OptionRow({
           <span
             className="rounded-full border px-2 py-[2px] font-mono text-[9.5px] font-bold tracking-[0.14em] uppercase text-success"
             style={{
-              borderColor: 'color-mix(in oklch, var(--brand-teal), transparent 65%)',
-              background: 'color-mix(in oklch, var(--brand-teal), transparent 86%)',
+              borderColor: 'color-mix(in oklch, var(--success), transparent 65%)',
+              // Plain surface, not a second success tint: the recommended row
+              // is already success-tinted, and tint-on-tint lifted the chip's
+              // background into the ink and left the label at 4.34:1.
+              background: 'var(--surface)',
             }}
           >
             ✦ Recommended
@@ -615,7 +618,9 @@ function OptionRow({
       {recommended && why !== undefined && !chosen ? (
         <span
           className="col-start-2 mt-1 flex gap-[7px] text-[12.5px] leading-[1.5]"
-          style={{ color: 'color-mix(in oklch, var(--brand-teal), var(--text-primary) 35%)' }}
+          // 50%, not 35%: --text-primary is the mode's darkest/lightest ink, so a
+          // heavier mix is what pulls this line clear of AA in both modes.
+          style={{ color: 'color-mix(in oklch, var(--success), var(--text-primary) 50%)' }}
         >
           <span aria-hidden className="opacity-80">
             ↳

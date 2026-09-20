@@ -58,10 +58,15 @@ const LEGACY_TYPE: Readonly<Record<string, string>> = {
   wontfix: 'Task',
 };
 
+/**
+ * GitHub ships one hex per type, tuned for GitHub's own light UI. Reused
+ * verbatim they read at 3.1:1 on white and 3.6:1 on our dark surfaces, so
+ * these point at mode-aware tokens instead and inherit the AA tuning.
+ */
 export const TYPE_COLOR: Readonly<Record<string, string>> = {
-  Bug: '#d1242f',
-  Feature: '#0969da',
-  Task: '#bf8700',
+  Bug: 'var(--type-bug)',
+  Feature: 'var(--type-feature)',
+  Task: 'var(--type-task)',
 };
 
 export function issueType(issue: GithubIssue): { name: string; derived: boolean } | null {

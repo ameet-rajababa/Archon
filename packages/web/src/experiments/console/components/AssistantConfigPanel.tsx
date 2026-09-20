@@ -287,9 +287,9 @@ export function AssistantConfigPanel(): ReactElement {
                   <span
                     className="rounded-full border px-[7px] py-px font-mono text-[9.5px] font-bold uppercase tracking-[0.06em]"
                     style={{
-                      color: 'var(--brand-magenta)',
-                      background: 'color-mix(in oklch, var(--brand-magenta), transparent 88%)',
-                      borderColor: 'color-mix(in oklch, var(--brand-magenta), transparent 70%)',
+                      color: 'var(--accent-bright)',
+                      background: 'color-mix(in oklch, var(--accent), transparent 88%)',
+                      borderColor: 'color-mix(in oklch, var(--accent), transparent 70%)',
                     }}
                   >
                     Default

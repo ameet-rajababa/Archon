@@ -43,15 +43,15 @@ interface AccentTheme {
 // rather than hard-coded hex, so the card tracks any future token change.
 const ACCENT_BY_STATUS: Partial<Record<RunStatus, AccentTheme>> = {
   completed: {
-    bar: 'var(--brand-teal)',
-    badgeBg: 'color-mix(in oklch, var(--brand-teal), transparent 84%)',
-    badgeFg: 'var(--brand-teal)',
+    bar: 'var(--success)',
+    badgeBg: 'var(--success-soft)',
+    badgeFg: 'var(--success)',
     cardBorder: 'var(--border)',
     cardBg: 'var(--surface-elevated)',
   },
   failed: {
     bar: 'var(--error)',
-    badgeBg: 'color-mix(in oklch, var(--error), transparent 84%)',
+    badgeBg: 'var(--error-soft)',
     badgeFg: 'var(--error)',
     cardBorder: 'color-mix(in oklch, var(--error), transparent 68%)',
     cardBg: 'color-mix(in oklch, var(--error), transparent 94%)',

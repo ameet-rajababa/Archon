@@ -360,7 +360,7 @@ export function DraftRunCard({ projectId, projectCwd }: DraftRunCardProps): Reac
           aria-hidden
           className="brand-bar-soft pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded"
         >
-          <span className="rounded border border-[color:var(--brand-magenta)] bg-surface px-3 py-1.5 font-mono text-[11px] text-[color:var(--brand-magenta)]">
+          <span className="rounded border border-[color:var(--accent)] bg-surface px-3 py-1.5 font-mono text-[11px] text-[color:var(--accent-bright)]">
             drop files to attach
           </span>
         </div>
@@ -412,7 +412,7 @@ export function DraftRunCard({ projectId, projectCwd }: DraftRunCardProps): Reac
                 <span className="flex items-baseline gap-1.5 font-mono text-[11px] text-text-secondary">
                   {declared.name}
                   {declared.required ? (
-                    <span className="text-[color:var(--brand-magenta)]" title="Required">
+                    <span className="text-[color:var(--accent-bright)]" title="Required">
                       *
                     </span>
                   ) : null}
