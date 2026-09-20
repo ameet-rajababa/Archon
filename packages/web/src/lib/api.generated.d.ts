@@ -783,6 +783,7 @@ export interface paths {
           platform?: string;
           codebaseId?: string;
           mine?: 'true' | 'false';
+          archived?: 'active' | 'archived' | 'all';
         };
         header?: never;
         path?: never;
@@ -3383,6 +3384,11 @@ export interface components {
       isolation_env_id: string | null;
       ai_assistant_type: string;
       title: string | null;
+      color: string | null;
+      brief: string | null;
+      /** Format: date-time */
+      brief_updated_at: string | null;
+      brief_pinned: boolean;
       hidden: boolean;
       /** Format: date-time */
       deleted_at: string | null;
@@ -3408,6 +3414,11 @@ export interface components {
     };
     UpdateConversationBody: {
       title?: string;
+      /** @enum {string|null} */
+      color?: 'magenta' | 'violet' | 'blue' | 'green' | 'amber' | 'red' | null;
+      archived?: boolean;
+      brief?: string | null;
+      briefPinned?: boolean;
     };
     MessageListResponse: components['schemas']['Message'][];
     Message: {
