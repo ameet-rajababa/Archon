@@ -73,7 +73,7 @@ export function ConsoleApp(): ReactElement {
 
   return (
     <div className="console-root flex h-screen w-screen flex-col bg-surface text-text-primary">
-      <div className="flex min-h-0 flex-1">
+      <div className="rail-shell flex min-h-0 flex-1">
         <ProjectRail
           onAddProject={() => {
             setAddOpen(true);

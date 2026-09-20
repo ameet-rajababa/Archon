@@ -180,3 +180,81 @@
   display: block;
   flex: 0 0 auto;
 }
+
+/* ── COLLAPSE AND PEEK ──────────────────────────────────────────────────
+   Ported from the prototype, including why 63px.
+
+   The collapsed rail is exactly as wide as the icon COLUMN — the same left
+   offset (23px: 6px body padding + the 17px grip gutter), the same 17px glyph,
+   the same 23px on the right. 63px, not a round 50.
+
+   Why it matters: at 50px the rows had to centre their icons, so peeking moved
+   every glyph 6.5px to the right. Nothing should move. The panel gets wider;
+   the icon column stays exactly where it was, and the labels arrive beside it.
+   That is what makes it read as a slide rather than a jump. */
+.rail-shell {
+  position: relative;
+}
+.rail-spacer {
+  width: 63px;
+  flex: 0 0 auto;
+}
+.rail-panel.is-collapsed {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 60;
+  width: 63px !important;
+  flex-basis: 63px !important;
+  transition: width 0.14s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+/* The peeked rail is the SAME rail, slid wider — not a popover above it.
+   Same surface, same fonts, same row heights; the only change is width.
+   A drop shadow was what made it read as a floating panel, so it is replaced
+   by a thin directional edge: the shadow a sliding panel casts on the content
+   it is sliding over, and nothing more. */
+.rail-panel.is-peeking {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 60;
+  box-shadow: 6px 0 12px -8px rgb(0 0 0 / 0.45);
+  transition: width 0.17s cubic-bezier(0.22, 0.7, 0.3, 1);
+}
+[data-mode='light'] .rail-panel.is-peeking {
+  box-shadow: 6px 0 12px -9px rgb(0 0 0 / 0.2);
+}
+
+/* The labels arrive WITH the width rather than before it, so nothing is ever
+   drawn wider than the panel currently is. */
+/* `:not(.rail-reveal)` matters. The fade fills `both`, so it pins opacity to 1
+   after it finishes — which on a hover-only affordance means every row's menu
+   button stays visible for as long as the peek is open. The fade is for things
+   that are simply revealed by width; the reveal owns its own opacity. */
+.rail-panel.is-peeking .rail-hide:not(.rail-reveal) {
+  animation: rail-peek-text 0.13s ease-out 0.05s both;
+}
+@keyframes rail-peek-text {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.rail-panel.is-collapsed .rail-hide {
+  display: none;
+}
+
+/* Rows keep their expanded padding so the glyph never moves; only the label
+   and the trailing slots are hidden. */
+.rail-panel.is-collapsed .rail-row {
+  gap: 0;
+}
+.rail-panel.is-collapsed .rail-grip,
+.rail-panel.is-peeking .rail-grip {
+  display: none;
+}

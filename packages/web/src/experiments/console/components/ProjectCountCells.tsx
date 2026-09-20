@@ -43,7 +43,7 @@ function ProjectCountCellsImpl({ projectId }: { projectId: string }): ReactEleme
   const running = data?.running ?? 0;
 
   return (
-    <span className="rail-counts">
+    <span className="rail-hide rail-counts">
       <Cell
         value={chats}
         title={chats === null ? 'Chats' : `${chats} active chat${chats === 1 ? '' : 's'}`}
@@ -65,7 +65,7 @@ function ProjectCountCellsImpl({ projectId }: { projectId: string }): ReactEleme
 export function ProjectCountHeader(): ReactElement {
   const ico = 'h-[11px] w-[11px]';
   return (
-    <span aria-hidden className="rail-counts">
+    <span aria-hidden className="rail-hide rail-counts">
       <span className="cell" title="Chats">
         <MessageCircle className={ico} />
       </span>

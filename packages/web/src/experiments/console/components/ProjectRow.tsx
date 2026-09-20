@@ -129,7 +129,7 @@ export function ProjectRow({
         <ProjectGlyph projectId={project.id} glyph={identity.glyph} color={color} />
       </span>
 
-      <div className="flex min-w-0 flex-1 items-center">
+      <div className="rail-hide flex min-w-0 flex-1 items-center">
         {editing ? (
           <input
             ref={inputRef}
@@ -181,7 +181,7 @@ export function ProjectRow({
           the menu button can never reflow the row. The old version swapped a
           LIVE badge out for the buttons on the selected row, which is exactly
           the flicker that reads as jumpiness. */}
-      <div className={`rail-actions ${menuOpen ? '' : 'rail-reveal'}`}>
+      <div className={`rail-hide rail-actions ${menuOpen ? '' : 'rail-reveal'}`}>
         {onRemove !== undefined ? (
           <div className="relative">
             <button
