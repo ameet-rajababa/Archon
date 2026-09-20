@@ -4,12 +4,13 @@ import { writeProjectView } from '../lib/project-view';
 
 interface ProjectViewTabsProps {
   projectId: string;
-  active: 'runs' | 'chat';
+  active: 'runs' | 'chat' | 'issues';
 }
 
-const TABS: readonly { key: 'runs' | 'chat'; label: string; suffix: string }[] = [
+const TABS: readonly { key: 'runs' | 'chat' | 'issues'; label: string; suffix: string }[] = [
   { key: 'runs', label: 'Runs', suffix: '' },
   { key: 'chat', label: 'Chat', suffix: '/chat' },
+  { key: 'issues', label: 'Issues', suffix: '/issues' },
 ];
 
 /**
