@@ -19,6 +19,13 @@ export interface ProjectCounts {
   runs: number;
   /** Runs executing right now — the rail tints this one. */
   running: number;
+  /**
+   * Open issues, or null when the repo cannot be asked — no repository, a
+   * non-GitHub remote, no token, GitHub unreachable. null renders as an empty
+   * cell; 0 would claim the repo has no open issues, which is a different
+   * statement and often a false one.
+   */
+  issues: number | null;
 }
 
 interface RunsCountsResponse {
@@ -30,19 +37,31 @@ export async function getProjectCounts(projectId: string): Promise<ProjectCounts
   const q = encodeURIComponent(projectId);
   // Both together: neither blocks the other, and a failure in one must not
   // blank the other's number.
-  const [chats, runs] = await Promise.allSettled([
+  const [chats, runs, issues] = await Promise.allSettled([
     requestJson<unknown[]>(`/api/conversations?codebaseId=${q}&mine=true&archived=active`),
     requestJson<RunsCountsResponse>(`/api/dashboard/runs?codebaseId=${q}&limit=1`),
+    requestJson<{ issues?: { state?: string }[]; reason?: string | null }>(
+      `/api/projects/${q}/issues`
+    ),
   ]);
 
   const chatCount =
     chats.status === 'fulfilled' && Array.isArray(chats.value) ? chats.value.length : 0;
   const runsValue = runs.status === 'fulfilled' ? runs.value : null;
 
+  // A route that does not exist yet (or a repo that cannot be asked) means
+  // "unknown", not "zero" — the cell stays blank rather than claiming none.
+  const issuesValue = issues.status === 'fulfilled' ? issues.value : null;
+  const openIssues =
+    issuesValue === null || !Array.isArray(issuesValue.issues)
+      ? null
+      : issuesValue.issues.filter(i => i.state === 'OPEN').length;
+
   return {
     chats: chatCount,
     // `total` is the honest count; `counts.all` can be capped by the limit.
     runs: runsValue?.total ?? runsValue?.counts?.all ?? 0,
     running: runsValue?.counts?.running ?? 0,
+    issues: openIssues,
   };
 }

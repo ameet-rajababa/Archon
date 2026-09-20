@@ -1,4 +1,4 @@
-import { MessageCircle, Play } from 'lucide-react';
+import { MessageCircle, Play, CircleDot } from 'lucide-react';
 import { memo, type ReactElement } from 'react';
 import * as skill from '../skills';
 import { useEntity } from '../store/cache';
@@ -57,6 +57,14 @@ function ProjectCountCellsImpl({ projectId }: { projectId: string }): ReactEleme
             : `${runs} run${runs === 1 ? '' : 's'}${running > 0 ? `, ${running} running now` : ''}`
         }
       />
+      <Cell
+        value={data?.issues ?? null}
+        title={
+          data?.issues === null || data?.issues === undefined
+            ? 'Open issues — not available for this project'
+            : `${data.issues} open issue${data.issues === 1 ? '' : 's'}`
+        }
+      />
     </span>
   );
 }
@@ -71,6 +79,9 @@ export function ProjectCountHeader(): ReactElement {
       </span>
       <span className="cell" title="Runs">
         <Play className={ico} />
+      </span>
+      <span className="cell" title="Open issues">
+        <CircleDot className={ico} />
       </span>
     </span>
   );

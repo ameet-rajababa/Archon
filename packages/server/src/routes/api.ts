@@ -4763,6 +4763,118 @@ export function registerApiRoutes(
   // GET /api/artifacts/:runId/* - Serve workflow artifact file contents
   // The wildcard captures the filename (e.g. "plan.md", "subdir/report.md").
   // Path traversal is blocked: any segment containing ".." is rejected.
+
+  /**
+   * GET /api/projects/:projectId/issues — the project's GitHub issues.
+   *
+   * The browser cannot call GitHub directly for a private repo, and a token
+   * does not belong in the browser. Everything underneath this already
+   * existed — the server holds credentials, other callers use Octokit, and a
+   * project already carries its repository_url — but nothing had ever needed
+   * issues, so there was no route to ask through.
+   *
+   * Read-only. Nothing here writes to GitHub.
+   *
+   * `app.get` rather than registerOpenApiRoute: the shape is a thin passthrough
+   * of GitHub's own model and pinning it in the OpenAPI schema would make every
+   * field GitHub adds a schema change.
+   */
+  app.get('/api/projects/:projectId/issues', async c => {
+    const projectId = c.req.param('projectId');
+    const project = await codebaseDb.getCodebase(projectId);
+    if (project === null) return c.json({ error: 'Project not found' }, 404);
+
+    const url = project.repository_url;
+    if (url === null || url === undefined || url === '') {
+      // A folder-kind project is not an error; it simply has no issues.
+      return c.json({ issues: [], repo: null, reason: 'no-repository' });
+    }
+    const m = /github\.com[/:]([^/]+)\/([^/.]+)/.exec(url);
+    if (m === null) {
+      return c.json({ issues: [], repo: null, reason: 'not-github' });
+    }
+    const [, owner, repo] = m;
+
+    const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
+    if (token === undefined || token === '') {
+      return c.json({ issues: [], repo: `${owner}/${repo}`, reason: 'no-token' });
+    }
+
+    // One query for everything the board needs. `closedByPullRequestsReferences`
+    // is what distinguishes "open" from "in review" without asking GitHub twice.
+    const query = `
+      query($owner:String!,$repo:String!){
+        repository(owner:$owner,name:$repo){
+          issues(first:100, states:[OPEN,CLOSED], orderBy:{field:UPDATED_AT,direction:DESC}){
+            nodes{
+              number title state stateReason url updatedAt
+              issueType{ name }
+              labels(first:20){ nodes{ name color } }
+              assignees(first:5){ nodes{ login } }
+              closedByPullRequestsReferences(first:5, includeClosedPrs:true){ nodes{ number state } }
+            }
+          }
+        }
+      }`;
+
+    try {
+      const res = await fetch('https://api.github.com/graphql', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'User-Agent': 'archon-console',
+        },
+        body: JSON.stringify({ query, variables: { owner, repo } }),
+      });
+      if (!res.ok) {
+        return c.json({ issues: [], repo: `${owner}/${repo}`, reason: `github-${res.status}` });
+      }
+      const body = (await res.json()) as {
+        data?: { repository?: { issues?: { nodes?: unknown[] } } };
+        errors?: { message?: string }[];
+      };
+      if (body.errors !== undefined && body.errors.length > 0) {
+        return c.json({
+          issues: [],
+          repo: `${owner}/${repo}`,
+          reason: body.errors[0]?.message ?? 'github-error',
+        });
+      }
+      const nodes = body.data?.repository?.issues?.nodes ?? [];
+      const issues = nodes.map(raw => {
+        const n = raw as Record<string, never>;
+        const labels = ((n.labels as { nodes?: { name: string; color: string }[] } | undefined)
+          ?.nodes ?? []) as { name: string; color: string }[];
+        const prs = ((
+          n.closedByPullRequestsReferences as
+            | { nodes?: { number: number; state: string }[] }
+            | undefined
+        )?.nodes ?? []) as { number: number; state: string }[];
+        return {
+          number: n.number as unknown as number,
+          title: n.title as unknown as string,
+          state: n.state as unknown as string,
+          stateReason: (n.stateReason as unknown as string | null) ?? null,
+          url: n.url as unknown as string,
+          updatedAt: n.updatedAt as unknown as string,
+          type: (n.issueType as { name?: string } | null | undefined)?.name ?? null,
+          labels: labels.map(l => ({ name: l.name, color: l.color })),
+          assignees: (
+            ((n.assignees as { nodes?: { login: string }[] } | undefined)?.nodes ?? []) as {
+              login: string;
+            }[]
+          ).map(a => a.login),
+          openPr: prs.some(pr => pr.state === 'OPEN'),
+        };
+      });
+      return c.json({ issues, repo: `${owner}/${repo}`, reason: null });
+    } catch (err) {
+      getLog().warn({ err, projectId }, 'issues.fetch_failed');
+      return c.json({ issues: [], repo: `${owner}/${repo}`, reason: 'unreachable' });
+    }
+  });
+
   // NOTE: Uses app.get() instead of registerOpenApiRoute because:
   //  1. Wildcard path params (*) are not representable in OpenAPI 3.0
   //  2. Response is raw text/markdown, not JSON
