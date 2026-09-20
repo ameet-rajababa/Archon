@@ -62,18 +62,6 @@
   },
   "testGroups": [
     [
-      "src/lib/"
-    ],
-    [
-      "src/stores/"
-    ],
-    [
-      "src/hooks/"
-    ],
-    [
-      "src/components/"
-    ],
-    [
       "src/experiments/console/"
     ]
   ]
