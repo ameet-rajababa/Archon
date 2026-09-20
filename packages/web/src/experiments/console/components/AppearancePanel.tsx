@@ -109,6 +109,12 @@ function Row({
  * still written as absolute pixels do not, which is a known and shrinking
  * remainder rather than a reason to withhold the control.
  */
+const DENSITY_OPTIONS = [
+  // The token is `comfortable`; the label is the word people say.
+  { value: 'comfortable' as const, label: 'Cozy' },
+  { value: 'compact' as const, label: 'Compact' },
+];
+
 const TEXT_OPTIONS = [
   { value: 'xs' as const, label: 'XS' },
   { value: 's' as const, label: 'S' },
@@ -154,6 +160,19 @@ export function AppearancePanel(): ReactElement {
           active={appearance.text}
           onPick={text => {
             setAppearance({ text });
+          }}
+        />
+      </Row>
+      <Row
+        title="Density"
+        hint="How much air a row gets. Compact fits about a third more in the same height."
+      >
+        <Segmented
+          label="Density"
+          options={DENSITY_OPTIONS}
+          active={appearance.density}
+          onPick={density => {
+            setAppearance({ density });
           }}
         />
       </Row>

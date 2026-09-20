@@ -32,17 +32,32 @@ export type ThemeName = 'archon' | 'linear';
 export type ModePref = 'light' | 'dark' | 'system';
 export type TextSize = 'xs' | 's' | 'm' | 'l' | 'xl';
 
+/**
+ * How much air a row gets.
+ *
+ * The values are the token names in theme/tokens.css. `comfortable` is
+ * labelled "Cozy" in the UI — the token keeps the CSS-conventional name, the
+ * label uses the word people actually say.
+ */
+export type Density = 'comfortable' | 'compact';
+
 export interface Appearance {
   theme: ThemeName;
   mode: ModePref;
   text: TextSize;
+  density: Density;
 }
 
 const KEY = 'archon.console.appearance';
 const DARK_QUERY = '(prefers-color-scheme: dark)';
 
 /** Linear is the default: the neutral palette is the ask, the brand is opt-in. */
-export const DEFAULTS: Appearance = { theme: 'linear', mode: 'system', text: 'm' };
+export const DEFAULTS: Appearance = {
+  theme: 'linear',
+  mode: 'system',
+  text: 'm',
+  density: 'comfortable',
+};
 
 /** Anything unrecognised — a stale key, a hand-edited value — falls back. */
 export function parseAppearance(raw: string | null | undefined): Appearance {
@@ -61,7 +76,9 @@ export function parseAppearance(raw: string | null | undefined): Appearance {
       o.text === 'xs' || o.text === 's' || o.text === 'm' || o.text === 'l' || o.text === 'xl'
         ? o.text
         : DEFAULTS.text;
-    return { theme, mode, text };
+    const density: Density =
+      o.density === 'comfortable' || o.density === 'compact' ? o.density : DEFAULTS.density;
+    return { theme, mode, text, density };
   } catch {
     return DEFAULTS;
   }
@@ -101,11 +118,10 @@ function systemPrefersDark(): boolean {
 /** Write the resolved values onto <html>, where tokens.css reads them. */
 export function applyAppearance(a: Appearance = getAppearance()): void {
   const r = document.documentElement;
-  // Density has one value today. The attribute is set unconditionally so the
-  // rail's geometry always resolves — a rule reading var(--row-y) with no
-  // [data-density] ancestor silently computes to nothing, and the row
+  // Always set, never absent: a rule reading var(--row-y) with no
+  // [data-density] ancestor silently computes to nothing, and every row
   // collapses to the height of its text.
-  r.dataset.density = 'comfortable';
+  r.dataset.density = a.density;
   r.dataset.theme = a.theme;
   r.dataset.mode = resolveMode(a.mode, systemPrefersDark());
   r.dataset.text = a.text;

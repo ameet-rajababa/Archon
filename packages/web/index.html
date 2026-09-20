@@ -17,7 +17,7 @@
          src/theme/appearance.ts rather than imported — keep the two in step.
          Without it every reload flashes the wrong theme. */
       (function () {
-        var d = { theme: 'linear', mode: 'system', text: 'm' };
+        var d = { theme: 'linear', mode: 'system', text: 'm', density: 'comfortable' };
         var a = d;
         try {
           var raw = localStorage.getItem('archon.console.appearance');
@@ -52,7 +52,7 @@
            and the whole UI at 16px until the app hydrates. */
         var sizes = ['xs', 's', 'm', 'l', 'xl'];
         r.dataset.text = sizes.indexOf(a.text) === -1 ? 'm' : a.text;
-        r.dataset.density = 'comfortable';
+        r.dataset.density = a.density === 'compact' ? 'compact' : 'comfortable';
         /* Paint the page background immediately. A hardcoded dark hex here used
            to guarantee a dark flash on the way into light mode. */
         r.style.background = mode === 'dark' ? '#111216' : '#ffffff';
