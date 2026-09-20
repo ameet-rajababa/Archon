@@ -53,9 +53,10 @@ export function allProjectsSubtitle(
  * A run detail lights Runs, not nothing: a run belongs to Runs, and an
  * unlit tab strip on a run page reads as "you have left the project".
  */
-export function activeProjectTab(pathname: string): 'runs' | 'chat' | 'issues' {
+export function activeProjectTab(pathname: string): 'overview' | 'runs' | 'chat' | 'issues' {
   if (/\/chat\/?$/.test(pathname)) return 'chat';
   if (/\/issues\/?$/.test(pathname)) return 'issues';
+  if (/\/overview\/?$/.test(pathname)) return 'overview';
   // Runs is the bare project path AND a run's detail page, which has no tab of
   // its own — a run belongs to Runs, so that is what stays lit while you read
   // one.

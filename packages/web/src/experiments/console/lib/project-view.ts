@@ -9,7 +9,7 @@
  * nor a row in the per-user prefs table.
  */
 
-export type ProjectView = 'runs' | 'chat' | 'issues';
+export type ProjectView = 'overview' | 'runs' | 'chat' | 'issues';
 
 const KEY_PREFIX = 'archon.console.projectView.';
 
@@ -24,7 +24,7 @@ export function projectViewKey(projectId: string): string {
  * routing somewhere that does not exist.
  */
 export function parseProjectView(raw: string | null): ProjectView | null {
-  return raw === 'runs' || raw === 'chat' || raw === 'issues' ? raw : null;
+  return raw === 'overview' || raw === 'runs' || raw === 'chat' || raw === 'issues' ? raw : null;
 }
 
 export function readProjectView(projectId: string): ProjectView | null {

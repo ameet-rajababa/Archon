@@ -1,0 +1,236 @@
+import { AlertTriangle, ArrowRight, Check, ExternalLink, MessageCircle } from 'lucide-react';
+import { useMemo, type ReactElement } from 'react';
+import { Link, useNavigate, useParams } from 'react-router';
+import { ActiveRunCard } from '../components/ActiveRunCard';
+import { EmptyState } from '../components/EmptyState';
+import { issueType, TYPE_COLOR } from '../primitives/issue-board';
+import type { ConversationSummary } from '../primitives/conversation';
+import { conversationLabel } from '../primitives/conversation';
+import type { Run } from '../primitives/run';
+import { relativeTime } from '../lib/format';
+import * as skill from '../skills';
+import type { GithubIssue, IssuesResponse } from '../skills';
+import { useEntity } from '../store/cache';
+import { K } from '../store/keys';
+
+function Section({
+  label,
+  action,
+  children,
+}: {
+  label: string;
+  action?: ReactElement | null;
+  children: ReactElement | ReactElement[];
+}): ReactElement {
+  return (
+    <section className="flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <h2 className="font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-text-tertiary">
+          {label}
+        </h2>
+        {action !== undefined && action !== null ? <span className="ml-auto">{action}</span> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/**
+ * Where a project is, and what to do about it.
+ *
+ * Ported from the prototype, with its ordering: the thing only YOU can clear
+ * comes first, then what is executing, then what is open. State, not events —
+ * "completed 56" is a lifetime counter and nothing you do changes because of
+ * it, so it does not appear.
+ */
+export function OverviewPage(): ReactElement {
+  const { projectId = '' } = useParams<{ projectId: string }>();
+  const navigate = useNavigate();
+
+  const { data: feed } = useEntity<{ runs: Run[] }>(K.runs(projectId), () =>
+    skill.listRuns({ codebaseId: projectId, limit: skill.RUN_LIMIT })
+  );
+  const { data: issueData } = useEntity<IssuesResponse>(K.issues(projectId), () =>
+    skill.listIssues(projectId)
+  );
+  const { data: chats } = useEntity<ConversationSummary[]>(
+    `${K.conversations(projectId)}:active`,
+    () => skill.listConversations(projectId, 'active')
+  );
+
+  const runs = feed?.runs ?? [];
+  const inFlight = useMemo(() => runs.filter(r => r.status === 'running'), [runs]);
+  // Only a human can clear these: a run paused on an approval or an input
+  // request. Everything else is the machine's problem.
+  const needsYou = useMemo(() => runs.filter(r => r.status === 'paused'), [runs]);
+  const openIssues = useMemo<GithubIssue[]>(
+    () => (issueData?.issues ?? []).filter(i => i.state === 'OPEN'),
+    [issueData]
+  );
+
+  const byType = useMemo(() => {
+    const out = new Map<string, number>();
+    for (const i of openIssues) {
+      const t = issueType(i)?.name ?? 'Untyped';
+      out.set(t, (out.get(t) ?? 0) + 1);
+    }
+    return [...out.entries()].sort((a, b) => b[1] - a[1]);
+  }, [openIssues]);
+
+  if (projectId === '') return <EmptyState title="No project." />;
+
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-8 pb-10 pt-5">
+      <div className="mx-auto flex max-w-[860px] flex-col gap-7">
+        {/* 1 — the only section whose best answer is empty. */}
+        <Section
+          label="Needs you"
+          action={
+            needsYou.length > 0 ? (
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[color:var(--warning,oklch(0.78_0.15_80))]">
+                <AlertTriangle className="h-3 w-3" />
+                {needsYou.length}
+              </span>
+            ) : null
+          }
+        >
+          {needsYou.length === 0 ? (
+            <p className="flex items-center gap-2 text-[13px] text-text-secondary">
+              <Check className="h-4 w-4 text-[color:var(--success)]" />
+              Nothing is waiting on you.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {needsYou.map(r => (
+                <ActiveRunCard key={r.id} run={r} showProject={false} selected={false} />
+              ))}
+            </div>
+          )}
+        </Section>
+
+        {/* 2 — what is executing, not that something started two hours ago. */}
+        {inFlight.length > 0 ? (
+          <Section label="In flight">
+            <div className="flex flex-col gap-2">
+              {inFlight.map(r => (
+                <ActiveRunCard key={r.id} run={r} showProject={false} selected={false} />
+              ))}
+            </div>
+          </Section>
+        ) : (
+          <></>
+        )}
+
+        {/* 3 — state, by type. */}
+        <Section
+          label="Backlog"
+          action={
+            <Link
+              to={`/console/p/${projectId}/issues`}
+              className="rounded border border-border px-2 py-0.5 font-mono text-[10.5px] text-text-secondary transition-colors hover:border-border-bright hover:text-text-primary"
+            >
+              Board
+            </Link>
+          }
+        >
+          {openIssues.length === 0 ? (
+            <p className="text-[13px] text-text-tertiary">
+              {issueData?.reason !== null && issueData?.reason !== undefined
+                ? 'No issues to show for this project.'
+                : 'No open issues.'}
+            </p>
+          ) : (
+            <>
+              <div className="flex flex-wrap gap-1.5">
+                {byType.map(([t, n]) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => {
+                      navigate(`/console/p/${projectId}/issues`);
+                    }}
+                    className="inline-flex h-[19px] items-center rounded-full border px-[8px] text-[9.5px] font-semibold uppercase tracking-[0.05em]"
+                    style={{
+                      color: TYPE_COLOR[t] ?? 'var(--text-secondary)',
+                      borderColor: TYPE_COLOR[t] ?? 'var(--border-bright)',
+                    }}
+                  >
+                    {t} {n}
+                  </button>
+                ))}
+              </div>
+              <div className="flex flex-col overflow-hidden rounded-[10px] border border-border">
+                {openIssues.slice(0, 4).map(i => (
+                  <a
+                    key={i.number}
+                    href={i.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group flex items-center gap-2.5 border-b border-border px-3 py-2 last:border-b-0 hover:bg-surface-hover"
+                  >
+                    <span className="shrink-0 font-mono text-[10.5px] text-text-tertiary">
+                      #{i.number}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[13px] text-text-secondary group-hover:text-text-primary">
+                      {i.title}
+                    </span>
+                    <ExternalLink className="h-3 w-3 shrink-0 text-text-tertiary opacity-0 group-hover:opacity-100" />
+                  </a>
+                ))}
+                {openIssues.length > 4 ? (
+                  <Link
+                    to={`/console/p/${projectId}/issues`}
+                    className="flex items-center gap-1.5 px-3 py-2 text-[12px] text-text-tertiary hover:text-text-primary"
+                  >
+                    {openIssues.length - 4} more on the board
+                    <ArrowRight className="h-3 w-3" />
+                  </Link>
+                ) : null}
+              </div>
+            </>
+          )}
+        </Section>
+
+        {/* 4 — the chats, because the overview is also where you resume. */}
+        <Section
+          label="Chats"
+          action={
+            <Link
+              to={`/console/p/${projectId}/chat`}
+              className="rounded border border-border px-2 py-0.5 font-mono text-[10.5px] text-text-secondary transition-colors hover:border-border-bright hover:text-text-primary"
+            >
+              Open
+            </Link>
+          }
+        >
+          {(chats ?? []).length === 0 ? (
+            <p className="text-[13px] text-text-tertiary">No chats yet.</p>
+          ) : (
+            <div className="flex flex-col overflow-hidden rounded-[10px] border border-border">
+              {(chats ?? []).slice(0, 5).map(c => (
+                <Link
+                  key={c.id}
+                  to={`/console/p/${projectId}/chat`}
+                  className="group flex items-center gap-2.5 border-b border-border px-3 py-2 last:border-b-0 hover:bg-surface-hover"
+                >
+                  <MessageCircle className="h-[14px] w-[14px] shrink-0 text-text-tertiary" />
+                  <span className="min-w-0 flex-1 truncate text-[13px] text-text-secondary group-hover:text-text-primary">
+                    {conversationLabel(c)}
+                  </span>
+                  {c.lastActivityAt !== null ? (
+                    <time
+                      dateTime={c.lastActivityAt}
+                      className="shrink-0 font-mono text-[10px] text-text-tertiary"
+                    >
+                      {relativeTime(c.lastActivityAt)}
+                    </time>
+                  ) : null}
+                </Link>
+              ))}
+            </div>
+          )}
+        </Section>
+      </div>
+    </div>
+  );
+}

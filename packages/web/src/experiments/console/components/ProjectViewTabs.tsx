@@ -4,10 +4,17 @@ import { writeProjectView } from '../lib/project-view';
 
 interface ProjectViewTabsProps {
   projectId: string;
-  active: 'runs' | 'chat' | 'issues';
+  active: 'overview' | 'runs' | 'chat' | 'issues';
 }
 
-const TABS: readonly { key: 'runs' | 'chat' | 'issues'; label: string; suffix: string }[] = [
+const TABS: readonly {
+  key: 'overview' | 'runs' | 'chat' | 'issues';
+  label: string;
+  suffix: string;
+}[] = [
+  // Overview first: it is the screen that answers "what should I do next",
+  // and the tabs read left to right from orientation to detail.
+  { key: 'overview', label: 'Overview', suffix: '/overview' },
   { key: 'runs', label: 'Runs', suffix: '' },
   { key: 'chat', label: 'Chat', suffix: '/chat' },
   { key: 'issues', label: 'Issues', suffix: '/issues' },
