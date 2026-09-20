@@ -164,7 +164,12 @@ export function MessageItem({
           style={{
             background: 'color-mix(in oklch, var(--brand-magenta), transparent 94%)',
             border: '1px solid color-mix(in oklch, var(--brand-magenta), transparent 50%)',
-            color: 'color-mix(in oklch, white, var(--brand-magenta) 12%)',
+            // NOT `white`. The background here is only a 6% magenta tint, so in
+            // light mode that was near-white text on a near-white bubble —
+            // measured at 1.09:1, your own messages effectively invisible.
+            // --text-primary already inverts with the mode, so the magenta
+            // tint survives and the contrast follows the theme.
+            color: 'color-mix(in oklch, var(--text-primary), var(--brand-magenta) 12%)',
             boxShadow: '0 0 0 4px color-mix(in oklch, var(--brand-magenta), transparent 95%)',
           }}
         >
