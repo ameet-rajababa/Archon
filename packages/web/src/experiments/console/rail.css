@@ -432,3 +432,95 @@
 .rail-panel.is-collapsed .rail-grip-dots {
   display: none;
 }
+
+/* ── THE CHAT LIST ──────────────────────────────────────────────────────
+   Ported from the prototype. It lives beside the transcript rather than in
+   the rail, which is what gives it room for two lines of title and a
+   timestamp — a 268px rail row never had that. */
+.chatlist {
+  width: 236px;
+  flex: 0 0 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 8px 8px 0;
+  border-right: 1px solid var(--border);
+}
+.chatlist-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 8px 7px;
+}
+/* A chat row is taller than a rail row because it carries two lines. It still
+   pins its height rather than letting the contents decide — see .rail-row. */
+.chatlist .rail-row {
+  height: auto;
+  min-height: calc(17px + 2 * var(--row-y));
+  padding: 6px 8px 6px 17px;
+  align-items: flex-start;
+}
+.chatlist .rail-row .rail-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  white-space: normal;
+  overflow: hidden;
+  line-height: 1.35;
+}
+/* The kind glyph is smaller and quieter than a project's, so a chat and a
+   project read as different KINDS of thing rather than as two lists. */
+.chat-kind {
+  flex: 0 0 auto;
+  width: 15px;
+  margin-top: 1px;
+  display: grid;
+  place-items: center;
+  color: var(--text-tertiary);
+}
+.chat-kind svg {
+  width: 13px;
+  height: 13px;
+  display: block;
+}
+.chat-stamp {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--text-micro);
+  color: var(--text-tertiary);
+  letter-spacing: 0.3px;
+  font-variant-numeric: tabular-nums;
+}
+/* A dashed row, not a button in a header. It sits where a new chat will
+   appear, so the affordance is in the place the result shows up. */
+.newchat {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 27px;
+  margin-bottom: 6px;
+  border: 1px dashed var(--border-bright);
+  border-radius: var(--radius-control, 6px);
+  font-size: var(--text-micro);
+  color: var(--text-tertiary);
+  transition:
+    color 0.11s,
+    border-color 0.11s,
+    background-color 0.11s;
+}
+.newchat:hover {
+  color: var(--text-primary);
+  border-color: var(--accent);
+  background: var(--surface-hover);
+}
+.chat-rename {
+  width: 100%;
+  font-size: var(--text-body);
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 1px solid var(--accent-ring);
+  border-radius: var(--radius-control, 6px);
+  padding: 2px 6px;
+  outline: none;
+}

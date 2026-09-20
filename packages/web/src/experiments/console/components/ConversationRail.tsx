@@ -1,4 +1,4 @@
-import { MessageCircle } from 'lucide-react';
+import { MessageCircle, Plus } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from 'react';
 import {
   byMostRecent,
@@ -91,7 +91,11 @@ export function ConversationRail({
   projectId,
   liveIds,
 }: ConversationRailProps): ReactElement {
-  const [query, setQuery] = useState('');
+  /* The filter box became nothing: a permanent text field for a list this
+     short was chrome, and ⌘K already jumps to any chat by name. `query` stays
+     empty so the filtering logic below is untouched and can be wired to the
+     palette later without another rewrite. */
+  const query = '';
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [menuFor, setMenuFor] = useState<string | null>(null);
@@ -219,70 +223,64 @@ export function ConversationRail({
 
   return (
     <aside
-      className="flex h-full min-h-0 w-[268px] shrink-0 flex-col border-r border-border"
+      className="chatlist flex h-full min-h-0 shrink-0 flex-col"
       aria-label="Chats"
       onClick={() => {
         setMenuFor(null);
       }}
     >
-      <div className="flex items-center gap-2 px-3 pb-2 pt-3.5">
-        <span className="font-mono text-[10.5px] font-bold tracking-[0.16em] text-text-tertiary">
-          CHATS
-        </span>
-        <span className="rounded-full bg-surface-elevated px-2 py-0.5 text-[11px] text-text-secondary">
-          {conversations.length}
-        </span>
+      {/* Scope first, then New chat. No header row and no filter box: the
+          header repeated the count the tab above already carries, and a
+          permanent filter field for a list this short was chrome. */}
+      <div className="chatlist-head">
+        {SCOPES.map(({ value, label }) => {
+          // Counts on Active and Archived, not on All.
+          //   Archived is the one you cannot see — a count answers "is there
+          //   anything in there?" without a click, which is the only reason to
+          //   click it. Active agrees with the tab above by construction.
+          //   All is not a set you are asking about; it is the absence of a
+          //   filter, and its count is the sum of the two beside it.
+          const count =
+            value === 'active' ? conversations.length : value === 'archived' ? archivedCount : 0;
+          return (
+            <button
+              key={value}
+              type="button"
+              onClick={() => {
+                onScopeChange(value);
+              }}
+              aria-pressed={scope === value}
+              className={`rounded-[6px] px-2 py-[3px] font-mono text-[10.5px] transition-colors ${
+                scope === value
+                  ? 'bg-surface-hover text-text-primary'
+                  : 'text-text-tertiary hover:text-text-secondary'
+              }`}
+            >
+              {label}
+              {/* Zero renders blank, as in the rail table — an Archived chip
+                  with no number says "nothing archived" by its silence. */}
+              {count > 0 ? <span className="ml-1.5 text-text-tertiary">{count}</span> : null}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="px-2">
         <button
           type="button"
           onClick={() => {
             onSelect(null);
           }}
           // Deliberately not gated on `busy`: a reply owed to another chat
-          // still lands in that chat, so waiting for it buys nothing and makes
-          // the project feel single-threaded when it is not.
+          // still lands in that chat, so waiting buys nothing and makes the
+          // project feel single-threaded when it is not.
           disabled={activeConvId === null}
           title={activeConvId === null ? 'Already on a new chat' : 'Start a new chat'}
-          className="ml-auto rounded-full border px-2.5 py-[3px] font-mono text-[10px] tracking-[0.1em] text-text-secondary transition-colors hover:text-text-primary disabled:cursor-default disabled:opacity-40"
-          style={{ borderColor: 'var(--border-bright)' }}
+          className="newchat disabled:cursor-default disabled:opacity-40"
         >
-          + NEW
+          <Plus className="h-[13px] w-[13px]" />
+          New chat
         </button>
-      </div>
-
-      <div className="px-3 pb-2">
-        <input
-          value={query}
-          onChange={e => {
-            setQuery(e.target.value);
-          }}
-          placeholder="Filter chats…"
-          aria-label="Filter chats"
-          className="w-full rounded-[11px] border bg-[color:var(--surface-elevated)] px-3 py-2 text-[12.5px] text-text-primary placeholder:text-text-tertiary focus:outline-none"
-          style={{ borderColor: 'var(--border)' }}
-        />
-      </div>
-
-      <div className="flex gap-1.5 px-3 pb-2.5">
-        {SCOPES.map(({ value, label }) => (
-          <button
-            key={value}
-            type="button"
-            onClick={() => {
-              onScopeChange(value);
-            }}
-            aria-pressed={scope === value}
-            className={`rounded-full border px-2.5 py-[3px] font-mono text-[10px] tracking-[0.08em] transition-colors ${
-              scope === value ? 'text-text-primary' : 'text-text-tertiary hover:text-text-secondary'
-            }`}
-            style={{
-              borderColor: scope === value ? 'var(--border-bright)' : 'var(--border)',
-              background: scope === value ? 'var(--surface-elevated)' : 'transparent',
-            }}
-          >
-            {label}
-            {value === 'archived' && archivedCount > 0 ? ` ${String(archivedCount)}` : ''}
-          </button>
-        ))}
       </div>
 
       <div
@@ -349,16 +347,15 @@ export function ConversationRail({
                 if (el === null) rowRefs.current.delete(c.id);
                 else rowRefs.current.set(c.id, el);
               }}
-              className={`group relative mb-0.5 flex items-start gap-2.5 rounded-[10px] border px-2.5 py-2 transition-[background-color,border-color,opacity,transform] duration-150 ${
-                dragId === c.id ? 'opacity-40 ' : ''
-              }${c.archived ? 'opacity-55 hover:opacity-100 ' : ''}${
-                isActive ? 'bg-surface-elevated' : 'hover:bg-surface-hover'
+              aria-current={isActive}
+              className={`rail-row group ${dragId === c.id ? 'opacity-40 ' : ''}${
+                c.archived ? 'opacity-55 hover:opacity-100' : ''
               }`}
               style={{
-                borderColor: isActive ? 'var(--border-bright)' : 'transparent',
                 // A transform, never a layout change: the geometry captured at
                 // drag start has to stay true for the whole gesture.
                 transform: shift === 0 ? undefined : `translateY(${String(shift)}px)`,
+                transition: 'transform 150ms, opacity 150ms, background-color 110ms',
               }}
               draggable={armed === c.id && renamingId === null}
               onDragStart={e => {
@@ -375,32 +372,31 @@ export function ConversationRail({
                 setMenuFor(c.id);
               }}
             >
-              {isActive ? (
+              {/* Six dots in the row's reserved gutter, invisible until hover
+                  — the same handle the project rail uses, so reordering is one
+                  gesture to learn rather than two. */}
+              {renamingId !== c.id ? (
                 <span
                   aria-hidden
-                  className="pointer-events-none absolute -left-px bottom-2 top-2 w-[3px] rounded-r-[3px]"
-                  style={{ background: 'var(--brand-magenta)' }}
-                />
+                  title="Drag to reorder"
+                  className="rail-grip-dots"
+                  onMouseDown={() => {
+                    setArmed(c.id);
+                  }}
+                >
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                </span>
               ) : null}
 
-              {/* The monogram is the drag handle, and the only one. Dragging
-                  from anywhere on the card made every stray press-and-move
-                  across the rail a reorder. */}
-              {/* Monochrome. Colour identifies a PROJECT now — a chat is read
-                  once, a project is navigated to for months — and a rail of
-                  coloured tiles competed with the one place colour means
-                  something. Still the drag handle, and the only one: dragging
-                  from anywhere on the card made every stray press-and-move a
-                  reorder. */}
-              <span
-                aria-hidden
-                title="Drag to reorder"
-                onMouseDown={() => {
-                  setArmed(c.id);
-                }}
-                className="mt-[1px] flex h-[17px] w-[17px] shrink-0 cursor-grab items-center justify-center text-text-tertiary active:cursor-grabbing"
-              >
-                <MessageCircle className="h-[14px] w-[14px]" />
+              {/* Smaller and quieter than a project's glyph, so a chat and a
+                  project read as different KINDS of thing. */}
+              <span aria-hidden className="chat-kind">
+                <MessageCircle />
               </span>
 
               {renamingId === c.id ? (
@@ -418,44 +414,36 @@ export function ConversationRail({
                   }}
                   maxLength={255}
                   aria-label="Rename chat"
-                  className="w-full rounded border bg-surface px-1 py-0.5 text-[13px] text-text-primary focus:outline-none"
-                  style={{ borderColor: 'var(--border-bright)' }}
+                  className="chat-rename"
                 />
               ) : (
-                <div className="min-w-0 flex-1">
-                  <button
-                    type="button"
-                    onClick={e => {
-                      e.stopPropagation();
-                      open(c.id, e.metaKey || e.ctrlKey || e.shiftKey);
-                    }}
-                    className="w-full text-left"
-                  >
-                    <span className="flex items-baseline gap-2">
-                      <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-text-primary">
-                        {conversationLabel(c)}
-                      </span>
-                      {liveIds?.has(c.id) === true ? (
-                        // Replaces the timestamp rather than crowding it: "3m
-                        // ago" is the wrong thing to read about a chat that is
-                        // moving right now.
-                        <span className="flex shrink-0 items-center gap-1.5">
-                          <LiveDot size={8} />
-                          <span className="font-mono text-[10px] text-[color:var(--running)]">
-                            working
-                          </span>
-                        </span>
-                      ) : c.lastActivityAt !== null ? (
-                        <time
-                          dateTime={c.lastActivityAt}
-                          className="shrink-0 font-mono text-[10px] text-text-tertiary"
-                        >
-                          {relativeTime(c.lastActivityAt)}
-                        </time>
-                      ) : null}
+                <button
+                  type="button"
+                  onClick={e => {
+                    e.stopPropagation();
+                    open(c.id, e.metaKey || e.ctrlKey || e.shiftKey);
+                  }}
+                  className="min-w-0 flex-1 text-left"
+                >
+                  {/* Two lines: the title wraps to two rather than being
+                      truncated at a width the rail never had, and the
+                      timestamp sits UNDER it instead of competing for the
+                      same line. */}
+                  <span className="rail-text">{conversationLabel(c)}</span>
+                  {liveIds?.has(c.id) === true ? (
+                    // Replaces the timestamp rather than crowding it: "3m ago"
+                    // is the wrong thing to read about a chat that is moving
+                    // right now.
+                    <span className="chat-stamp flex items-center gap-1.5">
+                      <LiveDot size={7} />
+                      <span style={{ color: 'var(--running)' }}>working</span>
                     </span>
-                  </button>
-                </div>
+                  ) : c.lastActivityAt !== null ? (
+                    <time dateTime={c.lastActivityAt} className="chat-stamp">
+                      {relativeTime(c.lastActivityAt)}
+                    </time>
+                  ) : null}
+                </button>
               )}
 
               {menuFor === c.id ? (
