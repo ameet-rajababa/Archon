@@ -4,7 +4,6 @@ import { ChatStream } from '../components/ChatStream';
 import { ChatComposer, type ChatDraft } from '../components/ChatComposer';
 import { chooseOpenChat, readLastChat, writeLastChat } from '../lib/last-chat';
 import { ConversationRail, type ArchiveScope } from '../components/ConversationRail';
-import type { ConversationColor } from '../primitives/conversation';
 import { WorkingIndicator } from '../components/WorkingIndicator';
 import { WorkflowDock } from '../components/WorkflowDock';
 import { EmptyState } from '../components/EmptyState';
@@ -190,21 +189,6 @@ export function ChatPage(): ReactElement {
         invalidateConversations();
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : 'Could not change the archive state.');
-      }
-    })();
-  };
-
-  const recolorConversations = (ids: string[], color: ConversationColor | null): void => {
-    void (async (): Promise<void> => {
-      try {
-        // Sequential rather than concurrent: a handful of PATCHes is not worth
-        // a burst, and one failure then reports the chat it actually happened on.
-        for (const id of ids) {
-          await skill.setConversationColor(id, color);
-        }
-        invalidateConversations();
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'Could not change the color.');
       }
     })();
   };
@@ -572,7 +556,6 @@ export function ChatPage(): ReactElement {
         activeConvId={activeConvId}
         onSelect={selectConversation}
         onRename={renameConversation}
-        onRecolor={recolorConversations}
         onArchive={archiveConversations}
         scope={scope}
         onScopeChange={setScope}

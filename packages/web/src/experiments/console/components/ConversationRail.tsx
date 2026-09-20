@@ -1,12 +1,9 @@
+import { MessageCircle } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from 'react';
 import {
   byMostRecent,
-  colorToken,
   conversationLabel,
-  conversationMonogram,
-  CONVERSATION_COLORS,
   matchesFilter,
-  type ConversationColor,
   type ConversationSummary,
 } from '../primitives/conversation';
 import { relativeTime } from '../lib/format';
@@ -38,7 +35,6 @@ interface ConversationRailProps {
   activeConvId: string | null;
   onSelect: (id: string | null) => void;
   onRename: (id: string, title: string) => void;
-  onRecolor: (ids: string[], color: ConversationColor | null) => void;
   /**
    * Archive or restore chats. `next` is the chat to open if archiving these
    * takes the page out of the one it is reading — the rail names it because
@@ -87,7 +83,6 @@ export function ConversationRail({
   activeConvId,
   onSelect,
   onRename,
-  onRecolor,
   onArchive,
   scope,
   onScopeChange,
@@ -97,7 +92,6 @@ export function ConversationRail({
   liveIds,
 }: ConversationRailProps): ReactElement {
   const [query, setQuery] = useState('');
-  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [menuFor, setMenuFor] = useState<string | null>(null);
@@ -209,29 +203,19 @@ export function ConversationRail({
     }
   };
 
-  const toggle = (id: string): void => {
-    setSelected(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const open = (id: string, additive: boolean): void => {
-    // Additive click builds a selection; a plain click opens the chat and drops
-    // the selection, which is the ordinary case and must stay one click.
-    if (additive) {
-      toggle(id);
-      return;
-    }
-    setSelected(new Set());
+  /**
+   * Opening a chat is one click, always.
+   *
+   * Multi-select is gone: the design's row menu acts on the chat it belongs
+   * to, and the only thing selection bought was bulk archive and bulk recolour
+   * — one of which no longer exists. `additive` stays in the signature because
+   * a modifier-click still means "not the ordinary case" and callers pass it;
+   * it simply no longer builds a set.
+   */
+  const open = (id: string, _additive: boolean): void => {
     setMenuFor(null);
     onSelect(id);
   };
-
-  const recolorTargets = (id: string): string[] =>
-    selected.size > 0 && selected.has(id) ? [...selected] : [id];
 
   return (
     <aside
@@ -251,7 +235,6 @@ export function ConversationRail({
         <button
           type="button"
           onClick={() => {
-            setSelected(new Set());
             onSelect(null);
           }}
           // Deliberately not gated on `busy`: a reply owed to another chat
@@ -356,9 +339,7 @@ export function ConversationRail({
         ) : null}
 
         {visible.map((c, index) => {
-          const token = colorToken(c.color);
           const isActive = c.id === activeConvId;
-          const isSelected = selected.has(c.id);
           const shift =
             dragId === null ? 0 : previewShift(boxesRef.current, dragFrom, dropIndex, index);
           return (
@@ -371,18 +352,10 @@ export function ConversationRail({
               className={`group relative mb-0.5 flex items-start gap-2.5 rounded-[10px] border px-2.5 py-2 transition-[background-color,border-color,opacity,transform] duration-150 ${
                 dragId === c.id ? 'opacity-40 ' : ''
               }${c.archived ? 'opacity-55 hover:opacity-100 ' : ''}${
-                isSelected
-                  ? 'bg-[color:color-mix(in_oklch,var(--brand-magenta),transparent_92%)]'
-                  : isActive
-                    ? 'bg-surface-elevated'
-                    : 'hover:bg-surface-hover'
+                isActive ? 'bg-surface-elevated' : 'hover:bg-surface-hover'
               }`}
               style={{
-                borderColor: isActive
-                  ? (token ?? 'var(--border-bright)')
-                  : isSelected
-                    ? 'color-mix(in oklch, var(--brand-magenta), transparent 60%)'
-                    : 'transparent',
+                borderColor: isActive ? 'var(--border-bright)' : 'transparent',
                 // A transform, never a layout change: the geometry captured at
                 // drag start has to stay true for the whole gesture.
                 transform: shift === 0 ? undefined : `translateY(${String(shift)}px)`,
@@ -406,45 +379,28 @@ export function ConversationRail({
                 <span
                   aria-hidden
                   className="pointer-events-none absolute -left-px bottom-2 top-2 w-[3px] rounded-r-[3px]"
-                  style={{ background: token ?? 'var(--brand-magenta)' }}
+                  style={{ background: 'var(--brand-magenta)' }}
                 />
               ) : null}
-
-              <button
-                type="button"
-                role="checkbox"
-                aria-checked={isSelected}
-                aria-label={`Select ${conversationLabel(c)}`}
-                onClick={e => {
-                  e.stopPropagation();
-                  toggle(c.id);
-                }}
-                className="mt-1.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border text-[9px] text-white"
-                style={{
-                  borderColor: isSelected ? 'var(--brand-magenta)' : 'var(--border-bright)',
-                  background: isSelected ? 'var(--brand-magenta)' : 'transparent',
-                }}
-              >
-                {isSelected ? '✓' : ''}
-              </button>
 
               {/* The monogram is the drag handle, and the only one. Dragging
                   from anywhere on the card made every stray press-and-move
                   across the rail a reorder. */}
+              {/* Monochrome. Colour identifies a PROJECT now — a chat is read
+                  once, a project is navigated to for months — and a rail of
+                  coloured tiles competed with the one place colour means
+                  something. Still the drag handle, and the only one: dragging
+                  from anywhere on the card made every stray press-and-move a
+                  reorder. */}
               <span
                 aria-hidden
                 title="Drag to reorder"
                 onMouseDown={() => {
                   setArmed(c.id);
                 }}
-                className="flex h-7 w-7 shrink-0 cursor-grab items-center justify-center rounded-lg border font-mono text-[12px] font-bold active:cursor-grabbing"
-                style={{
-                  background: token ?? 'var(--surface-elevated)',
-                  borderColor: token ?? 'var(--border)',
-                  color: token !== null ? '#fff' : 'var(--text-secondary)',
-                }}
+                className="mt-[1px] flex h-[17px] w-[17px] shrink-0 cursor-grab items-center justify-center text-text-tertiary active:cursor-grabbing"
               >
-                {conversationMonogram(c)}
+                <MessageCircle className="h-[14px] w-[14px]" />
               </span>
 
               {renamingId === c.id ? (
@@ -514,15 +470,9 @@ export function ConversationRail({
                     background: 'var(--surface-hover)',
                   }}
                 >
-                  {selected.size > 1 && selected.has(c.id) ? (
-                    <div className="px-2.5 pb-1 pt-0.5 font-mono text-[9.5px] tracking-[0.12em] text-text-tertiary">
-                      {selected.size} SELECTED
-                    </div>
-                  ) : null}
                   <button
                     type="button"
                     role="menuitem"
-                    disabled={selected.size > 1 && selected.has(c.id)}
                     onClick={() => {
                       setDraft(conversationLabel(c));
                       setRenamingId(c.id);
@@ -536,7 +486,7 @@ export function ConversationRail({
                     type="button"
                     role="menuitem"
                     onClick={() => {
-                      const ids = recolorTargets(c.id);
+                      const ids = [c.id];
                       onArchive(
                         ids,
                         !c.archived,
@@ -544,52 +494,12 @@ export function ConversationRail({
                           ? chooseNeighbourChat(visible, activeConvId, ids)
                           : null
                       );
-                      setSelected(new Set());
                       setMenuFor(null);
                     }}
                     className="w-full rounded-lg px-2.5 py-1.5 text-left text-[12.5px] text-text-secondary hover:bg-surface-elevated hover:text-text-primary"
                   >
                     {c.archived ? 'Restore' : 'Archive'}
                   </button>
-                  <div className="my-1 h-px bg-border" />
-                  <div className="px-2.5 pb-1 font-mono text-[9.5px] tracking-[0.14em] text-text-tertiary">
-                    COLOR
-                  </div>
-                  <div className="flex flex-wrap gap-1.5 px-2.5 pb-1.5">
-                    <button
-                      type="button"
-                      role="menuitem"
-                      aria-label="No color"
-                      title="No color"
-                      onClick={() => {
-                        onRecolor(recolorTargets(c.id), null);
-                        setMenuFor(null);
-                      }}
-                      className="h-4 w-4 rounded-full border"
-                      style={{ borderColor: 'var(--border-bright)' }}
-                    />
-                    {CONVERSATION_COLORS.map(({ value, label, token: swatch }) => (
-                      <button
-                        key={value}
-                        type="button"
-                        role="menuitem"
-                        aria-label={label}
-                        title={label}
-                        onClick={() => {
-                          onRecolor(recolorTargets(c.id), value);
-                          setMenuFor(null);
-                        }}
-                        className="h-4 w-4 rounded-full border transition-transform hover:scale-110"
-                        style={{
-                          background: swatch,
-                          borderColor:
-                            c.color === value
-                              ? 'var(--text-primary)'
-                              : 'color-mix(in oklch, black, transparent 70%)',
-                        }}
-                      />
-                    ))}
-                  </div>
                 </div>
               ) : null}
             </div>
