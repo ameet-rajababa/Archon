@@ -11,6 +11,7 @@ import { StreamContextProvider } from '../lib/stream-context';
 import { useConversationSSE } from '../lib/sse';
 import { useEntity, invalidate } from '../store/cache';
 import { K } from '../store/keys';
+import { baselineUserIds, echoHasLanded } from '../primitives/pending-echo';
 import { useFollowTail } from '../hooks/useFollowTail';
 import { useArrowScroll } from '../hooks/useArrowScroll';
 import * as skill from '../skills';
@@ -223,11 +224,20 @@ export function ChatPage(): ReactElement {
     content: string;
     files: Message['files'];
   } | null>(null);
-  // How many user rows the conversation held when the echo was raised. The echo
-  // clears once the server's list holds more than that: robust when the same
-  // text is sent twice, and correct across the new-chat id switch (which resets
-  // the message list to empty before the real row arrives).
-  const pendingBaseRef = useRef(0);
+  /**
+   * The user-row IDs the conversation held when the echo was raised.
+   *
+   * Identity, not a count. Counting compared against a baseline read out of a
+   * render closure, so a `messages` that was one refetch stale left the
+   * baseline too high — the count then never exceeded it, the echo never
+   * retired, and the message appeared twice with timestamps a second apart.
+   * One of them was never a second message: only one row was ever persisted.
+   *
+   * An id that was not there before is unambiguous. It survives a stale read,
+   * the same text being sent twice, and the new-chat id switch that empties the
+   * list before the real row lands.
+   */
+  const pendingBaseRef = useRef<ReadonlySet<string>>(new Set());
   // Keyed by conversation — a pending chat has no id yet, so it gets its own
   // slot. Held in the composer this followed the user between chats.
   const [drafts, setDrafts] = useState<Record<string, ChatDraft>>({});
@@ -316,10 +326,15 @@ export function ChatPage(): ReactElement {
   // would otherwise clear the second echo against the first message's row.
   useEffect(() => {
     if (pendingUser === null) return;
-    if ((messages ?? []).filter(m => m.role === 'user').length > pendingBaseRef.current) {
-      setPendingUser(null);
-    }
+    if (echoHasLanded(messages ?? [], pendingBaseRef.current)) setPendingUser(null);
   }, [messages, pendingUser]);
+
+  // Belt and braces: an echo must never outlive its turn. If the reply has
+  // landed and released the composer, whatever the echo was waiting for is
+  // not coming — showing it alongside the stored message is the visible bug.
+  useEffect(() => {
+    if (!busy && pendingUser !== null) setPendingUser(null);
+  }, [busy, pendingUser]);
 
   // Recovery poll: while a reply is pending, refetch messages on a cadence so a
   // dropped or absent SSE event can't hide the reply. Hard-caps at MAX_WAIT_MS.
@@ -426,7 +441,7 @@ export function ChatPage(): ReactElement {
     setLiveSegments([]); // a new turn — the previous reply is history now
     setBusy(true); // optimistic: disable the composer immediately
     // Show the message (and its attachments) before the request leaves.
-    pendingBaseRef.current = (messages ?? []).filter(m => m.role === 'user').length;
+    pendingBaseRef.current = baselineUserIds(messages ?? []);
     setPendingUser({
       content: text,
       files: (files ?? []).map(f => ({ name: f.name, mimeType: f.type, size: f.size })),
