@@ -36,14 +36,14 @@ export interface ProjectCounts {
   /** Waiting on YOU — an approval or an input request. Outranks running. */
   paused: number;
   /**
-   * Failures among the MOST RECENT runs, not over all time.
+   * The most recent run statuses, NEWEST FIRST.
    *
-   * The lifetime figure has the same disease the lifetime total had: wix-access
-   * has 9 failed runs and every one of them is old, so a health word derived
-   * from it said "Off track" permanently and could never say anything else. A
-   * health signal that cannot recover is not a signal.
+   * A count cannot say whether you already fixed the thing — vault and
+   * wix-access both failed and then ran again successfully, and a
+   * count-in-a-window rule called them "At risk" for days afterwards. Order
+   * is what lets a success clear the warning.
    */
-  failed: number;
+  recentStatuses: string[];
   /**
    * Open issues, or null when the repo cannot be asked — no repository, a
    * non-GitHub remote, no token, GitHub unreachable. null renders as an empty
@@ -95,7 +95,7 @@ export async function getProjectCounts(projectId: string): Promise<ProjectCounts
     runs: running + paused + pending,
     running,
     paused,
-    failed: (runsValue?.runs ?? []).filter(r => r.status === 'failed').length,
+    recentStatuses: (runsValue?.runs ?? []).map(r => r.status ?? ''),
     issues: openIssues,
   };
 }

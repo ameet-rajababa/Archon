@@ -70,7 +70,7 @@ export function ProjectStateChip({ projectId }: { projectId: string }): ReactEle
   const state = projectState({
     running: data.running,
     paused: data.paused,
-    failed: data.failed,
+    recentStatuses: data.recentStatuses,
     openIssues: data.issues ?? 0,
     chats: data.chats,
   });
