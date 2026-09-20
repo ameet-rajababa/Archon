@@ -116,9 +116,6 @@ CREATE TABLE IF NOT EXISTS remote_agent_conversations (
   isolation_env_id UUID,  -- FK added after isolation_environments table exists
   title VARCHAR(255),
   color VARCHAR(20),
-  brief TEXT,
-  brief_updated_at TIMESTAMP WITH TIME ZONE,
-  brief_pinned BOOLEAN DEFAULT FALSE,
   deleted_at TIMESTAMP WITH TIME ZONE,
   hidden BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP DEFAULT NOW(),
@@ -326,12 +323,6 @@ ALTER TABLE remote_agent_conversations
 
 -- Agent-maintained summary of the chat, when it was last written, and whether a
 -- human edited it (which stops the agent overwriting it unasked).
-ALTER TABLE remote_agent_conversations
-  ADD COLUMN IF NOT EXISTS brief TEXT;
-ALTER TABLE remote_agent_conversations
-  ADD COLUMN IF NOT EXISTS brief_updated_at TIMESTAMP WITH TIME ZONE;
-ALTER TABLE remote_agent_conversations
-  ADD COLUMN IF NOT EXISTS brief_pinned BOOLEAN DEFAULT FALSE;
 
 -- From migration 015: parent_conversation_id + hidden
 ALTER TABLE remote_agent_workflow_runs
@@ -595,6 +586,13 @@ CREATE TABLE IF NOT EXISTS remote_agent_auth_verification (
   "createdAt" timestamptz DEFAULT CURRENT_TIMESTAMP NOT NULL,
   "updatedAt" timestamptz DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
+
+-- Migration 026: remove the chat brief (columns added by 025).
+-- DROP, not ADD, so it must run after every ADD COLUMN above and before the
+-- index/comment section that names columns.
+ALTER TABLE remote_agent_conversations DROP COLUMN IF EXISTS brief;
+ALTER TABLE remote_agent_conversations DROP COLUMN IF EXISTS brief_updated_at;
+ALTER TABLE remote_agent_conversations DROP COLUMN IF EXISTS brief_pinned;
 
 -- ============================================================================
 -- Indexes and column comments

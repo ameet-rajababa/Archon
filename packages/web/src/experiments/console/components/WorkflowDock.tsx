@@ -2,7 +2,6 @@ import { useState, type ReactElement } from 'react';
 import { useNavigate } from 'react-router';
 import { useEntity } from '../store/cache';
 import { K } from '../store/keys';
-import { useDashboardSSE } from '../lib/sse';
 import { ApprovalContext } from './ApprovalContext';
 import { ApprovalPanel } from './ApprovalPanel';
 import * as skill from '../skills';
@@ -57,7 +56,6 @@ export function WorkflowDock({
   const { data } = useEntity<FeedData>(K.runs(projectId), () =>
     skill.listRuns({ codebaseId: projectId })
   );
-  useDashboardSSE();
 
   const active = (data?.runs ?? []).filter(
     r =>

@@ -4,7 +4,7 @@
 import { Pool } from 'pg';
 import type { PoolClient } from 'pg';
 import type { DbNotificationListener, IDatabase, QueryResult, SqlDialect } from './types';
-import { WORKFLOW_EVENT_NOTIFY_CHANNEL } from './types';
+import { WORKFLOW_EVENT_NOTIFY_CHANNEL, CONVERSATION_EVENT_NOTIFY_CHANNEL } from './types';
 import { createLogger } from '@archon/paths';
 import { getSchemaSQL } from '../bundled-schema';
 import { APP_VERSION } from '../schema-version';
@@ -27,6 +27,37 @@ DROP TRIGGER IF EXISTS archon_workflow_event_notify ON remote_agent_workflow_eve
 CREATE TRIGGER archon_workflow_event_notify
   AFTER INSERT ON remote_agent_workflow_events
   FOR EACH ROW EXECUTE FUNCTION archon_notify_workflow_event();
+`;
+
+/**
+ * Postgres-only: NOTIFY `archon_conversation_event` when a chat is created or a
+ * LIST-RELEVANT column changes. Same idempotent shape as the workflow trigger.
+ *
+ * `UPDATE OF <columns>` is the whole point. Every message written to a chat
+ * touches the row, so an unqualified UPDATE trigger would fire once per message
+ * and the rail would refetch its whole list mid-conversation. Naming the columns
+ * the list actually renders keeps the notification meaningful:
+ *   title          — renamed
+ *   deleted_at     — archived or restored (they are the same soft delete)
+ *   color, hidden  — relabelled or hidden
+ *   last_activity_at — new activity, which is what the rail orders by
+ *
+ * The payload carries codebase_id so a client can invalidate one project's list
+ * rather than all of them. It is a HINT, not state: the REST response stays
+ * authoritative, exactly as it is for workflow events.
+ */
+const CONVERSATION_NOTIFY_SQL = `
+CREATE OR REPLACE FUNCTION archon_notify_conversation_event() RETURNS trigger AS $$
+BEGIN
+  PERFORM pg_notify('${CONVERSATION_EVENT_NOTIFY_CHANNEL}', COALESCE(NEW.codebase_id::text, ''));
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS archon_conversation_notify ON remote_agent_conversations;
+CREATE TRIGGER archon_conversation_notify
+  AFTER INSERT OR UPDATE OF title, deleted_at, color, hidden, last_activity_at
+  ON remote_agent_conversations
+  FOR EACH ROW EXECUTE FUNCTION archon_notify_conversation_event();
 `;
 
 /** Lazy-initialized logger (deferred so test mocks can intercept createLogger) */
@@ -160,6 +191,7 @@ export class PostgresAdapter implements IDatabase, DbNotificationListener {
       await client.query('BEGIN');
       await client.query('SELECT pg_advisory_xact_lock(1797)');
       await client.query(WORKFLOW_EVENT_NOTIFY_SQL);
+      await client.query(CONVERSATION_NOTIFY_SQL);
       await client.query('COMMIT');
       getLog().info('db.postgres_notify_trigger_installed');
     } catch (e) {

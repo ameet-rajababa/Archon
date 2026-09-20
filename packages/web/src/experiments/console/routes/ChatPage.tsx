@@ -4,7 +4,6 @@ import { ChatStream } from '../components/ChatStream';
 import { ChatComposer, type ChatDraft } from '../components/ChatComposer';
 import { chooseOpenChat, readLastChat, writeLastChat } from '../lib/last-chat';
 import { ConversationRail, type ArchiveScope } from '../components/ConversationRail';
-import { BriefModal } from '../components/BriefModal';
 import type { ConversationColor } from '../primitives/conversation';
 import { WorkingIndicator } from '../components/WorkingIndicator';
 import { WorkflowDock } from '../components/WorkflowDock';
@@ -14,6 +13,7 @@ import { useConversationSSE } from '../lib/sse';
 import { useEntity, invalidate } from '../store/cache';
 import { K } from '../store/keys';
 import { useFollowTail } from '../hooks/useFollowTail';
+import { useArrowScroll } from '../hooks/useArrowScroll';
 import * as skill from '../skills';
 import type { Message } from '../primitives/message';
 import {
@@ -34,13 +34,26 @@ const SETTLE_MS = 6000;
 // Hard cap so a turn that never produces a reply (server error, etc.) can't
 // disable the composer forever.
 const MAX_WAIT_MS = 300_000;
+// Refresh the CHAT LIST on this cadence while the tab is visible.
+//
+// Nothing else does. useConversationSSE invalidates only
+// `messages:<the chat you are looking at>`; useDashboardSSE invalidates only
+// `runs`, and is mounted on RunsPage and WorkflowDock, not here. The single
+// `invalidate(K.conversations(...))` call site fires on local actions —
+// archive, rename, recolour — so a reply landing in a chat you are NOT viewing,
+// a title the agent rewrote, or a chat created by the CLI stayed invisible
+// until a manual refresh.
+//
+// A poll rather than a stream because the server has no conversation-list
+// event to subscribe to: `__dashboard__` carries workflow events only. Adding
+// one is the better fix and a larger one; this removes the manual refresh
+// today. Gated on visibility so a background tab costs nothing.
+const LIST_POLL_MS = 8000;
 /**
  * What Refresh sends. A visible user message rather than a silent back-channel:
  * the agent's summary tool writes to the chat's own record, so the request that
  * caused it should be readable in the transcript next to the result.
  */
-const BRIEF_REFRESH_PROMPT =
-  "Update this chat's summary: what we are doing, where we are, and what is left.";
 /**
  * Project-scoped agent chat. A tab peer of the runs view under a project.
  *
@@ -117,23 +130,36 @@ export function ChatPage(): ReactElement {
     if (projectId !== undefined) writeLastChat(projectId, id);
   };
 
+  const invalidateConversationsRef = useRef<() => void>(() => undefined);
+
   const invalidateConversations = (): void => {
     if (projectId === undefined) return;
     invalidate(`${K.conversations(projectId)}:${scope}`);
     invalidate(`${K.conversations(projectId)}:archived-count`);
     invalidate(K.conversations(projectId));
   };
+  invalidateConversationsRef.current = invalidateConversations;
 
-  const saveBrief = (id: string, brief: string | null): void => {
-    void (async (): Promise<void> => {
-      try {
-        await skill.setConversationBrief(id, brief);
-        invalidateConversations();
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'Could not save the summary.');
-      }
-    })();
-  };
+  // Keep the chat list fresh without a manual refresh. The ref keeps the
+  // interval stable across renders: depending on the callback itself would tear
+  // the timer down and rebuild it on every keystroke in the composer.
+  useEffect(() => {
+    if (projectId === undefined) return;
+    const id = setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      invalidateConversationsRef.current();
+    }, LIST_POLL_MS);
+    // Catch up immediately on returning to the tab rather than waiting out the
+    // remainder of an interval that ran while it was hidden.
+    const onVisible = (): void => {
+      if (document.visibilityState === 'visible') invalidateConversationsRef.current();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return (): void => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [projectId]);
 
   const archiveConversations = (ids: string[], archived: boolean, next: string | null): void => {
     void (async (): Promise<void> => {
@@ -322,9 +348,20 @@ export function ChatPage(): ReactElement {
   // Reveal the raw tool trace inline (toggled from the working indicator).
   const [showTools, setShowTools] = useState(false);
 
+  // Follow the tail by observed height, not by message count: a streaming reply,
+  // late markdown/code highlighting and expanding tool cards all grow an existing
+  // row without adding one, and a count-keyed effect never sees them.
+  const { scrollRef, contentRef, atBottom, scrollToBottom, handleScroll } = useFollowTail();
+  // ↑/↓ scroll the transcript. The composer re-focuses itself after each send,
+  // so without this the arrows land in an empty textarea and do nothing.
+  useArrowScroll(scrollRef);
+
   const onSend = (text: string, files?: File[]): void => {
     if (projectId === undefined) return;
     setError(null);
+    // The reader may be up in the history; their own message is the one thing
+    // they always want to see land, so sending re-pins the tail.
+    scrollToBottom();
     setLiveSegments([]); // a new turn — the previous reply is history now
     setBusy(true); // optimistic: disable the composer immediately
     // Show the message (and its attachments) before the request leaves.
@@ -359,11 +396,6 @@ export function ChatPage(): ReactElement {
     })();
   };
 
-  // Follow the tail by observed height, not by message count: a streaming reply,
-  // late markdown/code highlighting and expanding tool cards all grow an existing
-  // row without adding one, and a count-keyed effect never sees them.
-  const { scrollRef, contentRef, atBottom, scrollToBottom, handleScroll } = useFollowTail();
-
   if (projectId === undefined) {
     return <EmptyState title="No project selected." />;
   }
@@ -373,8 +405,6 @@ export function ChatPage(): ReactElement {
   // Which chat's summary is open, and whether it opened straight into the
   // editor. Keyed by conversation id rather than a boolean: the rail can open
   // the summary of a chat that is not the one being read.
-  const [briefFor, setBriefFor] = useState<{ id: string; editing: boolean } | null>(null);
-  const briefConversation = (conversations ?? []).find(c => c.id === briefFor?.id);
 
   // Surface a failed (re)load of the conversation list or message history — a
   // revalidation can fail silently (network blip, server restart) and otherwise
@@ -461,9 +491,6 @@ export function ChatPage(): ReactElement {
         archivedCount={archivedList?.length ?? 0}
         pendingNew={startingNew && activeConvId === null}
         projectId={projectId}
-        onOpenBrief={(id, editing) => {
-          setBriefFor({ id, editing });
-        }}
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div className="relative min-h-0 flex-1">
@@ -517,29 +544,6 @@ export function ChatPage(): ReactElement {
             </button>
           ) : null}
         </div>
-
-        {briefConversation !== undefined && briefFor !== null ? (
-          <BriefModal
-            conversation={briefConversation}
-            startEditing={briefFor.editing}
-            onClose={() => {
-              setBriefFor(null);
-            }}
-            onSave={brief => {
-              saveBrief(briefConversation.id, brief);
-            }}
-            // Refresh sends a message, and messages go to the chat being read.
-            // Offering it on another chat's summary would silently write the
-            // request into the wrong conversation.
-            onRefresh={
-              briefConversation.id === activeConvId && !busy
-                ? (): void => {
-                    onSend(BRIEF_REFRESH_PROMPT);
-                  }
-                : undefined
-            }
-          />
-        ) : null}
 
         <WorkflowDock projectId={projectId} conversationDbId={activeConversation?.dbId ?? null} />
 
