@@ -383,6 +383,18 @@ export function ChatPage(): ReactElement {
   }, []);
   const liveIds = useMemo(() => new Set(liveChatIds ?? []), [liveChatIds]);
 
+  /**
+   * Is THIS chat working? `busy` only knows about a turn this tab started, so
+   * on a reload, in a second window, or on a chat driven from Slack or the
+   * CLI, the indicator was absent while the agent was mid-tool — the screen
+   * looked idle for the one reason it is never allowed to.
+   *
+   * The server's own answer covers those cases. `busy` still counts on its
+   * own because it is true the instant a message is sent, before the next
+   * health poll can notice.
+   */
+  const working = busy || (activeConvId !== null && liveIds.has(activeConvId));
+
   // Reveal the raw tool trace inline (toggled from the working indicator).
   const [showTools, setShowTools] = useState(false);
 
@@ -544,7 +556,7 @@ export function ChatPage(): ReactElement {
           >
             {/* Match the composer's centered 940px column (design: .stream-inner) */}
             <div ref={contentRef} className="mx-auto max-w-[940px]">
-              {renderedMessages.length === 0 && !busy ? (
+              {renderedMessages.length === 0 && !working ? (
                 <EmptyState
                   title={activeConvId === null ? 'New chat.' : 'No messages yet.'}
                   hint="Ask the agent about this project, or tell it what to run."
@@ -562,9 +574,12 @@ export function ChatPage(): ReactElement {
                           }
                     }
                   />
-                  {busy ? (
+                  {working ? (
                     <WorkingIndicator
                       activity={currentActivity}
+                      // Only this tab knows when its own turn began. For a turn
+                      // started elsewhere the honest answer is no clock, rather
+                      // than a number measured from when you happened to look.
                       since={busySince}
                       expanded={showTools}
                       onToggle={() => {
