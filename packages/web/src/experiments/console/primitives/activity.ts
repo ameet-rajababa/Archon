@@ -49,7 +49,7 @@ function describeCommand(command: string): string {
   if (has('grep', 'rg ', 'find ', 'ls ')) return 'Looking through files';
   if (has('deploy')) return 'Deploying';
 
-  // Nothing recognised: name the program, which is still better than "Bash".
+  // Nothing recognized: name the program, which is still better than "Bash".
   const first = command.trim().split(/\s+/)[0];
   const program = first === undefined ? null : baseName(first);
   return program === null ? 'Running a command' : `Running ${program}`;

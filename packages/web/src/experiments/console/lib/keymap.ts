@@ -14,7 +14,7 @@
  *
  * Bindings declare their own `when:` predicate when they should be gated
  * (e.g. approval shortcuts only on paused runs). The `?` help overlay is
- * driven by a separate static catalogue (lib/shortcuts.ts) — drift is
+ * driven by a separate static catalog (lib/shortcuts.ts) — drift is
  * possible and the cost of the occasional desync is lower than a registry
  * system that obscures the wiring.
  *

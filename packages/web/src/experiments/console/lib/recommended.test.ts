@@ -53,7 +53,7 @@ describe('orderWithRecommended', () => {
     expect(ordered.filter(w => w.name === 'beta')).toHaveLength(1);
   });
 
-  test('an unrecognised source ranks after the three known sources (#2578)', () => {
+  test('an unrecognized source ranks after the three known sources (#2578)', () => {
     // Mirrors `toWorkflow`'s verbatim-passthrough contract: a misspelled or
     // future source must not collapse to 'bundled' (or any known value), and
     // the picker must place it deterministically rather than indexing an

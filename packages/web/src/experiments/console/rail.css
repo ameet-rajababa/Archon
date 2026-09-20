@@ -188,7 +188,7 @@
    offset (23px: 6px body padding + the 17px grip gutter), the same 17px glyph,
    the same 23px on the right. 63px, not a round 50.
 
-   Why it matters: at 50px the rows had to centre their icons, so peeking moved
+   Why it matters: at 50px the rows had to center their icons, so peeking moved
    every glyph 6.5px to the right. Nothing should move. The panel gets wider;
    the icon column stays exactly where it was, and the labels arrive beside it.
    That is what makes it read as a slide rather than a jump. */
@@ -261,7 +261,7 @@
 
 /* ── IDENTITY PICKER ────────────────────────────────────────────────────
    Ported from the prototype: a popover anchored to the row's glyph, with a
-   preset colour row, a tab per vocabulary, and a ranked search. */
+   preset color row, a tab per vocabulary, and a ranked search. */
 .pick {
   position: fixed;
   z-index: 70;
@@ -526,9 +526,9 @@
 }
 
 /* ── CHAT STATUS ────────────────────────────────────────────────────────
-   Shape as well as colour. Three states told apart by hue alone fail for
+   Shape as well as color. Three states told apart by hue alone fail for
    anyone who cannot separate blue from amber, and fail again in a screenshot
-   — the dot, the ring and the outline are distinguishable without colour. */
+   — the dot, the ring and the outline are distinguishable without color. */
 .chat-status {
   flex: 0 0 auto;
   width: 15px;

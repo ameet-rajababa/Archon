@@ -158,7 +158,7 @@ describe('toRun — provenance', () => {
     expect(r.status).toBe('running');
   });
 
-  test('an unrecognised status falls back to running', () => {
+  test('an unrecognized status falls back to running', () => {
     const r = toRun(raw({ id: 'r1', workflow_name: 'plan', status: 'banana' }));
     expect(r.status).toBe('running');
   });

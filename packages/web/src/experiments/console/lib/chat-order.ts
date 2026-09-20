@@ -153,7 +153,7 @@ export function previewShift(
  * The same function, named for what it actually is.
  *
  * `applyChatOrder` is list-agnostic — it takes ids and returns the list
- * rearranged — and the project rail needs exactly the same behaviour. Aliased
+ * rearranged — and the project rail needs exactly the same behavior. Aliased
  * rather than duplicated so the "new item is never hidden by a stale order"
  * rule has one implementation.
  */

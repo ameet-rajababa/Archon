@@ -3,7 +3,7 @@
  *
  * The same shape as the chat order, and deliberately the same primitives —
  * `rowBoxes`, `dropIndexAt`, `previewShift` and `reorder` are list-agnostic and
- * already carry the hard-won behaviour (geometry captured once at drag start,
+ * already carry the hard-won behavior (geometry captured once at drag start,
  * a transform preview that never reflows, an index-based commit that matches
  * what the preview showed). Only where the order is stored differs.
  *

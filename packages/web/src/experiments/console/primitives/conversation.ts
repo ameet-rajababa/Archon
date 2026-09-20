@@ -1,6 +1,6 @@
 /** Conversation summary primitive. Normalized from the server conversation row. */
 /**
- * The colors a chat can be labelled with, paired with the design token that
+ * The colors a chat can be labeled with, paired with the design token that
  * renders each. Copied from `@archon/core`'s CONVERSATION_COLORS rather than
  * imported — the console may not import production modules (ESLint isolation
  * rule) — so the two lists must change together.

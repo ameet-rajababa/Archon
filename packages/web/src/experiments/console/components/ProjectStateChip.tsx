@@ -9,7 +9,7 @@ import * as skill from '../skills';
 import { useEntity } from '../store/cache';
 import { K } from '../store/keys';
 
-/** The mark carries the status as shape as well as colour, so it survives being
+/** The mark carries the status as shape as well as color, so it survives being
  *  read by someone who cannot separate the two. */
 function Mark({ status }: { status: ProjectStatus }): ReactElement {
   const color = STATUS_COLOR[status];

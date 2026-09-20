@@ -28,7 +28,7 @@ describe('conversationLabel', () => {
   });
 
   test('falls back for a chat the server has not titled yet', () => {
-    // A brand-new chat has no title until the first message is summarised;
+    // A brand-new chat has no title until the first message is summarized;
     // without the fallback the switcher renders a blank row.
     expect(conversationLabel(conv({ title: null }))).toBe(UNTITLED_CHAT);
     expect(conversationLabel(conv({ title: '' }))).toBe(UNTITLED_CHAT);
@@ -71,7 +71,7 @@ describe('parseConversationColor', () => {
     expect(parseConversationColor(undefined)).toBeNull();
   });
 
-  test('an unrecognised value reads as no color rather than a blank swatch', () => {
+  test('an unrecognized value reads as no color rather than a blank swatch', () => {
     // A value written by a newer build, or hand-edited, must not render an
     // empty circle or reach the style attribute.
     expect(parseConversationColor('chartreuse')).toBeNull();

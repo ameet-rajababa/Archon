@@ -25,7 +25,7 @@ export function activitySummary(counts: HeaderCounts | null | undefined): string
 
 /**
  * True when the activity is waiting on the user rather than merely in progress.
- * Drives the colour: work in flight is informational, work that has stopped for
+ * Drives the color: work in flight is informational, work that has stopped for
  * a human is not.
  */
 export function activityNeedsYou(counts: HeaderCounts | null | undefined): boolean {

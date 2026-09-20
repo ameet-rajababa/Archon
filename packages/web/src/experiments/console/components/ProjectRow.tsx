@@ -157,10 +157,10 @@ export function ProjectRow({
         }}
         className="rail-row group"
       >
-        {/* A bare coloured glyph. The tinted monogram square was decoration
+        {/* A bare colored glyph. The tinted monogram square was decoration
           standing in for information the glyph already carries — six of them
           down the rail read as a column of swatches rather than a list of
-          projects. Colour lives here now rather than on chats: a chat is read
+          projects. Color lives here now rather than on chats: a chat is read
           once, a project is navigated to for months. */}
         {/* Six dots in the row's reserved left gutter, invisible until hover.
           The glyph is the project's identity and stays put — swapping it for a
@@ -282,7 +282,7 @@ export function ProjectRow({
                     }}
                     className={MENU_ITEM}
                   >
-                    Change icon and colour…
+                    Change icon and color…
                   </button>
                   <button
                     type="button"

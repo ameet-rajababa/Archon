@@ -6,12 +6,12 @@ import { IDENTITY_COLORS, getIdentity, resolveColor, setIdentity } from '../lib/
 import { pushIdentity } from '../lib/presentation-sync';
 
 /**
- * Choose a project's icon and colour.
+ * Choose a project's icon and color.
  *
- * Ported from the prototype. Two vocabularies behind tabs, a preset colour row
- * above both, and a ranked search — icons are tinted with the chosen colour
+ * Ported from the prototype. Two vocabularies behind tabs, a preset color row
+ * above both, and a ranked search — icons are tinted with the chosen color
  * because lucide is stroke art on currentColor, so one path set serves every
- * colour for free. Emoji are NOT tinted: they carry their own colour and
+ * color for free. Emoji are NOT tinted: they carry their own color and
  * always have.
  */
 export function IdentityPicker({

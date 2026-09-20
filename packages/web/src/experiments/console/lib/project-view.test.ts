@@ -11,7 +11,7 @@ describe('parseProjectView', () => {
     expect(parseProjectView(null)).toBeNull();
   });
 
-  test('an unrecognised value reads as no preference, not as a route', () => {
+  test('an unrecognized value reads as no preference, not as a route', () => {
     // A stale key from an older build, or a hand-edited value, must not send
     // the user to a view that does not exist.
     expect(parseProjectView('builder')).toBeNull();

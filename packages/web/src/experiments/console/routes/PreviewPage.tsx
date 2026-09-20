@@ -233,7 +233,7 @@ const ASK_SAMPLE = parseAskSpec(
   })
 );
 
-/** A multi-answer question, so the preview shows the toggle behaviour. */
+/** A multi-answer question, so the preview shows the toggle behavior. */
 const ASK_MULTI_SAMPLE = parseAskSpec(
   JSON.stringify({
     questions: [

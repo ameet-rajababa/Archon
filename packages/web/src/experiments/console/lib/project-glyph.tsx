@@ -25,7 +25,7 @@ export function ProjectGlyph({
 }): ReactElement {
   const name = glyph !== null && glyph in ICON_PATHS ? glyph : null;
 
-  // Chosen an emoji: it carries its own colour and is not tinted.
+  // Chosen an emoji: it carries its own color and is not tinted.
   if (name === null && glyph !== null && glyph !== '') {
     return (
       <span aria-hidden style={{ fontSize: size + 1, lineHeight: `${String(size + 2)}px` }}>
@@ -54,7 +54,7 @@ export function ProjectGlyph({
 /**
  * A stable glyph for a project that has not chosen one.
  *
- * Same idea as the deterministic colour: every project reads as distinct
+ * Same idea as the deterministic color: every project reads as distinct
  * before anyone configures anything, and it never changes underneath you.
  */
 export function defaultGlyph(projectId: string): string {

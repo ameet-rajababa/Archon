@@ -61,7 +61,7 @@ export function CodeBlock({ children }: { children?: ReactNode }): ReactElement 
         </button>
       </div>
       {/*
-        Announced rather than shown only in colour: the confirmation is the
+        Announced rather than shown only in color: the confirmation is the
         whole feedback loop, and a visual-only one leaves screen-reader users
         clicking with no idea whether it worked.
       */}

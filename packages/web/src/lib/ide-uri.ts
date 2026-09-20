@@ -13,19 +13,19 @@
  *   tries to resolve it on the Windows filesystem, which silently fails.
  *
  * @param path  Absolute path on the server, as reported by the API. Backslashes
- *              are normalised to forward slashes.
+ *              are normalized to forward slashes.
  * @param env   Server-environment hints from `/api/health` — `is_wsl` plus
  *              `wsl_distro` when known. Omit (or pass `is_wsl: false`) for
  *              the plain `vscode://file/...` form.
  */
 export function ideUri(path: string, env?: { is_wsl?: boolean; wsl_distro?: string }): string {
-  const normalised = path.replace(/\\/g, '/');
+  const normalized = path.replace(/\\/g, '/');
 
   if (env?.is_wsl && env.wsl_distro) {
     // vscode-remote URIs need a leading slash before the absolute Linux path
-    const withLeadingSlash = normalised.startsWith('/') ? normalised : `/${normalised}`;
+    const withLeadingSlash = normalized.startsWith('/') ? normalized : `/${normalized}`;
     return `vscode://vscode-remote/wsl+${encodeURIComponent(env.wsl_distro)}${withLeadingSlash}`;
   }
 
-  return `vscode://file/${normalised}`;
+  return `vscode://file/${normalized}`;
 }

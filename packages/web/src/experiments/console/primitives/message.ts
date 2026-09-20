@@ -159,7 +159,7 @@ export function toMessage(raw: RawMessage): Message {
       ? { workflowName: wr.workflowName, runId: wr.runId }
       : null;
   // Drop entries missing a usable name or size rather than rendering a chip
-  // labelled `undefined`. A non-numeric size degrades to 0, which formatBytes
+  // labeled `undefined`. A non-numeric size degrades to 0, which formatBytes
   // renders as `0 B` — a wrong size is better than losing the attachment.
   // Array.isArray, not `?? []`: parseMetadata casts JSON.parse output without
   // validating it, so a metadata blob carrying a non-array `files` would reach

@@ -8,7 +8,7 @@ describe('toWorkflow — source normalization', () => {
     expect(toWorkflow({ workflow: { name: 'a' }, source: 'bundled' }).source).toBe('bundled');
   });
 
-  test('surfaces an unrecognised source verbatim rather than collapsing it to bundled (#2578)', () => {
+  test('surfaces an unrecognized source verbatim rather than collapsing it to bundled (#2578)', () => {
     // The server emits only the three known sources today, but a misspelled or
     // future value must not be silently collapsed to 'bundled' — that would
     // mark the workflow read-only and turn Save into Save-as. The fix mirrors

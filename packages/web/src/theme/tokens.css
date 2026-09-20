@@ -187,7 +187,7 @@
 }
 
 /* ══ STATUS — distinct from accent so a theme swap cannot break meaning ══
-   Light mode needs its own values: a colour tuned against charcoal reads as a
+   Light mode needs its own values: a color tuned against charcoal reads as a
    stain on white, and several fail contrast outright at dark-mode lightness. */
 [data-mode='dark'] .console-root {
   --running: oklch(0.72 0.155 245);

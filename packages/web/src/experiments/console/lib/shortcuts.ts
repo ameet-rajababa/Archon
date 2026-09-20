@@ -1,4 +1,4 @@
-// Catalogue for the `?` overlay. Keep in sync with each page's useKeymap.
+// Catalog for the `?` overlay. Keep in sync with each page's useKeymap.
 import type { KeymapGroup } from '../components/KeymapHelp';
 
 export const SHORTCUTS: readonly KeymapGroup[] = [

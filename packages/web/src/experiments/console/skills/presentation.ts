@@ -1,5 +1,5 @@
 /**
- * A project's presentation: icon, colour, rail position, brief.
+ * A project's presentation: icon, color, rail position, brief.
  *
  * Server-backed, with localStorage as a synchronous cache in front of it.
  *

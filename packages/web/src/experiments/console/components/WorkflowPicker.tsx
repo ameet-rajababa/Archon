@@ -41,7 +41,7 @@ function sourceBadgeClass(source: Workflow['source']): string {
       return 'text-text-tertiary';
     default:
       // An unrecognised source surfaces under its own raw value (#2578) — render
-      // it with a neutral muted colour rather than crashing or aliasing one of
+      // it with a neutral muted color rather than crashing or aliasing one of
       // the known sources.
       return 'text-text-tertiary';
   }

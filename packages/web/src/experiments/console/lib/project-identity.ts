@@ -1,7 +1,7 @@
 /**
- * A project's colour and glyph.
+ * A project's color and glyph.
  *
- * Colour moved from chats to projects: a chat is a thing you read once, a
+ * Color moved from chats to projects: a chat is a thing you read once, a
  * project is a thing you navigate to for months, so the stable identity belongs
  * on the project. Chats are monochrome now.
  *
@@ -83,9 +83,9 @@ export function clearIdentity(projectId: string): void {
 }
 
 /**
- * The colour to actually paint, resolving a chosen key to its value and
+ * The color to actually paint, resolving a chosen key to its value and
  * falling back to the id-derived default. Never returns null, so a row always
- * has a colour and the rail never renders a hole.
+ * has a color and the rail never renders a hole.
  */
 export function resolveColor(projectId: string, identity?: ProjectIdentity): string {
   const chosen = (identity ?? getIdentity(projectId)).color;
@@ -96,7 +96,7 @@ export function resolveColor(projectId: string, identity?: ProjectIdentity): str
   // The default spreads across the identity palette rather than reusing
   // `tileColor`, whose hues are deliberately concentrated in the warm end.
   // That is correct for a tinted monogram tile and wrong for a bare glyph:
-  // six warm glyphs down a rail read as one colour repeated.
+  // six warm glyphs down a rail read as one color repeated.
   let h = 0;
   for (let i = 0; i < projectId.length; i++) h = (h * 33 + projectId.charCodeAt(i)) >>> 0;
   // Skip `grey` — a project that chose grey means it; one that was assigned it

@@ -17,7 +17,7 @@ const FIELDS: readonly {
 /**
  * The standing answer to "what is this and where is it".
  *
- * Three labelled parts rather than a paragraph, from the prototype. The split
+ * Three labeled parts rather than a paragraph, from the prototype. The split
  * is what keeps it honest: the part that goes out of date is visibly a
  * different field from the part that does not, so a stale "Doing" cannot
  * quietly discredit a "Why" that is still true.

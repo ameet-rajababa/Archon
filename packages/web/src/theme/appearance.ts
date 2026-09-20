@@ -36,7 +36,7 @@ export type TextSize = 'xs' | 's' | 'm' | 'l' | 'xl';
  * How much air a row gets.
  *
  * The values are the token names in theme/tokens.css. `comfortable` is
- * labelled "Cozy" in the UI — the token keeps the CSS-conventional name, the
+ * labeled "Cozy" in the UI — the token keeps the CSS-conventional name, the
  * label uses the word people actually say.
  */
 export type Density = 'comfortable' | 'compact';
@@ -126,7 +126,7 @@ export function applyAppearance(a: Appearance = getAppearance()): void {
   r.dataset.mode = resolveMode(a.mode, systemPrefersDark());
   r.dataset.text = a.text;
   // The inline pre-paint script set this to avoid a flash; keep it honest so a
-  // later mode change does not leave the old colour behind the app.
+  // later mode change does not leave the old color behind the app.
   r.style.background = '';
 }
 

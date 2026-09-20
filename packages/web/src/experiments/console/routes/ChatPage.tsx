@@ -42,7 +42,7 @@ const MAX_WAIT_MS = 300_000;
 // `messages:<the chat you are looking at>`; useDashboardSSE invalidates only
 // `runs`, and is mounted on RunsPage and WorkflowDock, not here. The single
 // `invalidate(K.conversations(...))` call site fires on local actions —
-// archive, rename, recolour — so a reply landing in a chat you are NOT viewing,
+// archive, rename, recolor — so a reply landing in a chat you are NOT viewing,
 // a title the agent rewrote, or a chat created by the CLI stayed invisible
 // until a manual refresh.
 //

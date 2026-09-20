@@ -117,7 +117,7 @@ export function ConversationRail({
     // moment you type. ProjectRow has done this since it was written; the chat
     // rail only focused, which left the caret at one end and made every rename
     // a select-all first. Two renames in one app that behave differently is
-    // the defect, not either behaviour on its own.
+    // the defect, not either behavior on its own.
     if (renamingId !== null) renameRef.current?.select();
   }, [renamingId]);
 
@@ -221,7 +221,7 @@ export function ConversationRail({
    * Opening a chat is one click, always.
    *
    * Multi-select is gone: the design's row menu acts on the chat it belongs
-   * to, and the only thing selection bought was bulk archive and bulk recolour
+   * to, and the only thing selection bought was bulk archive and bulk recolor
    * — one of which no longer exists. `additive` stays in the signature because
    * a modifier-click still means "not the ordinary case" and callers pass it;
    * it simply no longer builds a set.

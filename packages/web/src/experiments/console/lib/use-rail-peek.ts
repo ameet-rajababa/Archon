@@ -10,7 +10,7 @@
  * for movement over the rail IS the intent test. Bound to the document rather
  * than to the rail element, which React replaces underneath us.
  *
- * Ported from the prototype, where this behaviour was built and tested.
+ * Ported from the prototype, where this behavior was built and tested.
  */
 import { useEffect, useRef, useState } from 'react';
 
@@ -39,7 +39,7 @@ export function useRailPeek(collapsed: boolean, expandedWidth: number): boolean 
       if (rail === null) return;
       const b = rail.getBoundingClientRect();
       // While peek is opening the width is mid-animation, so the measured right
-      // edge trails the pointer. Test against the width it is travelling TO, or
+      // edge trails the pointer. Test against the width it is traveling TO, or
       // a fast move into the panel closes it on the way in.
       const right = s.peeking ? Math.max(b.right, s.expandedWidth) : b.right;
       const over =
