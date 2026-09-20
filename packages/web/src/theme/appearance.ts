@@ -168,3 +168,13 @@ export function watchSystemMode(): void {
 export function useAppearance(): Appearance {
   return useSyncExternalStore(subscribe, getAppearance, getAppearance);
 }
+
+/**
+ * The mode the page is ACTUALLY in, which is what a component needs when it
+ * has to hand a light/dark value to something that cannot read CSS - a canvas
+ * library, a chart, an iframe. `mode` alone is a three-value preference, and
+ * treating `system` as dark is how a light page ends up with a black canvas.
+ */
+export function useResolvedMode(): 'light' | 'dark' {
+  return resolveMode(useAppearance().mode, systemPrefersDark());
+}

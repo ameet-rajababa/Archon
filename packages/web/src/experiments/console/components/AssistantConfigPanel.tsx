@@ -164,8 +164,10 @@ export function AssistantConfigPanel(): ReactElement {
           by the panel's Save button. */}
       <label className="mb-5 flex flex-wrap items-center gap-[18px]">
         <span className="w-[150px] shrink-0 text-[13.5px] font-semibold text-text-secondary">
-          Chat runs on{' '}
-          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.06em] text-text-tertiary">
+          {/* The scope marker breaks to its own line rather than wrapping
+              mid-phrase: a 150px label rendered "Chat runs on THIS / INSTALL". */}
+          Chat runs on
+          <span className="mt-[2px] block font-mono text-[10px] font-bold uppercase tracking-[0.06em] text-text-tertiary">
             this install
           </span>
         </span>
@@ -204,8 +206,10 @@ export function AssistantConfigPanel(): ReactElement {
       {userScopeAvailable && userDraft !== null ? (
         <div className="mb-5 flex flex-wrap items-center gap-[18px]">
           <span className="w-[150px] shrink-0 text-[13.5px] font-semibold text-text-secondary">
-            Chat runs on{' '}
-            <span className="font-mono text-[10px] font-bold uppercase tracking-[0.06em] text-text-tertiary">
+            {/* The scope marker breaks to its own line rather than wrapping
+                mid-phrase: a 150px label rendered "Chat runs on THIS / INSTALL". */}
+            Chat runs on
+            <span className="mt-[2px] block font-mono text-[10px] font-bold uppercase tracking-[0.06em] text-text-tertiary">
               just me
             </span>
           </span>

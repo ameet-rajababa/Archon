@@ -38,6 +38,7 @@ import { computeGuides, GUIDE_THRESHOLD, type Rect } from '../editor/smart-guide
 import { builderNodeView } from './BuilderNodeView';
 import { SmartGuides } from './SmartGuides';
 import { BuilderContextMenu, type MenuEntry } from './BuilderContextMenu';
+import { useResolvedMode } from '../../../../theme/appearance';
 
 /** dataTransfer MIME key the palette writes and the canvas reads. */
 export const PALETTE_DATA_KEY = 'application/archon-builder-variant';
@@ -347,13 +348,18 @@ function CanvasInner({
     ]
   );
 
+  // React Flow paints its own canvas, grid and minimap and cannot read our
+  // CSS, so it has to be told. Hard-wired to "dark", it put a black dotted
+  // canvas behind white node cards on every light-mode page.
+  const colorMode = useResolvedMode();
+
   return (
     <div className="relative h-full w-full" onContextMenu={handleCanvasContextMenu}>
       <ReactFlow<BuilderFlowNode, BuilderFlowEdge>
         nodes={nodes}
         edges={edges}
         nodeTypes={NODE_TYPES}
-        colorMode="dark"
+        colorMode={colorMode}
         fitView
         minZoom={0.2}
         snapToGrid

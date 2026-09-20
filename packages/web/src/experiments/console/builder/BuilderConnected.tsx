@@ -61,6 +61,7 @@ import { K } from '../store/keys';
 import { HttpError } from '../lib/http';
 import type { Project } from '../primitives/project';
 import type { Workflow } from '../primitives/workflow';
+import { SELECT_CLASS_COMPACT, SelectShell } from '../components/SettingsFormPrimitives';
 
 /** Router navigation state carried into the connected route. */
 interface BuilderNavState {
@@ -436,39 +437,43 @@ export function BuilderConnected(): ReactElement {
 
         <label className="flex items-center gap-2 text-[11.5px] text-text-tertiary">
           Project
-          <select
-            value={projectId ?? ''}
-            onChange={(e): void => {
-              onPickProject(e.target.value);
-            }}
-            className="max-w-[220px] rounded-[8px] border border-border bg-surface px-2 py-1 font-mono text-[12px] text-text-primary outline-none focus:border-accent-bright/60"
-          >
-            <option value="">Select a project…</option>
-            {projects.map(p => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+          <SelectShell className="max-w-[220px]">
+            <select
+              value={projectId ?? ''}
+              onChange={(e): void => {
+                onPickProject(e.target.value);
+              }}
+              className={SELECT_CLASS_COMPACT}
+            >
+              <option value="">Select a project…</option>
+              {projects.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </SelectShell>
         </label>
 
         {cwd !== undefined ? (
           <label className="flex items-center gap-2 text-[11.5px] text-text-tertiary">
             Workflow
-            <select
-              value={name ?? ''}
-              onChange={(e): void => {
-                onOpenWorkflow(e.target.value);
-              }}
-              className="max-w-[220px] rounded-[8px] border border-border bg-surface px-2 py-1 font-mono text-[12px] text-text-primary outline-none focus:border-accent-bright/60"
-            >
-              <option value="">Open a workflow…</option>
-              {openOptions.map(n => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
+            <SelectShell className="max-w-[220px]">
+              <select
+                value={name ?? ''}
+                onChange={(e): void => {
+                  onOpenWorkflow(e.target.value);
+                }}
+                className={SELECT_CLASS_COMPACT}
+              >
+                <option value="">Open a workflow…</option>
+                {openOptions.map(n => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </SelectShell>
           </label>
         ) : null}
 
