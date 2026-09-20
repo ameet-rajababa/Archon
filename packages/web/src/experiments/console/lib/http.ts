@@ -31,6 +31,20 @@ export class HttpError extends Error {
   }
 }
 
+/**
+ * The path to name in an error. `window` is absent under the test runner, and
+ * a helper that can only report a URL inside a browser is a helper whose error
+ * paths never get tested - which is how both of them stayed untested here.
+ */
+function pathOf(url: string): string {
+  const origin = globalThis.location?.origin ?? 'http://localhost';
+  try {
+    return new URL(url, origin).pathname;
+  } catch {
+    return url;
+  }
+}
+
 function mergeHeaders(
   base: Record<string, string>,
   extra: HeadersInit | undefined
@@ -65,8 +79,22 @@ export async function requestJson<T>(url: string, options?: RequestInit): Promis
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     const truncated = body.length > 200 ? `${body.slice(0, 200)}...` : body;
-    const path = new URL(url, window.location.origin).pathname;
-    throw new HttpError(res.status, path, truncated);
+    throw new HttpError(res.status, pathOf(url), truncated);
+  }
+  // A 200 carrying text/html is the SPA fallback, which answers any path the
+  // server does not route. Left to res.json() it surfaces as
+  // "Unexpected token '<'", which reads like a parse bug in the data rather
+  // than a missing route, and callers that treat any throw as "nothing here"
+  // show an empty state instead. Naming it is the difference between an
+  // afternoon and a minute.
+  const type = res.headers.get('content-type') ?? '';
+  if (!type.includes('json')) {
+    throw new HttpError(
+      res.status,
+      pathOf(url),
+      `expected JSON, got ${type === '' ? 'no content-type' : type}. This path is not routed by the server ` +
+        '(the SPA fallback answered it), which usually means the server is older than this bundle.'
+    );
   }
   return res.json() as Promise<T>;
 }
