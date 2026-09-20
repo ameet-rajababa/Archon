@@ -90,8 +90,11 @@ function defaultInputGuard(): boolean {
  * the route binding underneath instead of the dialog. Scanning for any
  * `[role="dialog"][aria-modal="true"]` closes that race generically, at
  * the cost of one querySelector per keydown.
+ *
+ * Exported because any window-level key handler outside this dispatcher owes
+ * the same check — a second copy of the selector is a pair that must agree.
  */
-function modalIsOpen(): boolean {
+export function modalIsOpen(): boolean {
   if (typeof document === 'undefined') return false;
   return document.querySelector('[role="dialog"][aria-modal="true"]') !== null;
 }

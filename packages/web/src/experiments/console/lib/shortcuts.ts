@@ -29,6 +29,13 @@ export const SHORTCUTS: readonly KeymapGroup[] = [
     ],
   },
   {
+    title: 'Chat',
+    entries: [
+      { keys: ['ArrowUp'], label: 'Scroll the transcript up' },
+      { keys: ['ArrowDown'], label: 'Scroll the transcript down' },
+    ],
+  },
+  {
     title: 'Run detail',
     entries: [
       { keys: ['1'], label: 'Log tab' },
