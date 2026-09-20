@@ -1,3 +1,4 @@
+import { GripVertical } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { ProjectGlyph } from '../lib/project-glyph';
 import { getIdentity, resolveColor } from '../lib/project-identity';
@@ -12,6 +13,13 @@ interface ProjectRowProps {
   onClick: () => void;
   onRemove?: () => void;
   onEditEnv?: () => void;
+  /** Drag to arrange. Absent on surfaces that do not reorder. */
+  dragging?: boolean;
+  /** Preview offset in px while another row is being dragged past this one. */
+  shift?: number;
+  registerRow?: (el: HTMLElement | null) => void;
+  onDragBegin?: () => void;
+  onDragEnd?: () => void;
 }
 
 function DotsIcon({ size = 17 }: { size?: number }): ReactElement {
@@ -56,6 +64,11 @@ export function ProjectRow({
   onClick,
   onRemove,
   onEditEnv,
+  dragging = false,
+  shift = 0,
+  registerRow,
+  onDragBegin,
+  onDragEnd,
 }: ProjectRowProps): ReactElement {
   const identity = getIdentity(project.id);
   const color = resolveColor(project.id, identity);
@@ -69,6 +82,14 @@ export function ProjectRow({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(displayName);
   const [menuOpen, setMenuOpen] = useState(false);
+  /**
+   * Draggable only while the grip is under the pointer.
+   *
+   * A row that is draggable everywhere swallows text selection and makes a
+   * plain click feel like the start of a drag; arming on the handle keeps the
+   * rest of the row an ordinary button.
+   */
+  const [armed, setArmed] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -118,6 +139,24 @@ export function ProjectRow({
       }}
       aria-pressed={selected}
       title={`${displayName}\n${formatProjectLocator(project)}\n\nDouble-click to rename`}
+      ref={registerRow}
+      draggable={armed && !editing && !menuOpen}
+      onDragStart={e => {
+        onDragBegin?.();
+        e.dataTransfer.effectAllowed = 'move';
+        // Firefox refuses to start a drag with no payload.
+        e.dataTransfer.setData('text/plain', project.id);
+      }}
+      onDragEnd={() => {
+        onDragEnd?.();
+      }}
+      style={{
+        // A transform, never a layout change: the geometry captured at drag
+        // start has to stay true for the whole gesture.
+        transform: shift === 0 ? undefined : `translateY(${String(shift)}px)`,
+        opacity: dragging ? 0.4 : undefined,
+        transition: 'transform 150ms, opacity 150ms',
+      }}
       className="rail-row group"
     >
       {/* A bare coloured glyph. The tinted monogram square was decoration
@@ -125,8 +164,26 @@ export function ProjectRow({
           down the rail read as a column of swatches rather than a list of
           projects. Colour lives here now rather than on chats: a chat is read
           once, a project is navigated to for months. */}
-      <span aria-hidden className="rail-ico">
-        <ProjectGlyph projectId={project.id} glyph={identity.glyph} color={color} />
+      {/* The grip. Arming the drag on the handle rather than on the whole row
+          keeps a plain click feeling like a click, and keeps text selectable.
+          It occupies the icon's own slot and swaps in on hover, so nothing
+          moves — the row's geometry is identical either way. */}
+      <span
+        aria-hidden
+        className="rail-ico"
+        onMouseEnter={() => {
+          if (onDragBegin !== undefined) setArmed(true);
+        }}
+        onMouseLeave={() => {
+          setArmed(false);
+        }}
+        style={{ cursor: armed ? 'grab' : undefined }}
+      >
+        {armed ? (
+          <GripVertical className="h-[15px] w-[15px] text-text-tertiary" />
+        ) : (
+          <ProjectGlyph projectId={project.id} glyph={identity.glyph} color={color} />
+        )}
       </span>
 
       <div className="rail-hide flex min-w-0 flex-1 items-center">

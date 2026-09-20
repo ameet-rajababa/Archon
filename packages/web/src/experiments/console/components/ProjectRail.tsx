@@ -1,5 +1,10 @@
 import { Search, Inbox, Play, PanelLeft } from 'lucide-react';
 import { useRailPeek } from '../lib/use-rail-peek';
+import { applyManualOrder, dropIndexAt, previewShift, reorder, rowBoxes } from '../lib/chat-order';
+import { readProjectOrder, writeProjectOrder } from '../lib/project-order';
+
+/** Matches `margin-bottom: var(--row-gap)` on .rail-row at comfortable density. */
+const PROJECT_ROW_GAP = 2;
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router';
 import { Settings, PenTool, type LucideIcon } from 'lucide-react';
@@ -134,6 +139,9 @@ export function ProjectRail({ onAddProject, onSearch }: ProjectRailProps): React
    * an inline width would fight it. While peeking, the inline width is what
    * the panel animates TO.
    */
+  /** Bumped on commit so the manual order is re-read from localStorage. */
+  const [orderTick, setOrderTick] = useState(0);
+
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {
       return localStorage.getItem(RAIL_COLLAPSED_KEY) === '1';
@@ -193,7 +201,43 @@ export function ProjectRail({ onAddProject, onSearch }: ProjectRailProps): React
    * position. Grouping and a hand-chosen order are mutually exclusive, and the
    * order you choose is the more useful of the two.
    */
-  const flat = filtered;
+  const flat = useMemo(() => applyManualOrder(filtered, readProjectOrder()), [filtered, orderTick]);
+
+  /* ── drag to arrange ────────────────────────────────────────────────────
+     The same primitives the chat rail uses: geometry measured ONCE at drag
+     start, a transform-only preview so the measurement stays true for the
+     whole gesture, and an index-based commit so what lands matches what the
+     preview showed. */
+  const rowRefs = useRef(new Map<string, HTMLElement>());
+  const boxesRef = useRef<ReturnType<typeof rowBoxes>>([]);
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const scrollAtStart = useRef(0);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropIndex, setDropIndex] = useState(-1);
+  const dragFrom = dragId === null ? -1 : flat.findIndex(p => p.id === dragId);
+
+  const beginDrag = (id: string, index: number): void => {
+    const rects = flat
+      .map(p => rowRefs.current.get(p.id)?.getBoundingClientRect())
+      .filter((r): r is DOMRect => r !== undefined);
+    boxesRef.current = rowBoxes(rects, PROJECT_ROW_GAP);
+    scrollAtStart.current = scrollerRef.current?.scrollTop ?? 0;
+    setDragId(id);
+    setDropIndex(index);
+  };
+  const endDrag = (): void => {
+    setDragId(null);
+    setDropIndex(-1);
+  };
+  const commitDrag = (): void => {
+    const target = flat[dropIndex];
+    if (dragId !== null && target !== undefined && target.id !== dragId) {
+      writeProjectOrder(reorder(flat, dragId, target.id));
+      // localStorage is invisible to useMemo; this is what makes it recompute.
+      setOrderTick(t => t + 1);
+    }
+    endDrag();
+  };
 
   // Pointer-driven resize; width clamps to [RAIL_MIN, RAIL_MAX] and persists
   // on release. Pointer capture keeps the drag alive outside the handle.
@@ -287,7 +331,24 @@ export function ProjectRail({ onAddProject, onSearch }: ProjectRailProps): React
         </div>
 
         {/* Grouped project list */}
-        <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2.5 pb-3 pt-1">
+        <div
+          ref={scrollerRef}
+          className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2.5 pb-3 pt-1"
+          onDragOver={e => {
+            if (dragId === null) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            // The boxes were measured at drag start; if the list scrolled since,
+            // the pointer has to be read in that same coordinate space.
+            const scrolledBy = (scrollerRef.current?.scrollTop ?? 0) - scrollAtStart.current;
+            setDropIndex(dropIndexAt(boxesRef.current, e.clientY, scrolledBy));
+          }}
+          onDrop={e => {
+            if (dragId === null) return;
+            e.preventDefault();
+            commitDrag();
+          }}
+        >
           {error !== undefined ? (
             <span
               title={error.message}
@@ -315,10 +376,22 @@ export function ProjectRail({ onAddProject, onSearch }: ProjectRailProps): React
               </div>
             </>
           ) : null}
-          {flat.map(p => (
+          {flat.map((p, index) => (
             <ProjectRow
               key={p.id}
               project={p}
+              dragging={dragId === p.id}
+              shift={
+                dragId === null ? 0 : previewShift(boxesRef.current, dragFrom, dropIndex, index)
+              }
+              registerRow={el => {
+                if (el === null) rowRefs.current.delete(p.id);
+                else rowRefs.current.set(p.id, el);
+              }}
+              onDragBegin={() => {
+                beginDrag(p.id, index);
+              }}
+              onDragEnd={endDrag}
               selected={scope === p.id}
               onClick={() => {
                 navigate(`/console/p/${p.id}`);

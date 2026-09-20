@@ -148,3 +148,13 @@ export function previewShift(
   if (index === from) return -span(to, from - 1);
   return index >= to && index < from ? dragged.height : 0;
 }
+
+/**
+ * The same function, named for what it actually is.
+ *
+ * `applyChatOrder` is list-agnostic — it takes ids and returns the list
+ * rearranged — and the project rail needs exactly the same behaviour. Aliased
+ * rather than duplicated so the "new item is never hidden by a stale order"
+ * rule has one implementation.
+ */
+export const applyManualOrder = applyChatOrder;
