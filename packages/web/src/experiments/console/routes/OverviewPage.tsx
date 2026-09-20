@@ -3,6 +3,7 @@ import { useMemo, type ReactElement } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { ActiveRunCard } from '../components/ActiveRunCard';
 import { EmptyState } from '../components/EmptyState';
+import { ProjectBriefCard } from '../components/ProjectBriefCard';
 import { issueType, TYPE_COLOR } from '../primitives/issue-board';
 import type { ConversationSummary } from '../primitives/conversation';
 import { conversationLabel } from '../primitives/conversation';
@@ -82,7 +83,12 @@ export function OverviewPage(): ReactElement {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-8 pb-10 pt-5">
       <div className="mx-auto flex max-w-[860px] flex-col gap-7">
-        {/* 1 — the only section whose best answer is empty. */}
+        {/* 1 — what this is. The standing answer, above everything that moves. */}
+        <Section label="Where this project is">
+          <ProjectBriefCard projectId={projectId} />
+        </Section>
+
+        {/* 2 — the only section whose best answer is empty. */}
         <Section
           label="Needs you"
           action={
