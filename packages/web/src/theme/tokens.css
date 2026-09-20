@@ -328,12 +328,25 @@
   --hdr-h: 40px;
 }
 
-[data-text='small'] {
-  --ui-scale: 0.925;
+/* FIVE steps, ported from the prototype. 6% apart: small enough that any
+   neighbouring pair is a real but not jarring change, wide enough that
+   XS → XL is about 26%. One `--ui-scale` on the root rather than five
+   redefinitions of every size, so a size added later is in scale for free. */
+[data-text='xs'] {
+  --ui-scale: 0.875;
 }
-[data-text='default'] {
+[data-text='s'] {
+  --ui-scale: 0.9375;
+}
+[data-text='m'] {
   --ui-scale: 1;
 }
-[data-text='large'] {
-  --ui-scale: 1.075;
+[data-text='l'] {
+  --ui-scale: 1.0625;
+}
+[data-text='xl'] {
+  --ui-scale: 1.125;
+}
+html {
+  font-size: calc(16px * var(--ui-scale, 1));
 }

@@ -30,7 +30,7 @@ import { useSyncExternalStore } from 'react';
 
 export type ThemeName = 'archon' | 'linear';
 export type ModePref = 'light' | 'dark' | 'system';
-export type TextSize = 'small' | 'default' | 'large';
+export type TextSize = 'xs' | 's' | 'm' | 'l' | 'xl';
 
 export interface Appearance {
   theme: ThemeName;
@@ -42,7 +42,7 @@ const KEY = 'archon.console.appearance';
 const DARK_QUERY = '(prefers-color-scheme: dark)';
 
 /** Linear is the default: the neutral palette is the ask, the brand is opt-in. */
-export const DEFAULTS: Appearance = { theme: 'linear', mode: 'system', text: 'default' };
+export const DEFAULTS: Appearance = { theme: 'linear', mode: 'system', text: 'm' };
 
 /** Anything unrecognised — a stale key, a hand-edited value — falls back. */
 export function parseAppearance(raw: string | null | undefined): Appearance {
@@ -54,8 +54,13 @@ export function parseAppearance(raw: string | null | undefined): Appearance {
     const theme = o.theme === 'archon' || o.theme === 'linear' ? o.theme : DEFAULTS.theme;
     const mode =
       o.mode === 'light' || o.mode === 'dark' || o.mode === 'system' ? o.mode : DEFAULTS.mode;
-    const text =
-      o.text === 'small' || o.text === 'default' || o.text === 'large' ? o.text : DEFAULTS.text;
+    // A value from the old three-step scale, or anything else, falls back to
+    // the default rather than leaving the attribute unset — an unset
+    // [data-text] leaves --ui-scale undefined and the whole UI at 16px.
+    const text: TextSize =
+      o.text === 'xs' || o.text === 's' || o.text === 'm' || o.text === 'l' || o.text === 'xl'
+        ? o.text
+        : DEFAULTS.text;
     return { theme, mode, text };
   } catch {
     return DEFAULTS;

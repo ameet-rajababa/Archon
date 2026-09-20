@@ -1,7 +1,7 @@
-import { GripVertical } from 'lucide-react';
 import { IdentityPicker } from './IdentityPicker';
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { ProjectGlyph } from '../lib/project-glyph';
+import { openInIde, useIdeEnv } from '../lib/health';
 import { getIdentity, resolveColor } from '../lib/project-identity';
 import { ProjectCountCells } from './ProjectCountCells';
 import { useDisplayName, setDisplayName } from '../lib/display-name';
@@ -33,32 +33,15 @@ function DotsIcon({ size = 17 }: { size?: number }): ReactElement {
   );
 }
 
-function TrashIcon({ size = 15 }: { size?: number }): ReactElement {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z" />
-      <line x1="10" y1="11" x2="10" y2="17" />
-      <line x1="14" y1="11" x2="14" y2="17" />
-    </svg>
-  );
-}
-
 /**
  * Rail row, design v2: monogram tile + repo-only title (the owner lives in
  * the group header above) + locator path + hover actions. Selection is the
  * gradient strip, gradient monogram, elevated background, and a LIVE pulse.
  * Double-click the title to rename; the path stays as a stable subtitle.
  */
+const MENU_ITEM =
+  'flex w-full items-center gap-2.5 rounded-lg px-[11px] py-[9px] text-left text-[13px] font-semibold text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary';
+
 export function ProjectRow({
   project,
   selected,
@@ -100,6 +83,7 @@ export function ProjectRow({
    * plain click feel like the start of a drag; arming on the handle keeps the
    * rest of the row an ordinary button.
    */
+  const ideEnv = useIdeEnv();
   const [armed, setArmed] = useState(false);
   /** Anchor rect for the identity picker, or null when it is closed. */
   const [pickerAt, setPickerAt] = useState<DOMRect | null>(null);
@@ -178,26 +162,32 @@ export function ProjectRow({
           down the rail read as a column of swatches rather than a list of
           projects. Colour lives here now rather than on chats: a chat is read
           once, a project is navigated to for months. */}
-        {/* The grip. Arming the drag on the handle rather than on the whole row
-          keeps a plain click feeling like a click, and keeps text selectable.
-          It occupies the icon's own slot and swaps in on hover, so nothing
-          moves — the row's geometry is identical either way. */}
-        <span
-          aria-hidden
-          className="rail-ico"
-          onMouseEnter={() => {
-            if (onDragBegin !== undefined) setArmed(true);
-          }}
-          onMouseLeave={() => {
-            setArmed(false);
-          }}
-          style={{ cursor: armed ? 'grab' : undefined }}
-        >
-          {armed ? (
-            <GripVertical className="h-[15px] w-[15px] text-text-tertiary" />
-          ) : (
-            <ProjectGlyph projectId={project.id} glyph={identity.glyph} color={color} />
-          )}
+        {/* Six dots in the row's reserved left gutter, invisible until hover.
+          The glyph is the project's identity and stays put — swapping it for a
+          handle meant the one thing telling the rows apart disappeared exactly
+          when you pointed at one. */}
+        {onDragBegin !== undefined ? (
+          <span
+            aria-hidden
+            className="rail-grip-dots"
+            onMouseEnter={() => {
+              setArmed(true);
+            }}
+            onMouseLeave={() => {
+              setArmed(false);
+            }}
+          >
+            <i />
+            <i />
+            <i />
+            <i />
+            <i />
+            <i />
+          </span>
+        ) : null}
+
+        <span aria-hidden className="rail-ico">
+          <ProjectGlyph projectId={project.id} glyph={identity.glyph} color={color} />
         </span>
 
         <div className="rail-hide flex min-w-0 flex-1 items-center">
@@ -279,22 +269,8 @@ export function ProjectRow({
                   // rule repaints Tailwind border utilities (see theme.css).
                   style={{ borderColor: 'var(--border-bright)' }}
                 >
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={e => {
-                      e.stopPropagation();
-                      setMenuOpen(false);
-                      const confirmed = window.confirm(
-                        `Remove project "${displayName}"?\n\nLocal files and worktrees are not deleted.`
-                      );
-                      if (confirmed) onRemove();
-                    }}
-                    className="flex w-full items-center gap-2.5 rounded-lg px-[11px] py-[9px] text-left text-[13px] font-semibold text-error transition-colors hover:bg-error/10"
-                  >
-                    <TrashIcon />
-                    Remove project
-                  </button>
+                  {/* The prototype's order: identity, then name, then the two things you
+                    reach for occasionally, then the destructive one behind a rule. */}
                   <button
                     type="button"
                     role="menuitem"
@@ -304,10 +280,23 @@ export function ProjectRow({
                       const row = (e.currentTarget as HTMLElement).closest('.rail-row');
                       setPickerAt(row?.getBoundingClientRect() ?? null);
                     }}
-                    className="flex w-full items-center gap-2.5 rounded-lg px-[11px] py-[9px] text-left text-[13px] font-semibold text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+                    className={MENU_ITEM}
                   >
-                    Icon &amp; colour
+                    Change icon and colour…
                   </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={e => {
+                      e.stopPropagation();
+                      setMenuOpen(false);
+                      setEditing(true);
+                    }}
+                    className={MENU_ITEM}
+                  >
+                    Rename project
+                  </button>
+                  <div className="my-1 h-px bg-border" />
                   {onEditEnv !== undefined ? (
                     <button
                       type="button"
@@ -317,11 +306,39 @@ export function ProjectRow({
                         setMenuOpen(false);
                         onEditEnv();
                       }}
-                      className="flex w-full items-center gap-2.5 rounded-lg px-[11px] py-[9px] text-left text-[13px] font-semibold text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+                      className={MENU_ITEM}
                     >
-                      Environment variables
+                      Environment variables…
                     </button>
                   ) : null}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={e => {
+                      e.stopPropagation();
+                      setMenuOpen(false);
+                      openInIde(project.path, ideEnv);
+                    }}
+                    className={MENU_ITEM}
+                  >
+                    Open in editor
+                  </button>
+                  <div className="my-1 h-px bg-border" />
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={e => {
+                      e.stopPropagation();
+                      setMenuOpen(false);
+                      const confirmed = window.confirm(
+                        `Remove project "${displayName}"?\n\nLocal files and worktrees are not deleted.`
+                      );
+                      if (confirmed) onRemove?.();
+                    }}
+                    className="flex w-full items-center gap-2.5 rounded-lg px-[11px] py-[9px] text-left text-[13px] font-semibold text-error transition-colors hover:bg-error/10"
+                  >
+                    Remove project
+                  </button>
                 </div>
               ) : null}
             </div>

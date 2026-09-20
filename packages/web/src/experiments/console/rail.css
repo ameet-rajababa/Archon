@@ -383,3 +383,52 @@
   color: var(--warning, oklch(0.78 0.15 80));
   font-weight: 600;
 }
+
+/* ── THE MOVE HANDLE ────────────────────────────────────────────────────
+   Six dots in a gutter the row always reserves, revealed on hover. Ported
+   from the prototype, cursor and all.
+
+   The gutter belongs to the RAIL, not to draggable rows: a gutter that exists
+   on some rows is not a gutter, it is a ragged edge. Every row pays the 17px
+   so every icon sits on the same column.
+
+   `move`, not `grab`. The four-arrows cursor says "this reorders"; an open
+   hand says "you may pick the whole row up", which is not what happens — the
+   row stays in its list and changes position within it. */
+.rail-row {
+  padding-left: 17px;
+}
+.rail-grip-dots {
+  position: absolute;
+  left: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 16px;
+  display: grid;
+  grid-template-columns: repeat(2, 3px);
+  grid-template-rows: repeat(3, 3px);
+  gap: 2px;
+  align-content: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.11s;
+  cursor: move;
+}
+.rail-grip-dots i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+}
+.rail-row:hover .rail-grip-dots,
+.rail-row:focus-within .rail-grip-dots {
+  opacity: 1;
+}
+.rail-grip-dots:hover i {
+  background: var(--text-secondary);
+}
+/* Collapsed there is no room for a gutter, and nothing to reorder by. */
+.rail-panel.is-collapsed .rail-grip-dots {
+  display: none;
+}

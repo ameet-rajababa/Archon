@@ -1,4 +1,7 @@
 import type { ReactElement } from 'react';
+import * as skill from '../skills';
+import { useEntity } from '../store/cache';
+import { K } from '../store/keys';
 import { Link } from 'react-router';
 import { writeProjectView } from '../lib/project-view';
 
@@ -30,10 +33,30 @@ const TABS: readonly {
  * so choosing Runs is seen as a choice rather than bounced back to Chat.
  */
 export function ProjectViewTabs({ projectId, active }: ProjectViewTabsProps): ReactElement {
+  // Same cache entry the rail reads, so the two never disagree and the tab row
+  // costs no extra request.
+  const { data } = useEntity<skill.ProjectCounts>(K.projectCounts(projectId), () =>
+    skill.getProjectCounts(projectId)
+  );
+  const counts = {
+    runs: data?.runs ?? null,
+    chats: data?.chats ?? null,
+    issues: data?.issues ?? null,
+  };
+
   return (
     <div className="flex items-center gap-1">
       {TABS.map(({ key, label, suffix }) => {
         const isActive = key === active;
+        const raw =
+          key === 'runs'
+            ? counts.runs
+            : key === 'chat'
+              ? counts.chats
+              : key === 'issues'
+                ? counts.issues
+                : null;
+        const count = raw === null || raw === undefined || raw === 0 ? null : raw;
         return (
           <Link
             key={key}
@@ -49,6 +72,14 @@ export function ProjectViewTabs({ projectId, active }: ProjectViewTabsProps): Re
             }`}
           >
             {label}
+            {/* The same numbers the rail carries, in the same order. Blank for
+                zero, so a quiet tab stays quiet — a `0` beside every tab is
+                noise, and this row is read constantly. */}
+            {count !== null ? (
+              <span className="ml-1.5 font-mono text-[10.5px] font-normal tabular-nums opacity-70">
+                {count}
+              </span>
+            ) : null}
             {isActive ? (
               <span
                 aria-hidden

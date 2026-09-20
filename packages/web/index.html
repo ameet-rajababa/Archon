@@ -17,7 +17,7 @@
          src/theme/appearance.ts rather than imported — keep the two in step.
          Without it every reload flashes the wrong theme. */
       (function () {
-        var d = { theme: 'linear', mode: 'system', text: 'default' };
+        var d = { theme: 'linear', mode: 'system', text: 'm' };
         var a = d;
         try {
           var raw = localStorage.getItem('archon.console.appearance');
@@ -47,7 +47,12 @@
         var r = document.documentElement;
         r.dataset.theme = a.theme;
         r.dataset.mode = mode;
-        r.dataset.text = a.text;
+        /* Coerce: a value stored by the old three-step scale ('default') no
+           longer matches any [data-text] rule, which leaves --ui-scale unset
+           and the whole UI at 16px until the app hydrates. */
+        var sizes = ['xs', 's', 'm', 'l', 'xl'];
+        r.dataset.text = sizes.indexOf(a.text) === -1 ? 'm' : a.text;
+        r.dataset.density = 'comfortable';
         /* Paint the page background immediately. A hardcoded dark hex here used
            to guarantee a dark flash on the way into light mode. */
         r.style.background = mode === 'dark' ? '#111216' : '#ffffff';

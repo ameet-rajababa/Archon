@@ -100,11 +100,23 @@ function Row({
 /**
  * How the console renders things, as opposed to what it does.
  *
- * Theme and mode write to <html data-theme data-mode>, where the token layer in
- * theme/tokens.css reads them. There is no text-size control yet on purpose:
- * most of the console's text sizes are still absolute pixels, so the control
- * would move about a third of what is on screen. It arrives with the type sweep.
+ * Theme, mode and text size write to <html data-theme data-mode data-text>,
+ * where the token layer in theme/tokens.css reads them.
+ *
+ * Text size is five steps, 6% apart — small enough that any neighbouring pair
+ * is a real but not jarring change, wide enough that XS to XL is about 26%. It
+ * scales the root font size, so everything expressed in rem follows. Sizes
+ * still written as absolute pixels do not, which is a known and shrinking
+ * remainder rather than a reason to withhold the control.
  */
+const TEXT_OPTIONS = [
+  { value: 'xs' as const, label: 'XS' },
+  { value: 's' as const, label: 'S' },
+  { value: 'm' as const, label: 'M' },
+  { value: 'l' as const, label: 'L' },
+  { value: 'xl' as const, label: 'XL' },
+];
+
 export function AppearancePanel(): ReactElement {
   const appearance = useAppearance();
   // Subscribing here is what makes the preview update the instant you pick.
@@ -129,6 +141,19 @@ export function AppearancePanel(): ReactElement {
           active={appearance.theme}
           onPick={theme => {
             setAppearance({ theme });
+          }}
+        />
+      </Row>
+      <Row
+        title="Text size"
+        hint="Scales the whole interface, not just the text. Five steps, 6% apart."
+      >
+        <Segmented
+          label="Text size"
+          options={TEXT_OPTIONS}
+          active={appearance.text}
+          onPick={text => {
+            setAppearance({ text });
           }}
         />
       </Row>

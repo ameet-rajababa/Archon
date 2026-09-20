@@ -48,10 +48,6 @@ function ProjectCountCellsImpl({ projectId }: { projectId: string }): ReactEleme
 
   return (
     <span className="rail-hide rail-counts">
-      <Cell
-        value={chats}
-        title={chats === null ? 'Chats' : `${chats} active chat${chats === 1 ? '' : 's'}`}
-      />
       {/* Amber wins over blue: waiting on YOU outranks the machine being busy. */}
       <Cell
         value={runs}
@@ -70,6 +66,10 @@ function ProjectCountCellsImpl({ projectId }: { projectId: string }): ReactEleme
         }
       />
       <Cell
+        value={chats}
+        title={chats === null ? 'Chats' : `${chats} active chat${chats === 1 ? '' : 's'}`}
+      />
+      <Cell
         value={data?.issues ?? null}
         title={
           data?.issues === null || data?.issues === undefined
@@ -86,11 +86,13 @@ export function ProjectCountHeader(): ReactElement {
   const ico = 'h-[11px] w-[11px]';
   return (
     <span aria-hidden className="rail-hide rail-counts">
+      {/* Runs, chats, issues — the same order as the project's own tabs, so the
+          columns and the tabs teach each other instead of being learned twice. */}
+      <span className="cell" title="Runs in play">
+        <Play className={ico} />
+      </span>
       <span className="cell" title="Chats">
         <MessageCircle className={ico} />
-      </span>
-      <span className="cell" title="Runs">
-        <Play className={ico} />
       </span>
       <span className="cell" title="Open issues">
         <CircleDot className={ico} />
