@@ -1,5 +1,6 @@
 import { Search, Inbox, Play, PanelLeft } from 'lucide-react';
 import { useRailPeek } from '../lib/use-rail-peek';
+import { RAIL_AUTO_COLLAPSE_PX, useViewportWidth } from '../lib/use-viewport';
 import { applyManualOrder, dropIndexAt, previewShift, reorder, rowBoxes } from '../lib/chat-order';
 import { readProjectOrder, writeProjectOrder } from '../lib/project-order';
 
@@ -142,18 +143,30 @@ export function ProjectRail({ onAddProject, onSearch }: ProjectRailProps): React
   /** Bumped on commit so the manual order is re-read from localStorage. */
   const [orderTick, setOrderTick] = useState(0);
 
-  const [collapsed, setCollapsed] = useState<boolean>(() => {
+  const [chosenCollapsed, setChosenCollapsed] = useState<boolean>(() => {
     try {
       return localStorage.getItem(RAIL_COLLAPSED_KEY) === '1';
     } catch {
       return false;
     }
   });
+
+  /**
+   * Narrow windows collapse the rail without forgetting what you chose.
+   *
+   * Two 268px rails and a transcript do not fit below ~1100px. Overwriting the
+   * stored preference would mean a window you narrowed once left the rail
+   * collapsed forever; keeping the two separate means widening the window
+   * gives you back exactly what you had.
+   */
+  const viewportWidth = useViewportWidth();
+  const tooNarrow = viewportWidth < RAIL_AUTO_COLLAPSE_PX;
+  const collapsed = chosenCollapsed || tooNarrow;
   const peeking = useRailPeek(collapsed, width);
   const showWide = !collapsed || peeking;
 
   const toggleCollapsed = useCallback((): void => {
-    setCollapsed(v => {
+    setChosenCollapsed(v => {
       const next = !v;
       try {
         localStorage.setItem(RAIL_COLLAPSED_KEY, next ? '1' : '0');
