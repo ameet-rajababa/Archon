@@ -34,6 +34,21 @@ const SETTLE_MS = 6000;
 // Hard cap so a turn that never produces a reply (server error, etc.) can't
 // disable the composer forever.
 const MAX_WAIT_MS = 300_000;
+// Refresh the CHAT LIST on this cadence while the tab is visible.
+//
+// Nothing else does. useConversationSSE invalidates only
+// `messages:<the chat you are looking at>`; useDashboardSSE invalidates only
+// `runs`, and is mounted on RunsPage and WorkflowDock, not here. The single
+// `invalidate(K.conversations(...))` call site fires on local actions —
+// archive, rename, recolour — so a reply landing in a chat you are NOT viewing,
+// a title the agent rewrote, or a chat created by the CLI stayed invisible
+// until a manual refresh.
+//
+// A poll rather than a stream because the server has no conversation-list
+// event to subscribe to: `__dashboard__` carries workflow events only. Adding
+// one is the better fix and a larger one; this removes the manual refresh
+// today. Gated on visibility so a background tab costs nothing.
+const LIST_POLL_MS = 8000;
 /**
  * What Refresh sends. A visible user message rather than a silent back-channel:
  * the agent's summary tool writes to the chat's own record, so the request that
@@ -117,12 +132,36 @@ export function ChatPage(): ReactElement {
     if (projectId !== undefined) writeLastChat(projectId, id);
   };
 
+  const invalidateConversationsRef = useRef<() => void>(() => undefined);
+
   const invalidateConversations = (): void => {
     if (projectId === undefined) return;
     invalidate(`${K.conversations(projectId)}:${scope}`);
     invalidate(`${K.conversations(projectId)}:archived-count`);
     invalidate(K.conversations(projectId));
   };
+  invalidateConversationsRef.current = invalidateConversations;
+
+  // Keep the chat list fresh without a manual refresh. The ref keeps the
+  // interval stable across renders: depending on the callback itself would tear
+  // the timer down and rebuild it on every keystroke in the composer.
+  useEffect(() => {
+    if (projectId === undefined) return;
+    const id = setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      invalidateConversationsRef.current();
+    }, LIST_POLL_MS);
+    // Catch up immediately on returning to the tab rather than waiting out the
+    // remainder of an interval that ran while it was hidden.
+    const onVisible = (): void => {
+      if (document.visibilityState === 'visible') invalidateConversationsRef.current();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return (): void => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [projectId]);
 
   const saveBrief = (id: string, brief: string | null): void => {
     void (async (): Promise<void> => {
