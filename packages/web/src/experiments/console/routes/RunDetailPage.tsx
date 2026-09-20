@@ -262,7 +262,7 @@ export function RunDetailPage(): ReactElement {
     atBottom,
     scrollToBottom: pinToBottom,
     setFollowing,
-    handleScroll,
+    scrollerProps,
   } = useFollowTail({
     scrollRef,
     followOnMount,
@@ -443,7 +443,7 @@ export function RunDetailPage(): ReactElement {
             <div className="relative min-h-0 flex-1">
               <div
                 ref={scrollRef}
-                onScroll={handleScroll}
+                {...scrollerProps}
                 onScrollEnd={handleScrollEnd}
                 className="h-full overflow-y-auto"
               >

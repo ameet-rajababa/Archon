@@ -65,7 +65,22 @@ export function arrowScrollDelta(
  * the chat page. Scrolling through the element (rather than focusing it) keeps
  * the composer ready to type into, which is the state the page wants to be in.
  */
-export function useArrowScroll(scrollRef: RefObject<HTMLElement | null>, enabled = true): void {
+export interface UseArrowScrollOptions {
+  /**
+   * Called before each arrow-driven scroll. Follow-tail cannot see a key press
+   * the way it sees a wheel, so the caller reports this scroll as navigation —
+   * otherwise arrowing up through history would be re-pinned by the next
+   * message that arrives.
+   */
+  onUserScroll?: () => void;
+  enabled?: boolean;
+}
+
+export function useArrowScroll(
+  scrollRef: RefObject<HTMLElement | null>,
+  options: UseArrowScrollOptions = {}
+): void {
+  const { onUserScroll, enabled = true } = options;
   useEffect(() => {
     if (!enabled) return;
 
@@ -78,6 +93,7 @@ export function useArrowScroll(scrollRef: RefObject<HTMLElement | null>, enabled
       const delta = arrowScrollDelta(e, document.activeElement as HTMLElement | null);
       if (delta === null) return;
       e.preventDefault();
+      onUserScroll?.();
       el.scrollBy({ top: delta });
     };
 
@@ -85,5 +101,5 @@ export function useArrowScroll(scrollRef: RefObject<HTMLElement | null>, enabled
     return (): void => {
       window.removeEventListener('keydown', handler);
     };
-  }, [scrollRef, enabled]);
+  }, [scrollRef, enabled, onUserScroll]);
 }

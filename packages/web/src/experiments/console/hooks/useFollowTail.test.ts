@@ -38,14 +38,28 @@ function makeController(
 ): {
   controller: ReturnType<typeof createFollowTailController>;
   following: boolean[];
+  /** Move the viewport the way a reader does: a gesture, then the scroll event. */
+  userScrollTo: (top: number) => void;
+  /** Move the fake clock, to step outside the user-intent window. */
+  advance: (ms: number) => void;
 } {
   const following: boolean[] = [];
+  let clock = 1000;
   const controller = createFollowTailController({
     getScroller: () => el,
     onFollowingChange: next => following.push(next),
     isScrollSuppressed: () => suppressed,
+    now: () => clock,
   });
-  return { controller, following };
+  const userScrollTo = (top: number): void => {
+    controller.noteUserIntent();
+    if (el !== null) el.scrollTop = top;
+    controller.onScroll();
+  };
+  const advance = (ms: number): void => {
+    clock += ms;
+  };
+  return { controller, following, userScrollTo, advance };
 }
 
 describe('isNearBottom', () => {
@@ -103,10 +117,9 @@ describe('createFollowTailController', () => {
 
   test('leaves the viewport alone when the user has scrolled away', () => {
     const el = makeScroller(500, 2000);
-    const { controller } = makeController(el);
+    const { controller, userScrollTo } = makeController(el);
 
-    el.scrollTop = 200; // user dragged up, far from the tail
-    controller.onScroll();
+    userScrollTo(200); // user dragged up, far from the tail
     expect(controller.isFollowing()).toBe(false);
 
     el.grow(1000);
@@ -117,14 +130,12 @@ describe('createFollowTailController', () => {
 
   test('re-attaches when the user scrolls back into the tail band', () => {
     const el = makeScroller(500, 2000);
-    const { controller, following } = makeController(el);
+    const { controller, following, userScrollTo } = makeController(el);
 
-    el.scrollTop = 0;
-    controller.onScroll();
+    userScrollTo(0);
     expect(controller.isFollowing()).toBe(false);
 
-    el.scrollTop = 1500;
-    controller.onScroll();
+    userScrollTo(1500);
     expect(controller.isFollowing()).toBe(true);
 
     expect(following).toEqual([false, true]);
@@ -132,10 +143,9 @@ describe('createFollowTailController', () => {
 
   test('pin() snaps to the tail and resumes following', () => {
     const el = makeScroller(500, 2000);
-    const { controller } = makeController(el);
+    const { controller, userScrollTo } = makeController(el);
 
-    el.scrollTop = 0;
-    controller.onScroll();
+    userScrollTo(0);
     expect(controller.isFollowing()).toBe(false);
 
     controller.pin();
@@ -157,27 +167,71 @@ describe('createFollowTailController', () => {
 
   test('reports follow changes only on transitions', () => {
     const el = makeScroller(500, 2000);
-    const { controller, following } = makeController(el);
+    const { following, userScrollTo } = makeController(el);
 
-    el.scrollTop = 1500; // already at the tail; still following
-    controller.onScroll();
-    controller.onScroll();
+    userScrollTo(1500); // already at the tail; still following
+    userScrollTo(1500);
     expect(following).toEqual([]);
 
-    el.scrollTop = 0;
-    controller.onScroll();
-    controller.onScroll();
+    userScrollTo(0);
+    userScrollTo(0);
     expect(following).toEqual([false]);
   });
 
   test('a suppressed scroll does not change intent', () => {
     const el = makeScroller(500, 2000);
-    const { controller } = makeController(el, true);
+    const { controller, userScrollTo } = makeController(el, true);
 
-    el.scrollTop = 0; // a programmatic reveal moved the viewport, not the user
+    userScrollTo(0); // a programmatic reveal moved the viewport, not the user
+
+    expect(controller.isFollowing()).toBe(true);
+  });
+
+  // The defect this gate exists for, with the geometry measured in the browser:
+  // sending a message collapses the composer from two lines back to one, which
+  // moves the viewport 197px and emits a scroll event 129px from the tail —
+  // nine past the threshold. Read as navigation, it dropped follow intent at
+  // the exact moment the user's own message was arriving.
+  test('a layout shift that moves the viewport does not drop follow intent', () => {
+    const el = makeScroller(695, 8646);
+    const { controller } = makeController(el);
+    controller.pin();
+
+    (el as { scrollHeight: number }).scrollHeight = 8578;
+    el.scrollTop = 7754; // the browser moved it; no gesture preceded this
     controller.onScroll();
 
     expect(controller.isFollowing()).toBe(true);
+
+    controller.onContentResize();
+    expect(el.scrollTop).toBe(el.scrollHeight);
+  });
+
+  test('a scroll long after the last gesture is layout, not navigation', () => {
+    const el = makeScroller(500, 2000);
+    const { controller, advance } = makeController(el);
+
+    controller.noteUserIntent();
+    advance(400); // past USER_INTENT_WINDOW_MS
+
+    el.scrollTop = 0;
+    controller.onScroll();
+
+    expect(controller.isFollowing()).toBe(true);
+  });
+
+  test('momentum keeps the window open, so a long flick still detaches', () => {
+    const el = makeScroller(500, 2000);
+    const { controller, advance } = makeController(el);
+
+    for (const top of [1400, 1000, 600, 200]) {
+      controller.noteUserIntent(); // each momentum wheel event renews intent
+      advance(100);
+      el.scrollTop = top;
+      controller.onScroll();
+    }
+
+    expect(controller.isFollowing()).toBe(false);
   });
 
   test('survives a detached scroller', () => {

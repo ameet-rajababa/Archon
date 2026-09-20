@@ -351,10 +351,11 @@ export function ChatPage(): ReactElement {
   // Follow the tail by observed height, not by message count: a streaming reply,
   // late markdown/code highlighting and expanding tool cards all grow an existing
   // row without adding one, and a count-keyed effect never sees them.
-  const { scrollRef, contentRef, atBottom, scrollToBottom, handleScroll } = useFollowTail();
+  const { scrollRef, contentRef, atBottom, scrollToBottom, scrollerProps, noteUserIntent } =
+    useFollowTail();
   // ↑/↓ scroll the transcript. The composer re-focuses itself after each send,
   // so without this the arrows land in an empty textarea and do nothing.
-  useArrowScroll(scrollRef);
+  useArrowScroll(scrollRef, { onUserScroll: noteUserIntent });
 
   const onSend = (text: string, files?: File[]): void => {
     if (projectId === undefined) return;
@@ -496,7 +497,7 @@ export function ChatPage(): ReactElement {
         <div className="relative min-h-0 flex-1">
           <div
             ref={scrollRef}
-            onScroll={handleScroll}
+            {...scrollerProps}
             className="h-full overflow-y-auto px-[30px] pt-[26px] pb-[18px]"
           >
             {/* Match the composer's centered 940px column (design: .stream-inner) */}

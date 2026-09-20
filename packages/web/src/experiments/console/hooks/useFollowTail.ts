@@ -1,10 +1,22 @@
-import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 
 /**
  * Distance from the bottom (px) within which a scroller counts as sitting at the
  * tail. Drives both follow stickiness and the jump-to-bottom affordance.
  */
 export const NEAR_BOTTOM_PX = 120;
+
+/**
+ * How long after a user gesture a `scroll` event still counts as navigation.
+ *
+ * A scroll event alone cannot say who caused it. A layout shift — the composer
+ * collapsing from three lines back to one as a message is sent — moves the
+ * viewport and emits the same event a two-finger swipe does, and reading that
+ * as "the user scrolled up" is what used to drop follow intent at the exact
+ * moment the user's own message arrived. Momentum scrolling keeps delivering
+ * `wheel` events, so each one renews this window rather than racing it.
+ */
+export const USER_INTENT_WINDOW_MS = 300;
 
 /**
  * The geometry follow-tail actually reads. Narrower than `HTMLElement` on purpose:
@@ -28,8 +40,13 @@ export interface FollowTailController {
   unpin: () => void;
   /** Observed content changed height; hold the tail if still following. */
   onContentResize: () => void;
-  /** The viewport moved; follow intent follows the viewport. */
+  /**
+   * The viewport moved. Re-reads intent from the geometry, but only when the
+   * user just drove it — see {@link USER_INTENT_WINDOW_MS}.
+   */
   onScroll: () => void;
+  /** A real gesture (wheel, touch, scrollbar drag, scroll key) just happened. */
+  noteUserIntent: () => void;
 }
 
 export interface FollowTailControllerOptions {
@@ -38,15 +55,20 @@ export interface FollowTailControllerOptions {
   nearBottomPx?: number;
   /** When true, a scroll event must not disturb follow intent. */
   isScrollSuppressed?: () => boolean;
+  userIntentWindowMs?: number;
+  /** Injectable clock, so the intent window is testable without waiting. */
+  now?: () => number;
 }
 
 /**
  * Follow-tail intent, free of React and the DOM.
  *
- * The invariant that matters: intent is owned by user navigation (`onScroll`,
- * `pin`, `unpin`), never inferred from post-render geometry. Content that grows
- * under a pinned viewport must re-pin rather than be read as "the user scrolled
- * up" — that misreading is the bug this exists to prevent.
+ * The invariant that matters: intent is owned by user navigation (`pin`,
+ * `unpin`, and a scroll the user actually drove), never inferred from
+ * post-render geometry. Content that grows or shrinks under a pinned viewport
+ * must re-pin rather than be read as "the user scrolled up" — that misreading
+ * is the bug this exists to prevent, and `noteUserIntent` is what separates
+ * the two cases.
  */
 export function createFollowTailController(
   options: FollowTailControllerOptions
@@ -56,8 +78,11 @@ export function createFollowTailController(
     onFollowingChange,
     nearBottomPx = NEAR_BOTTOM_PX,
     isScrollSuppressed,
+    userIntentWindowMs = USER_INTENT_WINDOW_MS,
+    now = Date.now,
   } = options;
   let following = true;
+  let lastIntentAt: number | null = null;
 
   const setFollowing = (next: boolean): void => {
     if (following === next) return;
@@ -84,9 +109,14 @@ export function createFollowTailController(
     },
     onScroll: (): void => {
       if (isScrollSuppressed?.() === true) return;
+      // No recent gesture means layout moved the viewport, not the reader.
+      if (lastIntentAt === null || now() - lastIntentAt > userIntentWindowMs) return;
       const el = getScroller();
       if (el === null) return;
       setFollowing(isNearBottom(el, nearBottomPx));
+    },
+    noteUserIntent: (): void => {
+      lastIntentAt = now();
     },
   };
 }
@@ -123,8 +153,23 @@ export interface UseFollowTailResult<T extends HTMLElement = HTMLDivElement> {
   scrollToBottom: () => void;
   /** Imperative follow intent, for callers doing a programmatic reveal. */
   setFollowing: (following: boolean) => void;
-  /** Wire to the scroller's `onScroll`. */
-  handleScroll: () => void;
+  /**
+   * Spread onto the scrolling element. Carries the scroll handler *and* the
+   * gesture handlers that tell it apart from a layout shift; a ref-mounted
+   * listener cannot do this, because a child's callback ref runs before its
+   * parent's ref is assigned, so the scroller is still null at that point.
+   */
+  scrollerProps: {
+    onScroll: () => void;
+    onWheel: () => void;
+    onTouchMove: () => void;
+    onPointerDown: () => void;
+  };
+  /**
+   * Report a user-driven scroll the hook cannot see for itself — a caller that
+   * moves the viewport from a key press, for instance.
+   */
+  noteUserIntent: () => void;
 }
 
 /**
@@ -183,9 +228,21 @@ export function useFollowTail<T extends HTMLElement = HTMLDivElement>(
     [controller]
   );
 
-  const handleScroll = useCallback((): void => {
-    controller.onScroll();
+  const noteUserIntent = useCallback((): void => {
+    controller.noteUserIntent();
   }, [controller]);
+
+  const scrollerProps = useMemo(
+    () => ({
+      onScroll: (): void => {
+        controller.onScroll();
+      },
+      onWheel: noteUserIntent,
+      onTouchMove: noteUserIntent,
+      onPointerDown: noteUserIntent,
+    }),
+    [controller, noteUserIntent]
+  );
 
   const scrollToBottom = useCallback((): void => {
     controller.pin();
@@ -199,5 +256,13 @@ export function useFollowTail<T extends HTMLElement = HTMLDivElement>(
     [controller]
   );
 
-  return { scrollRef, contentRef, atBottom, scrollToBottom, setFollowing, handleScroll };
+  return {
+    scrollRef,
+    contentRef,
+    atBottom,
+    scrollToBottom,
+    setFollowing,
+    scrollerProps,
+    noteUserIntent,
+  };
 }
