@@ -310,6 +310,24 @@
   --radius-panel: 10px;
   --radius-pill: 999px;
 }
+/* ═══ DENSITY ══════════════════════════════════════════════════════════
+   Ported from the prototype verbatim. The rail's geometry is expressed in
+   these rather than in pixel literals, so a row is `17px of icon + 2×row-y`
+   and both densities fall out of the same rule instead of being two
+   hand-tuned layouts that drift. */
+[data-density='comfortable'] {
+  --row-y: 6px;
+  --row-gap: 2px;
+  --sec-gap: 18px;
+  --hdr-h: 46px;
+}
+[data-density='compact'] {
+  --row-y: 3px;
+  --row-gap: 1px;
+  --sec-gap: 12px;
+  --hdr-h: 40px;
+}
+
 [data-text='small'] {
   --ui-scale: 0.925;
 }

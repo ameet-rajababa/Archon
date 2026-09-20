@@ -17,6 +17,7 @@ import { useKeymap, type Binding } from './lib/keymap';
 import { useDashboardSSE } from './lib/sse';
 import { SHORTCUTS } from './lib/shortcuts';
 import './theme.css';
+import './rail.css';
 
 /**
  * Console experiment shell.

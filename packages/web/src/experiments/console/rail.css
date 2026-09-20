@@ -1,0 +1,182 @@
+/**
+ * The rail, ported from the prototype rather than re-derived.
+ *
+ * Every number here was arrived at in the mockup and tested there: the icon
+ * column at 23px, the row height pinned to the icon, the reserved action slot,
+ * the 63px collapsed width that keeps every glyph exactly where it was. They
+ * are expressed against the density and type tokens, so the five text sizes
+ * and both densities fall out of one rule instead of two hand-tuned layouts
+ * that drift apart.
+ *
+ * Plain CSS, not utilities, for the same reason the prototype is: the values
+ * relate to each other. `height: calc(17px + 2*var(--row-y))` says why the row
+ * is that tall; `h-[27px]` is a number someone measured once.
+ */
+
+.rail-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  position: relative;
+  text-align: left;
+  padding: var(--row-y) 7px;
+  margin-bottom: var(--row-gap);
+  border-radius: var(--radius-card);
+  color: inherit;
+  transition:
+    background-color 0.11s,
+    color 0.11s;
+  /* A rail row is exactly as tall as its ICON — never as tall as its contents.
+     Labels, counts and keycaps are all taller than 17px, so a row that sized
+     itself to them shrank when they hid and grew when they came back. Six rows
+     of that is a rail that visibly reflows as you move through it. */
+  height: calc(17px + 2 * var(--row-y));
+  box-sizing: border-box;
+  overflow: hidden;
+  cursor: pointer;
+}
+.rail-row:hover {
+  background: var(--surface-hover);
+}
+.rail-row[aria-current='true'],
+.rail-row[aria-pressed='true'] {
+  background: var(--surface-hover);
+}
+
+/* The column header: same geometry as a row's cells, so the glyphs sit exactly
+   above the numbers they name. Shorter, because it has no icon to hold. */
+.rail-row.is-header {
+  height: calc(11px + 2 * var(--row-y));
+  padding-top: 0;
+  padding-bottom: 0;
+  margin-bottom: 1px;
+  pointer-events: none;
+  cursor: default;
+}
+.rail-row.is-header:hover {
+  background: transparent;
+}
+
+/* A bare glyph. The tinted square behind it was decoration standing in for
+   information the glyph already carried — six of them down the rail read as a
+   column of swatches rather than a list of projects. */
+.rail-ico {
+  flex: 0 0 auto;
+  width: 17px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+}
+.rail-ico svg {
+  width: 15px;
+  height: 15px;
+  display: block;
+}
+
+.rail-text {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-body);
+  /* Matched to the icon so the text can never be what makes a row tall. */
+  line-height: 17px;
+  color: var(--text-secondary);
+}
+.rail-row:hover .rail-text {
+  color: var(--text-primary);
+}
+.rail-row[aria-current='true'] .rail-text,
+.rail-row[aria-pressed='true'] .rail-text {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* Counts as a TABLE. Fixed-width cells so the eye reads DOWN a column instead
+   of re-parsing each row; blank for zero, because an empty cell says "none"
+   faster than a 0 does and it keeps the quiet projects quiet. */
+.rail-counts {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+}
+.rail-counts .cell {
+  width: 26px;
+  flex: 0 0 auto;
+  text-align: right;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: var(--text-micro);
+  font-variant-numeric: tabular-nums;
+}
+.rail-counts .cell.live {
+  color: var(--running);
+}
+.rail-row.is-header .cell {
+  display: flex;
+  justify-content: flex-end;
+  color: var(--text-tertiary);
+  opacity: 0.75;
+}
+.rail-row.is-header .cell svg {
+  width: 11px;
+  height: 11px;
+}
+
+/* The action slot is ALWAYS reserved, so revealing it never reflows the row.
+   The affordance appears; the layout does not move. */
+.rail-actions {
+  flex: 0 0 auto;
+  width: 20px;
+  display: grid;
+  place-items: center;
+}
+.rail-reveal {
+  opacity: 0;
+  transition: opacity 0.11s;
+}
+.rail-row:hover .rail-reveal,
+.rail-row:focus-within .rail-reveal {
+  opacity: 1;
+}
+
+.rail-ibtn {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  color: var(--text-tertiary);
+  flex: 0 0 auto;
+}
+.rail-ibtn:hover {
+  background: var(--border);
+  color: var(--text-primary);
+}
+
+.rail-sep {
+  height: 1px;
+  background: var(--border);
+  opacity: 0.5;
+  margin: 6px 7px;
+}
+
+/* An inline count beside a label — the glyph is what says what is being
+   counted. "2 running" on its own leaves the reader to guess. */
+.rail-cnt {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: var(--text-micro);
+  font-variant-numeric: tabular-nums;
+}
+.rail-cnt svg {
+  width: 11px;
+  height: 11px;
+  display: block;
+  flex: 0 0 auto;
+}

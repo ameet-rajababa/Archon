@@ -96,6 +96,11 @@ function systemPrefersDark(): boolean {
 /** Write the resolved values onto <html>, where tokens.css reads them. */
 export function applyAppearance(a: Appearance = getAppearance()): void {
   const r = document.documentElement;
+  // Density has one value today. The attribute is set unconditionally so the
+  // rail's geometry always resolves — a rule reading var(--row-y) with no
+  // [data-density] ancestor silently computes to nothing, and the row
+  // collapses to the height of its text.
+  r.dataset.density = 'comfortable';
   r.dataset.theme = a.theme;
   r.dataset.mode = resolveMode(a.mode, systemPrefersDark());
   r.dataset.text = a.text;

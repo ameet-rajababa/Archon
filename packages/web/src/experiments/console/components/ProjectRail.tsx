@@ -42,10 +42,10 @@ function GlobalRunning(): ReactElement | null {
   return (
     <span
       title={`${n} run${n === 1 ? '' : 's'} executing right now, across all projects`}
-      className="flex shrink-0 items-center gap-[5px] font-mono text-[11px]"
+      className="rail-cnt"
       style={{ color: 'var(--running)' }}
     >
-      <Play className="h-[11px] w-[11px]" />
+      <Play />
       {n} running
     </span>
   );
@@ -193,21 +193,11 @@ export function ProjectRail({ onAddProject, onSearch }: ProjectRailProps): React
         {/* A ROW, not a text field. The box was permanent chrome for something
             done occasionally, and the palette already jumps to a project by
             name — across every project, not just the visible list. */}
-        <button
-          type="button"
-          onClick={onSearch}
-          title="Search  ⌘K"
-          className="group flex w-full items-center gap-[10px] rounded-[7px] px-2.5 py-[5px] text-left transition-colors hover:bg-surface-hover"
-        >
-          <span
-            aria-hidden
-            className="flex h-[17px] w-[17px] shrink-0 items-center justify-center text-text-tertiary"
-          >
-            <Search className="h-[15px] w-[15px]" />
+        <button type="button" onClick={onSearch} title="Search  ⌘K" className="rail-row">
+          <span aria-hidden className="rail-ico" style={{ color: 'var(--text-tertiary)' }}>
+            <Search />
           </span>
-          <span className="min-w-0 flex-1 truncate text-[13px] text-text-secondary group-hover:text-text-primary">
-            Search
-          </span>
+          <span className="rail-text">Search</span>
           <span
             className="shrink-0 rounded border px-[5px] py-px font-mono text-[10.5px] text-text-tertiary"
             style={{ borderColor: 'var(--border-bright)' }}
@@ -227,16 +217,12 @@ export function ProjectRail({ onAddProject, onSearch }: ProjectRailProps): React
           title="All projects"
           aria-label="All projects"
           aria-pressed={allSelected}
-          className={`relative flex w-full items-center gap-[10px] rounded-[7px] px-2.5 py-[5px] text-left text-[13px] transition-colors ${
-            allSelected
-              ? 'bg-surface-hover font-medium text-text-primary'
-              : 'font-normal text-text-secondary hover:bg-surface-hover hover:text-text-primary'
-          }`}
+          className="rail-row"
         >
-          <span aria-hidden className="flex h-[17px] w-[17px] shrink-0 items-center justify-center">
-            <Inbox className="h-[15px] w-[15px]" />
+          <span aria-hidden className="rail-ico">
+            <Inbox />
           </span>
-          <span className="min-w-0 flex-1 truncate">All projects</span>
+          <span className="rail-text">All projects</span>
           <GlobalRunning />
         </button>
       </div>
@@ -256,11 +242,15 @@ export function ProjectRail({ onAddProject, onSearch }: ProjectRailProps): React
             list: owner group headers and a hand-sorted order cannot both be
             true, and the order you choose is the more useful of the two. */}
         {flat.length > 0 ? (
-          <div className="flex items-center gap-[10px] px-2.5 pb-1 pt-1.5">
-            <span className="h-[17px] w-[17px] shrink-0" />
-            <span className="min-w-0 flex-1" />
-            <ProjectCountHeader />
-          </div>
+          <>
+            <div className="rail-sep" />
+            <div className="rail-row is-header">
+              <span className="rail-ico" />
+              <span className="rail-text" />
+              <ProjectCountHeader />
+              <span className="rail-actions" />
+            </div>
+          </>
         ) : null}
         {flat.map(p => (
           <ProjectRow

@@ -118,24 +118,18 @@ export function ProjectRow({
       }}
       aria-pressed={selected}
       title={`${displayName}\n${formatProjectLocator(project)}\n\nDouble-click to rename`}
-      // Height pinned to the ICON, never to the contents. Anything that can
-      // appear or disappear — the menu button, a count, a badge — would
-      // otherwise decide how tall the row is, and the rail would reflow as you
-      // move through it.
-      className={`group relative flex h-[27px] w-full cursor-pointer items-center gap-[10px] rounded-[7px] px-2.5 py-[5px] text-left transition-colors ${
-        selected ? 'bg-surface-hover' : 'bg-transparent hover:bg-surface-hover'
-      }`}
+      className="rail-row group"
     >
       {/* A bare coloured glyph. The tinted monogram square was decoration
           standing in for information the glyph already carries — six of them
           down the rail read as a column of swatches rather than a list of
           projects. Colour lives here now rather than on chats: a chat is read
           once, a project is navigated to for months. */}
-      <span aria-hidden className="flex h-[17px] w-[17px] shrink-0 items-center justify-center">
+      <span aria-hidden className="rail-ico">
         <ProjectGlyph projectId={project.id} glyph={identity.glyph} color={color} />
       </span>
 
-      <div className="flex min-w-0 flex-1 items-center leading-[17px]">
+      <div className="flex min-w-0 flex-1 items-center">
         {editing ? (
           <input
             ref={inputRef}
@@ -169,11 +163,7 @@ export function ProjectRow({
               e.stopPropagation();
               setEditing(true);
             }}
-            className={`truncate text-[13px] tracking-[-0.1px] ${
-              selected
-                ? 'font-medium text-text-primary'
-                : 'font-normal text-text-secondary group-hover:text-text-primary'
-            }`}
+            className="rail-text tracking-[-0.1px]"
           >
             {label}
           </span>
@@ -191,11 +181,7 @@ export function ProjectRow({
           the menu button can never reflow the row. The old version swapped a
           LIVE badge out for the buttons on the selected row, which is exactly
           the flicker that reads as jumpiness. */}
-      <div
-        className={`flex h-[17px] w-[19px] shrink-0 items-center justify-end transition-opacity ${
-          menuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-        }`}
-      >
+      <div className={`rail-actions ${menuOpen ? '' : 'rail-reveal'}`}>
         {onRemove !== undefined ? (
           <div className="relative">
             <button
@@ -207,13 +193,7 @@ export function ProjectRow({
               title="More actions"
               aria-label="More actions"
               aria-expanded={menuOpen}
-              // Sized to the ROW, not to a comfortable button. At 29px it set
-              // the row's height — the content is a 17px glyph, and a control
-              // that only appears on hover must not decide how tall every row
-              // is when it is not there.
-              className={`flex h-[19px] w-[19px] items-center justify-center rounded transition-colors hover:bg-surface-bright hover:text-text-primary ${
-                menuOpen ? 'bg-surface-bright text-text-primary' : 'text-text-tertiary'
-              }`}
+              className="rail-ibtn"
             >
               <DotsIcon />
             </button>

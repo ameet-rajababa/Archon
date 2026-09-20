@@ -27,11 +27,7 @@ function Cell({
   tone?: 'running';
 }): ReactElement {
   return (
-    <span
-      title={title}
-      className="w-[20px] shrink-0 text-right font-mono text-[11px] tabular-nums"
-      style={{ color: tone === 'running' ? 'var(--running)' : 'var(--text-tertiary)' }}
-    >
+    <span title={title} className={`cell${tone === 'running' ? ' live' : ''}`}>
       {value !== null && value > 0 ? value : ''}
     </span>
   );
@@ -47,7 +43,7 @@ function ProjectCountCellsImpl({ projectId }: { projectId: string }): ReactEleme
   const running = data?.running ?? 0;
 
   return (
-    <span className="flex shrink-0 items-center gap-[7px]">
+    <span className="rail-counts">
       <Cell
         value={chats}
         title={chats === null ? 'Chats' : `${chats} active chat${chats === 1 ? '' : 's'}`}
@@ -69,14 +65,11 @@ function ProjectCountCellsImpl({ projectId }: { projectId: string }): ReactEleme
 export function ProjectCountHeader(): ReactElement {
   const ico = 'h-[11px] w-[11px]';
   return (
-    <span
-      aria-hidden
-      className="flex shrink-0 items-center gap-[7px] text-text-tertiary opacity-75"
-    >
-      <span className="flex w-[20px] justify-end" title="Chats">
+    <span aria-hidden className="rail-counts">
+      <span className="cell" title="Chats">
         <MessageCircle className={ico} />
       </span>
-      <span className="flex w-[20px] justify-end" title="Runs">
+      <span className="cell" title="Runs">
         <Play className={ico} />
       </span>
     </span>
