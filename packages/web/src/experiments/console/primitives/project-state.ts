@@ -101,12 +101,12 @@ export function projectState({
 
 export const STATUS_COLOR: Readonly<Record<ProjectStatus, string>> = {
   Running: 'var(--running)',
-  Waiting: 'var(--warning, oklch(0.78 0.15 80))',
+  Waiting: 'var(--warning)',
   Idle: 'var(--text-tertiary)',
   Clear: 'var(--success)',
 };
 
 export const HEALTH_COLOR: Readonly<Record<ProjectHealth, string>> = {
-  'At risk': 'var(--warning, oklch(0.78 0.15 80))',
+  'At risk': 'var(--warning)',
   'Off track': 'var(--error)',
 };

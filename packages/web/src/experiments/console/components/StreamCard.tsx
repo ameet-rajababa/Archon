@@ -41,13 +41,13 @@ const KIND_STYLES: Record<StreamCardProps['kind'], KindStyle> = {
   },
   assistant: {
     label: 'Agent',
-    pill: 'bg-[color:var(--success-soft,oklch(0.755_0.165_168/0.14))] text-[color:var(--success)]',
+    pill: 'bg-[color:var(--success-soft)] text-[color:var(--success)]',
     borderClass: 'border',
     borderColor: 'var(--border)',
   },
   system: {
     label: 'System',
-    pill: 'bg-[color:var(--success-soft,oklch(0.755_0.165_168/0.14))] text-[color:var(--success)]',
+    pill: 'bg-[color:var(--success-soft)] text-[color:var(--success)]',
     // Top-only teal hairline anchors system rows as framework bookends
     // without shouting. Other sides are intentionally omitted.
     borderClass: 'border-t',

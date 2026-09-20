@@ -380,7 +380,7 @@
 /* Waiting on YOU. Amber outranks the running blue, because the machine being
    busy is not a call to action and an approval request is. */
 .rail-counts .cell.needs-you {
-  color: var(--warning, oklch(0.78 0.15 80));
+  color: var(--warning);
   font-weight: 600;
 }
 
@@ -575,7 +575,7 @@
 /* Awaiting: an open ring. Unresolved, and deliberately not a filled dot —
    filled reads as "done", which is the opposite of what it means. */
 .chat-status.is-awaiting {
-  color: var(--warning, oklch(0.78 0.15 80));
+  color: var(--warning);
 }
 .chat-status.is-awaiting i {
   background: transparent;
@@ -592,7 +592,7 @@
   display: block;
 }
 .chat-stamp.is-awaiting {
-  color: var(--warning, oklch(0.78 0.15 80));
+  color: var(--warning);
 }
 .chat-stamp.is-working {
   color: var(--running);
