@@ -14,6 +14,7 @@ import { useConversationSSE } from '../lib/sse';
 import { useEntity, invalidate } from '../store/cache';
 import { K } from '../store/keys';
 import { useFollowTail } from '../hooks/useFollowTail';
+import { useArrowScroll } from '../hooks/useArrowScroll';
 import * as skill from '../skills';
 import type { Message } from '../primitives/message';
 import {
@@ -361,9 +362,20 @@ export function ChatPage(): ReactElement {
   // Reveal the raw tool trace inline (toggled from the working indicator).
   const [showTools, setShowTools] = useState(false);
 
+  // Follow the tail by observed height, not by message count: a streaming reply,
+  // late markdown/code highlighting and expanding tool cards all grow an existing
+  // row without adding one, and a count-keyed effect never sees them.
+  const { scrollRef, contentRef, atBottom, scrollToBottom, handleScroll } = useFollowTail();
+  // ↑/↓ scroll the transcript. The composer re-focuses itself after each send,
+  // so without this the arrows land in an empty textarea and do nothing.
+  useArrowScroll(scrollRef);
+
   const onSend = (text: string, files?: File[]): void => {
     if (projectId === undefined) return;
     setError(null);
+    // The reader may be up in the history; their own message is the one thing
+    // they always want to see land, so sending re-pins the tail.
+    scrollToBottom();
     setLiveSegments([]); // a new turn — the previous reply is history now
     setBusy(true); // optimistic: disable the composer immediately
     // Show the message (and its attachments) before the request leaves.
@@ -397,11 +409,6 @@ export function ChatPage(): ReactElement {
       // On success `busy` stays true until the settle detector sees the reply.
     })();
   };
-
-  // Follow the tail by observed height, not by message count: a streaming reply,
-  // late markdown/code highlighting and expanding tool cards all grow an existing
-  // row without adding one, and a count-keyed effect never sees them.
-  const { scrollRef, contentRef, atBottom, scrollToBottom, handleScroll } = useFollowTail();
 
   if (projectId === undefined) {
     return <EmptyState title="No project selected." />;
