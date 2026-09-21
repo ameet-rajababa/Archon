@@ -85,6 +85,9 @@
   --success: var(--brand-teal);
   --success-soft: oklch(0.755 0.165 168 / 0.14);
   --warning: oklch(0.8 0.14 85);
+  /* The mark variant of the same warning — see theme/tokens.css. Equal here
+     because the dark value is already bright enough to read as amber. */
+  --warning-mark: oklch(0.8 0.14 85);
   --warning-soft: oklch(0.8 0.14 85 / 0.14);
   --error: oklch(0.68 0.215 18);
   --error-soft: oklch(0.68 0.215 18 / 0.14);

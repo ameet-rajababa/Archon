@@ -744,9 +744,12 @@
   }
 }
 /* Awaiting: an open ring. Unresolved, and deliberately not a filled dot —
-   filled reads as "done", which is the opposite of what it means. */
+   filled reads as "done", which is the opposite of what it means.
+   The MARK variant of the warning colour, not the text one: a 2px ring is a
+   graphic and owes 3:1 rather than 4.5:1, which is the difference between
+   amber and the ochre the word has to settle for. */
 .chat-status.is-awaiting {
-  color: var(--warning);
+  color: var(--warning-mark);
 }
 .chat-status.is-awaiting i {
   background: transparent;

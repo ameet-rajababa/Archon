@@ -196,6 +196,10 @@
   --success-soft: oklch(0.72 0.15 168 / 0.14);
   --warning: oklch(0.8 0.14 85);
   --warning-soft: oklch(0.8 0.14 85 / 0.14);
+  /* Dark mode needs no second amber: the text value is already bright enough
+     to read as one. Declared anyway so a mark never has to know which mode it
+     is in. See the light block for what this is for. */
+  --warning-mark: var(--warning);
   --error: oklch(0.68 0.2 18);
   --error-soft: oklch(0.68 0.2 18 / 0.14);
   /* The other six --node-* live in the production :root in index.css with one
@@ -219,6 +223,13 @@
   --success-soft: oklch(0.495 0.13 168 / 0.1);
   --warning: oklch(0.525 0.11 75); /* was .58 — 3.66:1 on hover, the worst pair in the theme */
   --warning-soft: oklch(0.525 0.11 75 / 0.12);
+  /* The same warning, for a MARK rather than a word — a dot, a ring, a bar.
+     Text owes 4.5:1 and that is what drags the value down here until it reads
+     as ochre rather than amber; a non-text graphic owes 3:1 (WCAG 1.4.11), so
+     it can keep the colour the state is supposed to have. Solved against
+     --surface-hover, the darkest thing either sits on: 3.23:1 there, 3.83:1
+     on --surface. Raising it further is what breaks it. */
+  --warning-mark: oklch(0.61 0.14 78);
   --error: oklch(0.52 0.21 18); /* .54 read 4.34:1 on a stacked error tint */
   --error-soft: oklch(0.52 0.21 18 / 0.1);
   /* See the dark block: all six fail in light mode at their :root values.
@@ -305,7 +316,13 @@
 /* ══ TYPOGRAPHY — one family per theme ═════════════════════════════════
    theme.css sets Geist on `.console-root`. Same-element override again. */
 [data-theme='linear'] .console-root {
-  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-family:
+    'Inter',
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
   font-feature-settings: normal;
   letter-spacing: -0.005em;
 }
