@@ -9,7 +9,6 @@ import {
 import { createPortal } from 'react-dom';
 import { clamp, hexToHsv, hsvToHex, isHexColor, type Hsv } from '../lib/color-hsv';
 import { ICON_PATHS } from '../lib/glyph-data';
-import { isEmojiGlyph } from '../lib/glyph';
 import { searchEmoji, searchIcons } from '../lib/glyph-search';
 import { IDENTITY_COLORS, type Identity } from '../lib/identity';
 
@@ -34,10 +33,10 @@ const CUSTOM_ROW = 188;
  * value field, vertical hue rail — and the rainbow in its corner swaps back.
  * One row, two modes, rather than a second panel to get lost in.
  *
- * The row shows with the Icons tab only, and not at all for a subject already
- * wearing an emoji: an emoji is not stroke art, so in both cases the color
- * would be a control over nothing. The stored color is kept, not cleared, so
- * choosing an icon again brings it back.
+ * The row shows with the Icons tab only. An emoji is not stroke art — nothing
+ * in that grid can take a color — so offering one above it is a control over
+ * nothing. The stored color is kept either way, so a subject that wore an emoji
+ * for a while gets its color back the moment it wears an icon again.
  */
 export function IdentityPicker({
   identity,
@@ -180,15 +179,16 @@ export function IdentityPicker({
   const items = tab === 'icons' ? searchIcons(query) : searchEmoji(query);
   const chosenGlyph = identity.glyph;
   /**
-   * The color belongs to the icon vocabulary, and only shows with it.
+   * The color belongs to the icon vocabulary, and shows with it — the tab, and
+   * only the tab.
    *
-   * Two conditions, because there are two ways for a color to be beside the
-   * point. The Emojis tab is one: nothing on it can take a color, so a control
-   * sitting above it is offering something the grid below cannot do. An emoji
-   * already chosen is the other: `Glyph` drops the color, so it paints nothing
-   * anywhere until an icon is chosen again.
+   * Keying it on the CHOSEN glyph as well was a trap: an emoji-clad subject got
+   * no color row on either tab, so the control that would undo the situation was
+   * the one thing hidden, and nothing said why. The Icons tab always offers it,
+   * which is also where it can be judged — the grid below previews every icon in
+   * the color as you change it.
    */
-  const showColor = tab === 'icons' && !isEmojiGlyph(chosenGlyph);
+  const showColor = tab === 'icons';
 
   // Clamp to the viewport: the rail sits at the left edge, so only the bottom
   // realistically overflows. Measured on every render rather than captured on
