@@ -5,6 +5,7 @@ import { ChatComposer, type ChatDraft } from '../components/ChatComposer';
 import { chooseOpenChat, readLastChat, writeLastChat } from '../lib/last-chat';
 import { ConversationRail, type ArchiveScope } from '../components/ConversationRail';
 import { ChatStatusStrip } from '../components/ChatStatusStrip';
+import { ContextBar } from '../components/ContextBar';
 import { WorkflowDock } from '../components/WorkflowDock';
 import { EmptyState } from '../components/EmptyState';
 import { StreamContextProvider } from '../lib/stream-context';
@@ -561,6 +562,7 @@ export function ChatPage(): ReactElement {
               category: null,
               dispatch: null,
               workflowResult: null,
+              usage: null,
             },
           ];
     // Deliberately measured against `messageList`, not `withEcho`: the slice is
@@ -581,6 +583,7 @@ export function ChatPage(): ReactElement {
           category: seg.category,
           dispatch: null,
           workflowResult: null,
+          usage: null,
         })
       ),
     ];
@@ -659,16 +662,22 @@ export function ChatPage(): ReactElement {
                       the right reason — and an empty screen is exactly what a
                       broken indicator looks like. */}
                   {activeConvId !== null || working ? (
-                    <ChatStatusStrip
-                      status={status}
-                      since={workingSince}
-                      lastActivityAt={lastActivityAt}
-                      trace={turnTrace}
-                      expanded={showTools}
-                      onToggle={() => {
-                        setShowTools(v => !v);
-                      }}
-                    />
+                    <div className="flex items-center gap-3">
+                      <ChatStatusStrip
+                        status={status}
+                        since={workingSince}
+                        lastActivityAt={lastActivityAt}
+                        trace={turnTrace}
+                        expanded={showTools}
+                        onToggle={() => {
+                          setShowTools(v => !v);
+                        }}
+                      />
+                      {/* Beside what the chat is DOING, because how full it is
+                          is the other half of the same question: whether to
+                          keep going here or start somewhere fresh. */}
+                      <ContextBar messages={renderedMessages} />
+                    </div>
                   ) : null}
                 </StreamContextProvider>
               )}

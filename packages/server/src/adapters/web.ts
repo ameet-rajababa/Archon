@@ -3,7 +3,8 @@
  * Bridge between the orchestrator and the React frontend via Server-Sent Events.
  */
 import type { IWebPlatformAdapter, MessageMetadata } from '@archon/core';
-import type { MessageChunk } from '@archon/providers/types';
+import type { MessageChunk, TokenUsage } from '@archon/providers/types';
+import { attachUsageToLatestAssistantMessage } from '@archon/core/db/messages';
 import { createLogger } from '@archon/paths';
 import { MessagePersistence } from './web/persistence';
 import { SSETransport, DASHBOARD_STREAM, type SSEWriter } from './web/transport';
@@ -101,6 +102,43 @@ export class WebAdapter implements IWebPlatformAdapter {
       this.persistence.flush(conversationId).catch((e: unknown) => {
         getLog().error({ conversationId, err: e }, 'workflow_result_flush_failed');
       });
+    }
+  }
+
+  /**
+   * Record what the turn cost, onto the message the turn produced.
+   *
+   * The hook has existed since Slack needed a cost footer; the web console
+   * needs the same numbers for a different reason — `tokens.input` is gross
+   * prompt input, which is how full the model's context was on this turn, and
+   * that is the only honest basis for saying when a chat should be handed off.
+   *
+   * Persisted rather than emitted: a gauge that resets on reload is not a
+   * gauge. The write is a flush-then-update because the reply is streamed and
+   * stored as it arrives, while usage is only known once the turn ends.
+   *
+   * Never throws. A missing reading is a missing gauge, not a failed turn.
+   */
+  async sendResultFooter(
+    conversationId: string,
+    info: { cost?: number; tokens?: TokenUsage; stopReason?: string; model?: string }
+  ): Promise<void> {
+    if (!info.tokens) return;
+    try {
+      await this.persistence.flush(conversationId);
+      const dbId = this.persistence.conversationDbId(conversationId);
+      if (dbId === undefined) return;
+      const { input, output, cacheRead, cacheWrite } = info.tokens;
+      await attachUsageToLatestAssistantMessage(dbId, {
+        input,
+        output,
+        ...(cacheRead === undefined ? {} : { cacheRead }),
+        ...(cacheWrite === undefined ? {} : { cacheWrite }),
+        ...(info.cost === undefined ? {} : { costUsd: info.cost }),
+        ...(info.model === undefined ? {} : { model: info.model }),
+      });
+    } catch (error) {
+      getLog().warn({ conversationId, err: error }, 'result_footer_persist_failed');
     }
   }
 

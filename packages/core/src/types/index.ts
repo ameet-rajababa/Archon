@@ -117,6 +117,28 @@ export interface MessageMetadata {
   segment?: 'new' | 'auto';
   workflowDispatch?: { workerConversationId: string; workflowName: string };
   workflowResult?: { workflowName: string; runId: string };
+  /**
+   * What this turn cost, as the provider reported it.
+   *
+   * `input` is GROSS prompt input — cache reads and writes included — which is
+   * the size of the prefix actually replayed, and therefore how full the
+   * model's context was on this turn. It is an occupancy reading, not a
+   * running total: it falls when the provider compacts, and that fall is the
+   * only signal anyone gets that compaction happened.
+   *
+   * Lives on the newest assistant message rather than on the conversation
+   * because that is what it describes. A chat has no single context size; each
+   * turn has one.
+   */
+  usage?: {
+    input: number;
+    output: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    costUsd?: number;
+    /** The model that answered. Without it the reading has no denominator. */
+    model?: string;
+  };
 }
 
 export interface IPlatformAdapter {
@@ -174,7 +196,7 @@ export interface IPlatformAdapter {
    */
   sendResultFooter?(
     conversationId: string,
-    info: { cost?: number; tokens?: TokenUsage; stopReason?: string }
+    info: { cost?: number; tokens?: TokenUsage; stopReason?: string; model?: string }
   ): Promise<void>;
 }
 

@@ -139,3 +139,56 @@ export async function getLastMessagePerConversation(
   }
   return out;
 }
+
+/**
+ * Record what a turn cost onto the assistant message that turn produced.
+ *
+ * An UPDATE rather than a field on the INSERT, because the two facts arrive in
+ * the wrong order: the web adapter streams and persists the reply as it
+ * arrives, while the provider only reports usage once the turn is complete.
+ * Writing it afterwards is what lets the reading belong to the message it
+ * describes instead of to whatever is persisted next.
+ *
+ * Merges into existing metadata — tool calls are already in there and must
+ * survive. Non-throwing: a missing cost reading must never fail a turn that
+ * otherwise succeeded.
+ */
+export async function attachUsageToLatestAssistantMessage(
+  conversationId: string,
+  usage: Record<string, number | string>
+): Promise<void> {
+  try {
+    const result = await pool.query<Pick<MessageRow, 'id' | 'metadata'>>(
+      `SELECT id, metadata FROM remote_agent_messages
+       WHERE conversation_id = $1 AND role = 'assistant'
+       -- Same ordering as listMessages: "latest" has to mean one thing.
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1`,
+      [conversationId]
+    );
+    const row = result.rows[0];
+    if (!row) return;
+
+    let metadata: Record<string, unknown> = {};
+    if (typeof row.metadata === 'string' && row.metadata !== '') {
+      try {
+        const parsed: unknown = JSON.parse(row.metadata);
+        if (parsed !== null && typeof parsed === 'object') {
+          metadata = parsed as Record<string, unknown>;
+        }
+      } catch {
+        // Unparseable metadata is someone else's bug; do not compound it by
+        // overwriting whatever is in there.
+        return;
+      }
+    }
+    metadata.usage = usage;
+
+    await pool.query('UPDATE remote_agent_messages SET metadata = $1 WHERE id = $2', [
+      JSON.stringify(metadata),
+      row.id,
+    ]);
+  } catch (error) {
+    getLog().warn({ err: error as Error, conversationId }, 'db.attach_usage_failed');
+  }
+}

@@ -2786,7 +2786,9 @@ async function handleStreamMode(
   let newSessionId: string | undefined;
   let commandDetected = false;
   let commandFullyParsed = false;
-  let lastResult: { cost?: number; tokens?: TokenUsage; stopReason?: string } | undefined;
+  let lastResult:
+    | { cost?: number; tokens?: TokenUsage; stopReason?: string; model?: string }
+    | undefined;
 
   for await (const msg of aiClient.sendQuery(
     fullPrompt,
@@ -2902,6 +2904,11 @@ async function handleStreamMode(
         cost: msg.cost,
         tokens: msg.tokens,
         stopReason: msg.stopReason,
+        // Carried because a token count without the model it was spent on
+        // cannot be turned into "how full is this context" — the denominator
+        // is the model's window, and only the provider knows which model
+        // actually answered.
+        model: msg.resolvedModel?.id,
       };
     }
   }
@@ -3019,7 +3026,9 @@ async function handleBatchMode(
   let newSessionId: string | undefined;
   let commandDetected = false;
   let commandFullyParsed = false;
-  let lastResult: { cost?: number; tokens?: TokenUsage; stopReason?: string } | undefined;
+  let lastResult:
+    | { cost?: number; tokens?: TokenUsage; stopReason?: string; model?: string }
+    | undefined;
 
   for await (const msg of aiClient.sendQuery(
     fullPrompt,
@@ -3133,6 +3142,11 @@ async function handleBatchMode(
         cost: msg.cost,
         tokens: msg.tokens,
         stopReason: msg.stopReason,
+        // Carried because a token count without the model it was spent on
+        // cannot be turned into "how full is this context" — the denominator
+        // is the model's window, and only the provider knows which model
+        // actually answered.
+        model: msg.resolvedModel?.id,
       };
     }
 
@@ -3259,7 +3273,7 @@ async function handleBatchMode(
 async function maybeSendResultFooter(
   platform: IPlatformAdapter,
   conversationId: string,
-  info: { cost?: number; tokens?: TokenUsage; stopReason?: string } | undefined
+  info: { cost?: number; tokens?: TokenUsage; stopReason?: string; model?: string } | undefined
 ): Promise<void> {
   if (!info) return;
   if (info.cost === undefined && info.tokens === undefined) return;

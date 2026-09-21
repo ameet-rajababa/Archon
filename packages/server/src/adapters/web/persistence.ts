@@ -41,6 +41,11 @@ export class MessagePersistence {
     this.dbIdMap.set(platformConversationId, dbId);
   }
 
+  /** The database id for a platform conversation, if this buffer knows it. */
+  conversationDbId(platformConversationId: string): string | undefined {
+    return this.dbIdMap.get(platformConversationId);
+  }
+
   appendText(conversationId: string, message: string, metadata?: MessageMetadata): void {
     if (metadata?.category === 'tool_call_formatted') {
       getLog().debug({ conversationId }, 'persistence_skip_tool_call_formatted');

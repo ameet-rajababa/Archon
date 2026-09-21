@@ -70,6 +70,26 @@ export interface Message {
   workflowResult: WorkflowResultMeta | null;
   /** Attachments sent with this message. Empty when there were none. */
   files: MessageFile[];
+  /**
+   * What this turn cost, when the provider reported it. Present on assistant
+   * messages only, and only on turns that completed.
+   */
+  usage: TurnUsage | null;
+}
+
+/**
+ * A turn's token reading.
+ *
+ * `input` is gross prompt input — cache reads and writes included — so it is
+ * the size of the prefix the model actually re-read. Read as occupancy, not as
+ * a running total: it falls when the provider compacts.
+ */
+export interface TurnUsage {
+  input: number;
+  output: number;
+  costUsd: number | null;
+  /** The model that answered, when the provider names one. */
+  model?: string;
 }
 
 interface RawMessage {
@@ -89,6 +109,12 @@ interface ParsedMetadata {
     duration?: number;
   }[];
   category?: string;
+  usage?: {
+    input?: unknown;
+    output?: unknown;
+    costUsd?: unknown;
+    model?: unknown;
+  };
   workflowDispatch?: {
     workflowName: string;
     workerConversationId?: string;
@@ -185,5 +211,23 @@ export function toMessage(raw: RawMessage): Message {
     dispatch,
     workflowResult,
     files,
+    usage: toTurnUsage(meta.usage),
+  };
+}
+
+/**
+ * A usage blob is only a reading if it has a number to read. A partially
+ * written one is treated as absent rather than as zero — zero tokens is a
+ * claim, and a false one.
+ */
+function toTurnUsage(raw: ParsedMetadata['usage']): TurnUsage | null {
+  if (raw === undefined || typeof raw.input !== 'number' || typeof raw.output !== 'number') {
+    return null;
+  }
+  return {
+    input: raw.input,
+    output: raw.output,
+    costUsd: typeof raw.costUsd === 'number' ? raw.costUsd : null,
+    ...(typeof raw.model === 'string' ? { model: raw.model } : {}),
   };
 }
