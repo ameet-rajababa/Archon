@@ -14,6 +14,7 @@
  * not pay for two hundred run records to draw a number.
  */
 import { requestJson } from '../lib/http';
+import { askAwaitingIds } from '../primitives/chat-status';
 import { toConversationSummary } from '../primitives/conversation';
 import { toRun } from '../primitives/run';
 
@@ -37,11 +38,14 @@ export interface ProjectCounts {
   /** Executing right now. */
   running: number;
   /**
-   * Runs paused on a gate that is actually ASKING something. Outranks running.
+   * Things waiting on YOU. Outranks running.
    *
-   * Not `counts.paused`: a run can be paused with nothing pending, and calling
-   * that "waiting on you" makes the amber mean "unfinished" instead of "your
-   * move". Same rule the chat rail applies per row.
+   * Two kinds, counted together because they mean the same thing: a run paused
+   * on a gate that is actually ASKING something, and a chat whose last message
+   * is an unanswered question. Not `counts.paused` — a run can be paused with
+   * nothing pending, and calling that "waiting on you" makes the amber mean
+   * "unfinished" instead of "your move". Same rules the chat rail applies per
+   * row, so a project and its chats can never disagree.
    */
   awaiting: number;
   /**
@@ -88,9 +92,11 @@ export async function getProjectCounts(projectId: string): Promise<ProjectCounts
   ]);
 
   const chatRows = chats.status === 'fulfilled' && Array.isArray(chats.value) ? chats.value : [];
-  // Through the normalizer, not by reaching for the wire field: which column
-  // carries the platform id is `primitives/conversation.ts`'s to know.
-  const chatIds = chatRows.map(c => toConversationSummary(c).id).filter(id => id !== '');
+  // Through the normalizer, not by reaching for the wire fields: which columns
+  // carry the platform id and the ask candidate is `primitives/conversation.ts`'s
+  // to know.
+  const chatSummaries = chatRows.map(toConversationSummary);
+  const chatIds = chatSummaries.map(c => c.id).filter(id => id !== '');
   const runsValue = runs.status === 'fulfilled' ? runs.value : null;
 
   // A route that does not exist yet (or a repo that cannot be asked) means
@@ -105,16 +111,17 @@ export async function getProjectCounts(projectId: string): Promise<ProjectCounts
   const paused = runsValue?.counts?.paused ?? 0;
   const pending = runsValue?.counts?.pending ?? 0;
 
-  const awaiting = (runsValue?.runs ?? [])
+  const gatedRuns = (runsValue?.runs ?? [])
     .map(toRun)
     .filter(r => r.approval !== null && r.approval !== undefined).length;
+  const unansweredQuestions = askAwaitingIds(chatSummaries).size;
 
   return {
-    chats: chatRows.length,
+    chats: chatSummaries.length,
     chatIds,
     runs: running + paused + pending,
     running,
-    awaiting,
+    awaiting: gatedRuns + unansweredQuestions,
     issues: openIssues,
   };
 }
