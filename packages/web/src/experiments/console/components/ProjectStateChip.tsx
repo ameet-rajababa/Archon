@@ -7,10 +7,16 @@ import { useEntity } from '../store/cache';
 import { K } from '../store/keys';
 
 /**
- * Where a project is, in one word.
+ * Whether a project wants something, in one word.
  *
  * The word is a chat's word, because a project does not work or wait — the
  * chats and runs inside it do. The tooltip carries the arithmetic behind it.
+ *
+ * NOTHING is rendered when the answer is "no". A mark on every project is not
+ * a status, it is decoration: measured across six projects it read Idle on
+ * three and Working on three, and the three Idles changed nobody's next move.
+ * Silence is what makes `Working` and `Awaiting` worth looking at, and the
+ * counts beside each project already say how much is in it.
  *
  * The mark is literally the rail's mark: the same `.chat-status` element, so
  * the shape, the color and the pulse have one definition. Drawn separately it
@@ -32,6 +38,9 @@ export function ProjectStateChip({ projectId }: { projectId: string }): ReactEle
     openIssues: data.issues ?? 0,
     chats: data.chats,
   });
+
+  // Idle is the absence of a reason to look, so it prints nothing.
+  if (state.status === 'idle') return null;
 
   return (
     <span

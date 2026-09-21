@@ -18,6 +18,7 @@ const parallelRun: Run = {
   outcome: null,
   startedAt: '2026-09-01T10:00:00.000Z',
   finishedAt: null,
+  lastActivityAt: null,
   workingPath: null,
   userMessage: 'Implement the change',
   activeNodes: ['parallel-a', 'parallel-b'],

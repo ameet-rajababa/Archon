@@ -44,6 +44,16 @@ export interface Run {
   outcome: RunOutcome;
   startedAt: string;
   finishedAt: string | null;
+  /**
+   * When the run last did anything — the column the executor touches as it
+   * works, not when it began.
+   *
+   * It is what separates a long run from a dead one. `started_at` cannot:
+   * a vault run sat at `running` for 23 hours having done nothing for 23
+   * hours, and by elapsed time alone it was indistinguishable from a run
+   * that was still thinking.
+   */
+  lastActivityAt: string | null;
   /** workflow_runs.working_path — used to join against worktrees. */
   workingPath: string | null;
   userMessage: string;
@@ -244,6 +254,10 @@ export function toRun(raw: RawWorkflowRun): Run {
     outcome: raw.outcome ?? null,
     startedAt: raw.started_at,
     finishedAt: raw.completed_at ?? null,
+    // The generated OpenAPI types do not carry `last_activity_at`, but the
+    // route returns it on every row — verified against /api/workflows/runs.
+    // Read narrowly rather than regenerating the whole schema for one field.
+    lastActivityAt: (raw as { last_activity_at?: string | null }).last_activity_at ?? null,
     workingPath: raw.working_path ?? null,
     userMessage: raw.user_message ?? '',
     activeNodes,

@@ -14,6 +14,8 @@ import type { GithubIssue, IssuesResponse } from '../skills';
 import { useEntity } from '../store/cache';
 import { K } from '../store/keys';
 import { IssueTypeChip } from '../components/IssueTypeChip';
+import { useNow } from '../lib/clock';
+import { stalledIds } from '../primitives/stalled';
 
 function Section({
   label,
@@ -66,6 +68,8 @@ export function OverviewPage(): ReactElement {
   );
 
   const runs = feed?.runs ?? [];
+  const now = useNow();
+  const stalled = useMemo(() => stalledIds(runs, now), [runs, now]);
   const inFlight = useMemo(() => runs.filter(r => r.status === 'running'), [runs]);
   // Only a human can clear these: a run paused on an approval or an input
   // request. Everything else is the machine's problem.
@@ -114,7 +118,13 @@ export function OverviewPage(): ReactElement {
           ) : (
             <div className="flex flex-col gap-2">
               {needsYou.map(r => (
-                <ActiveRunCard key={r.id} run={r} showProject={false} selected={false} />
+                <ActiveRunCard
+                  key={r.id}
+                  run={r}
+                  showProject={false}
+                  selected={false}
+                  stalled={stalled.has(r.id)}
+                />
               ))}
             </div>
           )}
@@ -125,7 +135,13 @@ export function OverviewPage(): ReactElement {
           <Section label="In flight">
             <div className="flex flex-col gap-2">
               {inFlight.map(r => (
-                <ActiveRunCard key={r.id} run={r} showProject={false} selected={false} />
+                <ActiveRunCard
+                  key={r.id}
+                  run={r}
+                  showProject={false}
+                  selected={false}
+                  stalled={stalled.has(r.id)}
+                />
               ))}
             </div>
           </Section>

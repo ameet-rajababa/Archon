@@ -26,6 +26,7 @@ const baseRun: Omit<Run, 'id' | 'workflow' | 'status'> = {
   outcome: null,
   startedAt: new Date(Date.now() - 4 * 60 * 1000 - 12 * 1000).toISOString(),
   finishedAt: null,
+  lastActivityAt: null,
   workingPath: null,
   userMessage: '',
   activeNodes: [],
@@ -65,6 +66,7 @@ const SAMPLE_RUNS: Run[] = [
     status: 'failed',
     startedAt: new Date(Date.now() - 2 * 60 * 1000 - 41 * 1000).toISOString(),
     finishedAt: new Date().toISOString(),
+    lastActivityAt: null,
     currentNode: 'implement/verify',
   },
   {
@@ -76,6 +78,7 @@ const SAMPLE_RUNS: Run[] = [
     outcome: 'failed',
     startedAt: new Date(Date.now() - 8 * 60 * 1000 - 14 * 1000).toISOString(),
     finishedAt: new Date().toISOString(),
+    lastActivityAt: null,
   },
   {
     ...baseRun,
@@ -85,6 +88,7 @@ const SAMPLE_RUNS: Run[] = [
     status: 'cancelled',
     startedAt: new Date(Date.now() - 47 * 1000).toISOString(),
     finishedAt: new Date().toISOString(),
+    lastActivityAt: null,
   },
 ];
 

@@ -62,8 +62,9 @@ export function ProjectHeader(): ReactElement {
             <h1 className="truncate text-base font-medium text-text-primary">
               {projectId === undefined ? 'All projects' : (project?.name ?? 'Project')}
             </h1>
-            {/* Where this project is, in one or two words. Beside the name
-                because it is a property of the project, not of the page. */}
+            {/* Whether this project wants something. Beside the name because
+                it is a property of the project, not of the page — and absent
+                entirely when the answer is no. */}
             {projectId !== undefined ? <ProjectStateChip projectId={projectId} /> : null}
           </span>
           {/* Always rendered, even while loading: an absent second line would

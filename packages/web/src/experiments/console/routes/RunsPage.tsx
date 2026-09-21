@@ -14,6 +14,8 @@ import * as skill from '../skills';
 import type { Run } from '../primitives/run';
 import type { RunCounts } from '../skills/runs';
 import type { Project } from '../primitives/project';
+import { useNow } from '../lib/clock';
+import { stalledIds } from '../primitives/stalled';
 
 interface FeedData {
   runs: Run[];
@@ -53,6 +55,7 @@ function buildDemoRuns(scope: Scope, projectName: string | null): Run[] {
     userMessage: '',
     activeNodes: [] as string[],
     finishedAt: null as string | null,
+    lastActivityAt: null,
   };
   return [
     {
@@ -121,6 +124,7 @@ function buildDemoRuns(scope: Scope, projectName: string | null): Run[] {
       status: 'failed',
       startedAt: iso(2 * 60 + 41),
       finishedAt: iso(0),
+      lastActivityAt: null,
       currentNode: 'implement/verify',
       lastTool: null,
     },
@@ -133,6 +137,7 @@ function buildDemoRuns(scope: Scope, projectName: string | null): Run[] {
       outcome: 'failed',
       startedAt: iso(8 * 60 + 14),
       finishedAt: iso(0),
+      lastActivityAt: null,
       currentNode: null,
       lastTool: null,
     },
@@ -207,6 +212,12 @@ interface RunsFeedProps {
   promotedRunIds: ReadonlySet<string>;
   /** How many runs exist in this scope, which may exceed how many were fetched. */
   total: number;
+  /**
+   * Runs that say `running` but have gone silent past what their workflow
+   * normally takes. Judged by the PARENT, because the median span has to be
+   * learned from the full run history and these runs are already filtered.
+   */
+  stalledRunIds: ReadonlySet<string>;
 }
 
 /**
@@ -226,6 +237,7 @@ function RunsFeed({
   selectedRunId,
   promotedRunIds,
   total,
+  stalledRunIds,
 }: RunsFeedProps): ReactElement {
   const active = runs.filter(r => r.status === 'running' || r.status === 'paused');
   const recent = runs.filter(
@@ -250,6 +262,7 @@ function RunsFeed({
                 showProject={showProject}
                 selected={run.id === selectedRunId}
                 inputPromoted={promotedRunIds.has(run.id)}
+                stalled={stalledRunIds.has(run.id)}
               />
             ))}
           </div>
@@ -354,6 +367,11 @@ export function RunsPage(): ReactElement {
   const allRuns = [...demoRuns, ...realRuns];
   const counts = demoMode ? mergeCounts(realCounts, demoCounts) : realCounts;
   const runs = useMemo(() => filterRuns(allRuns, filter, query), [allRuns, filter, query]);
+  // Judged over ALL runs, not the filtered view: the median span a workflow
+  // normally takes has to be learned from its history, and filtering to
+  // `running` would leave nothing finished to learn from.
+  const now = useNow();
+  const stalled = useMemo(() => stalledIds(allRuns, now), [allRuns, now]);
 
   // Runs paused on a human gate (approval node / agent question). Derived from
   // the unfiltered set on purpose: a run that needs you should surface even
@@ -590,6 +608,7 @@ export function RunsPage(): ReactElement {
           />
         ) : (
           <RunsFeed
+            stalledRunIds={stalled}
             runs={runs}
             showProject={scope === 'all'}
             draftProject={draftProject}

@@ -18,7 +18,16 @@ export const statusLabel: Record<RunStatus, string> = {
   cancelled: 'Cancelled',
 };
 
-export function runStatusLabel(run: Run): string {
+/**
+ * The word for a run's state, including the one the database cannot tell you.
+ *
+ * `stalled` is a judgement the caller makes — it needs the workflow's run
+ * history to know what "too long" is, which this module has no business
+ * fetching. See primitives/stalled.ts. Nothing here mutates the run: the row
+ * stays `running`, only the word changes, and Abandon remains the action.
+ */
+export function runStatusLabel(run: Run, stalled = false): string {
+  if (stalled && run.status === 'running') return 'Stalled';
   if (run.status !== 'paused' || run.wait == null) return statusLabel[run.status];
   if (run.wait.kind === 'attention') return 'Waiting for action';
   return run.wait.kind === 'event' ? 'Waiting for event' : 'Waiting until scheduled time';
@@ -48,6 +57,10 @@ export const statusStripClass: Record<RunStatus, string> = {
   completed: 'bg-success/40',
   cancelled: 'bg-text-tertiary/40',
 };
+
+/** A stalled run is not an error and not activity — it is an absence. Tertiary
+ *  so it recedes rather than competing with the runs that are alive. */
+export const STALLED_TEXT_CLASS = 'text-text-tertiary';
 
 export const statusTextClass: Record<RunStatus, string> = {
   running: 'text-[color:var(--running)]',

@@ -8,7 +8,7 @@ import { ApprovalContext } from './ApprovalContext';
 import type { Run } from '../primitives/run';
 import { shortRunId, formatElapsed, elapsedSince, formatCost } from '../lib/format';
 import { useIsDocker, useIdeEnv, openInIde } from '../lib/health';
-import { statusTextClass, runStatusLabel } from '../lib/run-status';
+import { statusTextClass, runStatusLabel, STALLED_TEXT_CLASS } from '../lib/run-status';
 import { RunOutcomeBadge } from './RunOutcomeBadge';
 import * as skill from '../skills';
 import { invalidate } from '../store/cache';
@@ -27,6 +27,13 @@ interface ActiveRunCardProps {
    * second live ApprovalPanel; dismissing the banner restores the inline panel.
    */
   inputPromoted?: boolean;
+  /**
+   * The row says `running` but the run has been silent far past what this
+   * workflow normally takes. A judgement, not a fact from the database —
+   * the caller makes it because it needs the run history. See
+   * primitives/stalled.ts.
+   */
+  stalled?: boolean;
 }
 
 /**
@@ -49,6 +56,7 @@ export function ActiveRunCard({
   showProject = false,
   selected = false,
   inputPromoted = false,
+  stalled = false,
 }: ActiveRunCardProps): ReactElement {
   const navigate = useNavigate();
   const isDocker = useIsDocker();
@@ -118,8 +126,10 @@ export function ActiveRunCard({
       <div className="pl-4 pr-4 py-3">
         {/* Header */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          {run.status === 'running' ? (
+          {run.status === 'running' && !stalled ? (
             <LiveDot />
+          ) : stalled ? (
+            <span aria-hidden className="h-2.5 w-2.5 shrink-0 rounded-full bg-text-tertiary" />
           ) : (
             <span
               aria-hidden
@@ -127,9 +137,14 @@ export function ActiveRunCard({
             />
           )}
           <span
-            className={`shrink-0 text-[10px] font-semibold uppercase tracking-[0.12em] ${statusTextClass[run.status]}`}
+            className={`shrink-0 text-[10px] font-semibold uppercase tracking-[0.12em] ${stalled ? STALLED_TEXT_CLASS : statusTextClass[run.status]}`}
+            title={
+              stalled
+                ? 'No activity for far longer than this workflow normally takes. The row still says running; nothing has been changed. Abandon it from the run page.'
+                : undefined
+            }
           >
-            {runStatusLabel(run)}
+            {runStatusLabel(run, stalled)}
           </span>
           <RunOutcomeBadge outcome={run.outcome} />
           <span className="mx-1 h-3 w-px shrink-0 bg-border" aria-hidden />
