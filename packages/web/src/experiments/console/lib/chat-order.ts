@@ -1,14 +1,25 @@
 /**
- * A hand-arranged order for a project's chats.
+ * Arranging a rail by hand: the order itself, and the drag that produces it.
  *
  * Sorting by recency is self-maintaining but puts whatever was touched last on
- * top, which is not always what matters. A manual order is stable by
- * definition, so a chat stays where it was put.
+ * top, which is not always what matters — a rail of working chats rearranges
+ * itself under the reader as replies land. A hand-arranged order is absolute:
+ * nothing but a drag moves a row.
  *
- * Held in localStorage per project. It is a view preference, not data, and it
- * deliberately does not follow between devices.
+ * Where that order LIVES differs by rail. A chat's position is a column on the
+ * conversation row, so it follows the reader to any browser; the project rail
+ * still keeps its order here, in localStorage. The functions below are the
+ * shared part — applying an order to a list, folding a displayed subset back
+ * into a full one, and the drag geometry both rails draw with.
  */
 
+/**
+ * The chat rail's old home, kept only to migrate off it.
+ *
+ * Read once when nothing in a project has a stored position yet, so an
+ * arrangement made before the column existed survives the upgrade, and cleared
+ * as soon as the server holds one. Nothing writes it any more.
+ */
 const KEY_PREFIX = 'archon.console.chatOrder.';
 
 export function chatOrderKey(projectId: string): string {
@@ -27,20 +38,22 @@ export function readChatOrder(projectId: string): string[] {
   }
 }
 
-export function writeChatOrder(projectId: string, order: readonly string[]): void {
+export function clearChatOrder(projectId: string): void {
   try {
-    localStorage.setItem(chatOrderKey(projectId), JSON.stringify(order));
+    localStorage.removeItem(chatOrderKey(projectId));
   } catch {
-    // Best-effort: failing to remember an order must not break the rail.
+    // Best-effort: a browser that will not forget is not worth breaking a rail over.
   }
 }
 
 /**
- * Apply a manual order to a list that is already sorted by recency.
+ * Rearrange a list to match an order given as ids.
  *
- * Ids in the order come first, in that order. Anything not in it — a chat
- * created since, or one never dragged — keeps its recency position behind them,
- * so a new chat is never hidden by an order that predates it.
+ * An id the order has never seen belongs to something created since it was
+ * written, and new goes on TOP: appended to the tail it would be buried under
+ * every arranged row, which is precisely where a brand-new row cannot be
+ * found. Those keep the incoming list's own order among themselves — recency,
+ * for both rails — so the newest of them leads.
  */
 export function applyChatOrder<T extends { id: string }>(
   items: readonly T[],
@@ -56,7 +69,40 @@ export function applyChatOrder<T extends { id: string }>(
     }
   }
   // Map preserves insertion order, so the remainder is still recency-sorted.
-  return [...ranked, ...byId.values()];
+  return [...byId.values(), ...ranked];
+}
+
+/**
+ * Fold a displayed arrangement back into a full stored order.
+ *
+ * Writing the displayed rows AS the order is the bug this replaces: the
+ * project rail is search-filtered, so dragging while a query was active wrote
+ * an order made only of the rows that matched and lost the places of every
+ * project the query hid.
+ *
+ * Each displayed id takes a slot the order already holds for a displayed id,
+ * filled in the sequence just displayed; every id that was out of view keeps
+ * its own slot untouched. An id with no slot is new and takes one at the top —
+ * the same rule `applyChatOrder` drew it with, so what is written matches what
+ * was on screen. This is the id-array form of what a per-row position column
+ * does for chats: reuse the positions in play, disturb nothing else.
+ *
+ * Ids of rows that no longer exist are kept, not pruned: from a filtered list
+ * a deleted id and a hidden one are indistinguishable, and dropping a row's
+ * slot because a query hid it is how it lost its place.
+ */
+export function mergeChatOrder(stored: readonly string[], displayed: readonly string[]): string[] {
+  // Deduplicated because a repeated id would claim a second slot and push the
+  // last id off the end of the order.
+  const queue = [...new Set(displayed)];
+  const shown = new Set(queue);
+  const slots = [...new Set(stored)];
+  const known = new Set(slots);
+  const withSlots = [...queue.filter(id => !known.has(id)), ...slots];
+  let next = 0;
+  // Slot count and queue length match by construction; `?? id` is there so a
+  // future caller cannot silently lose a row to an off-by-one.
+  return withSlots.map(id => (shown.has(id) ? (queue[next++] ?? id) : id));
 }
 
 /**
@@ -150,11 +196,13 @@ export function previewShift(
 }
 
 /**
- * The same function, named for what it actually is.
+ * The same functions, named for what they actually are.
  *
- * `applyChatOrder` is list-agnostic — it takes ids and returns the list
- * rearranged — and the project rail needs exactly the same behavior. Aliased
- * rather than duplicated so the "new item is never hidden by a stale order"
- * rule has one implementation.
+ * `applyChatOrder` and `mergeChatOrder` are list-agnostic — they take ids and
+ * return ids — and the project rail needs exactly the same behavior from a
+ * search-filtered list that the chat rail needs from a scope-filtered one.
+ * Aliased rather than duplicated so "new goes on top" and "an out-of-view row
+ * keeps its slot" each have one implementation.
  */
 export const applyManualOrder = applyChatOrder;
+export const mergeManualOrder = mergeChatOrder;

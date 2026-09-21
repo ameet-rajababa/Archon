@@ -71,6 +71,24 @@ export const updateConversationBodySchema = z
   })
   .openapi('UpdateConversationBody');
 
+/**
+ * PUT /api/conversations/order request body.
+ *
+ * `ids` is a RUN of chats as the rail is showing them, top first — not the
+ * whole project. The rail displays one archive scope at a time, so it can only
+ * speak for what it can see; the server rearranges those chats within the
+ * positions they already hold and leaves every other chat alone.
+ *
+ * Capped at 200 because the list route returns at most 50: a longer body is a
+ * client bug or an attempt to make one request rewrite a whole table.
+ */
+export const setConversationOrderBodySchema = z
+  .object({
+    ids: z.array(z.string()).min(1).max(200),
+  })
+  .strict()
+  .openapi('SetConversationOrderBody');
+
 /** Generic success response. */
 export const successResponseSchema = z.object({ success: z.boolean() }).openapi('SuccessResponse');
 

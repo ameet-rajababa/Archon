@@ -9,6 +9,7 @@ import { streamSSE } from 'hono/streaming';
 import { cors } from 'hono/cors';
 import type { WebAdapter } from '../adapters/web';
 import { boundMetadataToolOutputs } from '../adapters/web/truncate';
+import { DASHBOARD_STREAM } from '../adapters/web/transport';
 import { rm, readFile, writeFile, unlink, mkdir, readdir, stat } from 'fs/promises';
 import { existsSync, readFileSync } from 'fs';
 import { normalize, join, sep, basename, dirname, resolve } from 'path';
@@ -312,6 +313,7 @@ import {
   createConversationBodySchema,
   createConversationResponseSchema,
   updateConversationBodySchema,
+  setConversationOrderBodySchema,
   successResponseSchema,
   messageListResponseSchema,
   listMessagesQuerySchema,
@@ -632,6 +634,31 @@ const updateConversationRoute = createRoute({
     },
     400: jsonError('Bad request'),
     404: jsonError('Not found'),
+    500: jsonError('Server error'),
+  },
+});
+
+/**
+ * Declared before the `{id}` routes it sits beside so the static path is never
+ * read as a conversation called "order".
+ */
+const setConversationOrderRoute = createRoute({
+  method: 'put',
+  path: '/api/conversations/order',
+  tags: ['Conversations'],
+  summary: 'Arrange a run of chats in the rail',
+  request: {
+    body: {
+      content: { 'application/json': { schema: setConversationOrderBodySchema } },
+      required: true,
+    },
+  },
+  responses: {
+    200: {
+      content: { 'application/json': { schema: successResponseSchema } },
+      description: 'Arranged',
+    },
+    400: jsonError('Bad request'),
     500: jsonError('Server error'),
   },
 });
@@ -2590,6 +2617,35 @@ export function registerApiRoutes(
     }
   }
 
+  /**
+   * The content of each chat's newest message, but only where that message is
+   * an assistant reply that MIGHT hold an ask block — the agent's clickable
+   * multiple-choice question. Everything else maps to nothing.
+   *
+   * The substring test here is a deliberate OVER-approximation and must stay
+   * one. What actually counts as an ask block — a top-level fence, of any
+   * length, not nested inside a longer one — is decided by the console's own
+   * parser (`experiments/console/primitives/ask.ts`), which is where the
+   * format is defined and where the card is rendered. The console cannot
+   * import server code and the server cannot import the console, so the rule
+   * lives in exactly one of them and this end only decides what is worth
+   * SENDING. Being broader than the real rule costs a few KB on a chat that
+   * turns out not to have one; being narrower would hide a question, so it is
+   * the one direction this may never drift in.
+   */
+  async function askCandidateContent(
+    conversations: readonly import('@archon/core').Conversation[]
+  ): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    const last = await messageDb.getLastMessagePerConversation(conversations.map(c => c.id));
+    for (const [conversationId, message] of last) {
+      if (message.role !== 'assistant') continue;
+      if (!message.content.includes('```ask')) continue;
+      out.set(conversationId, message.content);
+    }
+    return out;
+  }
+
   function toApiConversation(row: import('@archon/core').Conversation): ApiConversation {
     return {
       ...row,
@@ -2684,7 +2740,13 @@ export function registerApiRoutes(
         userId,
         archived
       );
-      return c.json(conversations.map(toApiConversation));
+      const askCandidates = await askCandidateContent(conversations);
+      return c.json(
+        conversations.map(row => ({
+          ...toApiConversation(row),
+          ask_candidate: askCandidates.get(row.id) ?? null,
+        }))
+      );
     } catch (error) {
       getLog().error({ err: error }, 'list_conversations_failed');
       return apiError(c, 500, 'Failed to list conversations');
@@ -2814,6 +2876,24 @@ export function registerApiRoutes(
       }
       getLog().error({ err: error }, 'update_conversation_failed');
       return apiError(c, 500, 'Failed to update conversation');
+    }
+  });
+
+  // PUT /api/conversations/order - Arrange the rail
+  registerOpenApiRoute(setConversationOrderRoute, async c => {
+    const { ids } = getValidatedBody(c, setConversationOrderBodySchema);
+    try {
+      const dbIds = await conversationDb.findConversationIdsByPlatformIds(ids);
+      // An id the rail named but the database does not have is dropped rather
+      // than rejected: a rail that has not refreshed since a chat was deleted
+      // is a normal race, not a bad request, and the rest of the arrangement
+      // is still exactly what the user asked for.
+      const ordered = ids.map(id => dbIds.get(id)).filter((id): id is string => id !== undefined);
+      await conversationDb.setConversationOrder(ordered);
+      return c.json({ success: true });
+    } catch (error) {
+      getLog().error({ err: error }, 'set_conversation_order_failed');
+      return apiError(c, 500, 'Failed to arrange conversations');
     }
   });
 
@@ -2993,12 +3073,12 @@ export function registerApiRoutes(
         data: JSON.stringify({ type: 'heartbeat', timestamp: Date.now() }),
       });
 
-      webAdapter.registerStream('__dashboard__', stream);
-      getLog().debug({ streamId: '__dashboard__' }, 'dashboard_sse_opened');
+      webAdapter.registerStream(DASHBOARD_STREAM, stream);
+      getLog().debug({ streamId: DASHBOARD_STREAM }, 'dashboard_sse_opened');
 
       stream.onAbort(() => {
-        getLog().debug({ streamId: '__dashboard__' }, 'dashboard_sse_disconnected');
-        webAdapter.removeStream('__dashboard__', stream);
+        getLog().debug({ streamId: DASHBOARD_STREAM }, 'dashboard_sse_disconnected');
+        webAdapter.removeStream(DASHBOARD_STREAM, stream);
       });
 
       try {
@@ -3016,8 +3096,8 @@ export function registerApiRoutes(
           getLog().warn({ err: e as Error }, 'dashboard_sse_heartbeat_error');
         }
       } finally {
-        webAdapter.removeStream('__dashboard__', stream);
-        getLog().debug({ streamId: '__dashboard__' }, 'dashboard_sse_closed');
+        webAdapter.removeStream(DASHBOARD_STREAM, stream);
+        getLog().debug({ streamId: DASHBOARD_STREAM }, 'dashboard_sse_closed');
       }
     });
   });

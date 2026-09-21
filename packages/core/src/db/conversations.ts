@@ -330,6 +330,82 @@ export async function updateConversationColor(id: string, color: string | null):
 }
 
 /**
+ * Resolve platform conversation ids to database ids, in one query.
+ *
+ * The conversation API addresses chats by platform id throughout, and a rail
+ * names fifty of them at once; resolving those one at a time would be fifty
+ * round trips to arrange one list. Ids with no row are simply absent from the
+ * result — the caller decides what an unknown chat means.
+ */
+export async function findConversationIdsByPlatformIds(
+  platformIds: readonly string[]
+): Promise<Map<string, string>> {
+  if (platformIds.length === 0) return new Map();
+  const placeholders = platformIds.map((_, i) => `$${String(i + 1)}`).join(', ');
+  const result = await pool.query<{ id: string; platform_conversation_id: string }>(
+    `SELECT id, platform_conversation_id FROM remote_agent_conversations WHERE platform_conversation_id IN (${placeholders})`,
+    [...platformIds]
+  );
+  return new Map(result.rows.map(r => [r.platform_conversation_id, r.id]));
+}
+
+/**
+ * The ascending values a displayed run of chats should hold, given what they
+ * hold now.
+ *
+ * The rail only ever shows a subset — one archive scope, or a search — so it
+ * can only speak for the chats it can see. Reusing exactly the values those
+ * chats already hold is what lets it say "these, in this order" without
+ * knowing, or disturbing, a single chat that was out of view.
+ *
+ * A chat with no value yet needs one, and it has to be able to end up above
+ * everything already placed, so the range is extended DOWNWARD: `missing` new
+ * values immediately below the lowest one in play. Which chat receives which
+ * value is decided by position alone — the caller's sequence — so a brand-new
+ * chat dragged to the bottom takes the highest value, not a seed.
+ */
+export function nextOrderSlots(current: readonly (number | null)[]): number[] {
+  const taken = current.filter((v): v is number => v !== null).sort((a, b) => a - b);
+  const missing = current.length - taken.length;
+  // `?? 0` is the empty case: nothing has ever been arranged, so the run simply
+  // starts somewhere. Negative values are as valid as any other.
+  const base = taken[0] ?? 0;
+  const seeds = Array.from({ length: missing }, (_, i) => base - missing + i);
+  return [...seeds, ...taken];
+}
+
+/**
+ * Arrange a run of chats: `ids` is the order they should appear in, top first.
+ *
+ * Ids that do not exist are skipped rather than consuming a position, so a
+ * stale row in a rail that has not refreshed cannot shift everything below it.
+ * Rows whose value is already correct are not written at all, which keeps the
+ * ordinary drag — where only the chats between the two ends actually move — to
+ * a handful of statements instead of one per visible chat.
+ */
+export async function setConversationOrder(ids: readonly string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const dialect = getDialect();
+  const placeholders = ids.map((_, i) => `$${String(i + 1)}`).join(', ');
+  const existing = await pool.query<{ id: string; sort_order: number | null }>(
+    `SELECT id, sort_order FROM remote_agent_conversations WHERE id IN (${placeholders})`,
+    [...ids]
+  );
+  const current = new Map(existing.rows.map(r => [r.id, r.sort_order]));
+  const present = ids.filter(id => current.has(id));
+  const slots = nextOrderSlots(present.map(id => current.get(id) ?? null));
+
+  for (const [i, id] of present.entries()) {
+    const next = slots[i];
+    if (next === undefined || next === current.get(id)) continue;
+    await pool.query(
+      `UPDATE remote_agent_conversations SET sort_order = $1, updated_at = ${dialect.now()} WHERE id = $2`,
+      [next, id]
+    );
+  }
+}
+
+/**
  * Soft delete a conversation (sets deleted_at timestamp)
  */
 export async function softDeleteConversation(id: string): Promise<void> {

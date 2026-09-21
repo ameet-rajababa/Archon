@@ -19,6 +19,8 @@ import {
   getOrCreateConversation,
   updateConversation,
   findConversationByPlatformId,
+  nextOrderSlots,
+  setConversationOrder,
 } from './conversations';
 import type { Conversation } from '../types';
 import { ConversationNotFoundError } from '../types';
@@ -51,6 +53,7 @@ describe('conversations', () => {
       isolation_env_id: null,
       title: null,
       color: null,
+      sort_order: null,
       hidden: false,
       deleted_at: null,
       user_id: null,
@@ -296,6 +299,7 @@ describe('conversations', () => {
       isolation_env_id: null,
       title: null,
       color: null,
+      sort_order: null,
       hidden: false,
       deleted_at: null,
       user_id: null,
@@ -417,6 +421,82 @@ describe('conversations', () => {
           'Conversation not found: test-conv-id'
         );
       }
+    });
+  });
+
+  describe('nextOrderSlots', () => {
+    test('reuses exactly the values the run already holds', () => {
+      // The whole point: the values in play are unchanged, so no chat that was
+      // out of view can be displaced by arranging the ones that were.
+      expect(nextOrderSlots([5, 2, 9])).toEqual([2, 5, 9]);
+    });
+
+    test('a chat with no value yet extends the range downward', () => {
+      // Below the lowest in play, so an unplaced chat can sit above every
+      // placed one.
+      expect(nextOrderSlots([null, 4, 7])).toEqual([3, 4, 7]);
+      expect(nextOrderSlots([null, null, 4])).toEqual([2, 3, 4]);
+    });
+
+    test('nothing arranged yet starts somewhere and stays ordered', () => {
+      expect(nextOrderSlots([null, null, null])).toEqual([-3, -2, -1]);
+    });
+
+    test('position decides who gets which value, not who was null', () => {
+      // A brand-new chat dragged to the BOTTOM takes the highest value. If the
+      // seed followed the null instead of the position, it would spring back
+      // to the top on the next load.
+      const slots = nextOrderSlots([1, 6, null]);
+      expect(slots).toEqual([0, 1, 6]);
+      expect(slots[2]).toBe(6);
+    });
+
+    test('an empty run has nothing to assign', () => {
+      expect(nextOrderSlots([])).toEqual([]);
+    });
+  });
+
+  describe('setConversationOrder', () => {
+    test('writes only the rows whose position actually changes', async () => {
+      // Two chats swap; the third is already where it belongs and must not be
+      // written. An ordinary drag touches a handful of rows, not the rail.
+      mockQuery.mockResolvedValueOnce(
+        createQueryResult([
+          { id: 'a', sort_order: 1 },
+          { id: 'b', sort_order: 2 },
+          { id: 'c', sort_order: 3 },
+        ])
+      );
+
+      await setConversationOrder(['b', 'a', 'c']);
+
+      const updates = mockQuery.mock.calls.filter(call => String(call[0]).startsWith('UPDATE'));
+      expect(updates).toHaveLength(2);
+      expect(updates.map(call => call[1])).toEqual([
+        [1, 'b'],
+        [2, 'a'],
+      ]);
+    });
+
+    test('an id that no longer exists does not consume a position', async () => {
+      // A rail that has not refreshed still names a deleted chat. Letting it
+      // take a slot would shift every chat below it by one.
+      mockQuery.mockResolvedValueOnce(
+        createQueryResult([
+          { id: 'a', sort_order: 1 },
+          { id: 'c', sort_order: 3 },
+        ])
+      );
+
+      await setConversationOrder(['a', 'gone', 'c']);
+
+      const updates = mockQuery.mock.calls.filter(call => String(call[0]).startsWith('UPDATE'));
+      expect(updates).toHaveLength(0);
+    });
+
+    test('an empty order never touches the database', async () => {
+      await setConversationOrder([]);
+      expect(mockQuery).not.toHaveBeenCalled();
     });
   });
 });

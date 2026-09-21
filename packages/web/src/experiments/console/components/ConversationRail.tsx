@@ -9,24 +9,24 @@ import {
   type ReactElement,
 } from 'react';
 import {
-  byMostRecent,
+  byArrangement,
   conversationLabel,
   matchesFilter,
   type ConversationSummary,
 } from '../primitives/conversation';
 import { relativeTime } from '../lib/format';
-import { chatStatus, STATUS_LABEL, STATUS_TITLE } from '../primitives/chat-status';
+import { askAwaitingIds, chatStatus, STATUS_LABEL, STATUS_TITLE } from '../primitives/chat-status';
 import { RowMenu } from './RowMenu';
 
 import { chooseNeighbourChat } from '../lib/last-chat';
 import {
   applyChatOrder,
+  clearChatOrder,
   dropIndexAt,
   previewShift,
   readChatOrder,
   reorder,
   rowBoxes,
-  writeChatOrder,
   type RowBox,
 } from '../lib/chat-order';
 
@@ -54,6 +54,14 @@ interface ConversationRailProps {
    * only the rail knows the displayed order.
    */
   onArchive: (ids: string[], archived: boolean, next: string | null) => void;
+  /**
+   * Persist an arrangement: `ids` is the rail as displayed, top first.
+   *
+   * The rail says what it is showing and nothing more — it cannot see the
+   * other archive scope, so it must not speak for it. The server rearranges
+   * the named chats within the positions they already hold.
+   */
+  onReorder: (ids: string[]) => void;
   /**
    * Open a chat's summary. The card shows only that one exists and how fresh
    * it is — the text itself is too long to sit in a rail without either
@@ -103,6 +111,7 @@ export function ConversationRail({
   onSelect,
   onRename,
   onArchive,
+  onReorder,
   scope,
   onScopeChange,
   archivedCount,
@@ -135,8 +144,16 @@ export function ConversationRail({
     if (renamingId !== null) renameRef.current?.select();
   }, [renamingId]);
 
-  // Bumped after a drop so the list re-reads the stored order.
-  const [orderTick, setOrderTick] = useState(0);
+  /**
+   * The arrangement just committed, held until the server's list agrees.
+   *
+   * The order lives on the rows, so the list has to come back before it can
+   * show the new one. Without this the dropped card springs back to where it
+   * was for as long as the round trip takes, which reads as a failed drag.
+   */
+  const [pending, setPending] = useState<string[] | null>(null);
+  /** The last arrangement sent, so a re-render cannot send it twice. */
+  const sentRef = useRef('');
   const [dragId, setDragId] = useState<string | null>(null);
   // Which row the cursor is over, and the row geometry as it stood when the
   // drag began. Both are needed to draw the preview; see `previewShift`.
@@ -168,12 +185,69 @@ export function ConversationRail({
     };
   }, [armed]);
 
-  const visible = useMemo(() => {
-    const byRecency = [...conversations].filter(c => matchesFilter(c, query)).sort(byMostRecent);
-    return applyChatOrder(byRecency, readChatOrder(projectId));
-    // orderTick is the dependency that matters after a drop; the read itself is
-    // from localStorage, which useMemo cannot observe.
-  }, [conversations, query, projectId, orderTick]);
+  /** The list as the server has it arranged. */
+  const arranged = useMemo(
+    () => [...conversations].filter(c => matchesFilter(c, query)).sort(byArrangement),
+    [conversations, query]
+  );
+
+  const visible = useMemo(
+    () => (pending === null ? arranged : applyChatOrder(arranged, pending)),
+    [arranged, pending]
+  );
+
+  /**
+   * Two routes to one meaning. A paused gate belongs to a RUN and arrives as a
+   * prop; an unanswered question belongs to the last MESSAGE and is read off
+   * the conversation itself. A reader scanning the rail does not care which —
+   * both say it is your move — so they merge before the mark is drawn.
+   */
+  const awaiting = useMemo(() => {
+    const ids = askAwaitingIds(conversations);
+    for (const id of awaitingIds ?? EMPTY_SET) ids.add(id);
+    return ids;
+  }, [conversations, awaitingIds]);
+
+  // The server has caught up; stop overriding it. Anything else — a failed
+  // write — leaves the arrangement on screen and the error on the page.
+  useEffect(() => {
+    if (pending === null) return;
+    const server = arranged.map(c => c.id);
+    if (server.length === pending.length && server.every((id, i) => id === pending[i])) {
+      setPending(null);
+    }
+  }, [arranged, pending]);
+
+  /**
+   * Give every chat on screen a position, the first time it is seen.
+   *
+   * A chat with no position is placed by recency, which is why a rail left
+   * alone rearranged itself as replies landed and bumped `last_activity_at`.
+   * Writing the position down on sight is what makes the order absolute: after
+   * this pass nothing but a drag moves a row.
+   *
+   * This is also the one-time migration off localStorage. An arrangement made
+   * before the order lived on the row is honoured if nothing here has been
+   * placed yet, and the local copy is dropped once the server holds one —
+   * server wins from then on, the same rule the project rail follows.
+   */
+  useEffect(() => {
+    if (visible.length === 0) return;
+    if (!visible.some(c => c.sortOrder === null)) {
+      // Guarded, because this runs on every poll and only the first one has
+      // anything to drop.
+      if (readChatOrder(projectId).length > 0) clearChatOrder(projectId);
+      return;
+    }
+    // Only when NOTHING is placed: a half-seeded rail would be fighting the
+    // server with an order that predates it.
+    const local = visible.every(c => c.sortOrder === null) ? readChatOrder(projectId) : [];
+    const seed = (local.length > 0 ? applyChatOrder(visible, local) : visible).map(c => c.id);
+    const key = seed.join(',');
+    if (sentRef.current === key) return;
+    sentRef.current = key;
+    onReorder(seed);
+  }, [visible, projectId, onReorder]);
 
   /** The gap between cards, kept in step with each row's `mb-0.5`. */
   const ROW_GAP = 2;
@@ -202,8 +276,13 @@ export function ConversationRail({
   const onDropHere = (): void => {
     const target = visible[dropIndex];
     if (dragId !== null && target !== undefined && target.id !== dragId) {
-      writeChatOrder(projectId, reorder(visible, dragId, target.id));
-      setOrderTick(t => t + 1);
+      const next = reorder(visible, dragId, target.id);
+      // Shown immediately, sent once. Recording it as sent also stops the
+      // seeding effect above from answering the same render with a second,
+      // contradictory arrangement.
+      setPending(next);
+      sentRef.current = next.join(',');
+      onReorder(next);
     }
     endDrag();
   };
@@ -364,7 +443,7 @@ export function ConversationRail({
           const isActive = c.id === activeConvId;
           const status = chatStatus(c.id, {
             working: liveIds ?? EMPTY_SET,
-            awaiting: awaitingIds ?? EMPTY_SET,
+            awaiting,
           });
           const shift =
             dragId === null ? 0 : previewShift(boxesRef.current, dragFrom, dropIndex, index);

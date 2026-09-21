@@ -40,6 +40,18 @@ export interface ConversationSummary {
   assistant: string;
   /** Archived chats are hidden from the default list but are never destroyed. */
   archived: boolean;
+  /**
+   * This chat's newest message, when the server thinks it might hold an ask
+   * block — its test is deliberately broad, so this still has to be parsed
+   * before it means anything. Null when there is nothing worth looking at.
+   */
+  askCandidate: string | null;
+  /**
+   * Hand-arranged position in the rail, ascending, or `null` for a chat that
+   * has never been placed. Stored on the row, so the arrangement follows the
+   * reader to any browser rather than living in one machine's localStorage.
+   */
+  sortOrder: number | null;
   /** Short summary of the chat, or null when nothing has written one yet. */
   /** When the summary was last written — what makes staleness visible. */
   /** True when a human wrote it, so the agent leaves it alone. */
@@ -54,6 +66,8 @@ interface RawConversation {
   color: string | null;
   ai_assistant_type: string;
   deleted_at?: string | null;
+  sort_order?: number | null;
+  ask_candidate?: string | null;
 }
 
 export function toConversationSummary(raw: RawConversation): ConversationSummary {
@@ -67,6 +81,10 @@ export function toConversationSummary(raw: RawConversation): ConversationSummary
     assistant: raw.ai_assistant_type,
     // Archiving is a soft delete, so the timestamp's presence is the state.
     archived: raw.deleted_at != null,
+    askCandidate: raw.ask_candidate ?? null,
+    // `?? null` covers a server that predates the column, which reads as
+    // never arranged rather than as position zero.
+    sortOrder: raw.sort_order ?? null,
   };
 }
 
@@ -108,6 +126,30 @@ export function byMostRecent(a: ConversationSummary, b: ConversationSummary): nu
   if (at === '') return 1;
   if (bt === '') return -1;
   return at < bt ? 1 : -1;
+}
+
+/**
+ * The rail's order: where the user put it, and recency only where they have
+ * not said.
+ *
+ * A chat with no position yet leads. That is the opposite of the project
+ * rail's rule and deliberate — a project you just added can wait at the bottom
+ * of a short rail, a chat you just started cannot. Those chats stay in recency
+ * order among themselves, so the newest is first.
+ *
+ * Two chats can legitimately hold the same position: the rail renumbers only
+ * the chats it is showing, one archive scope at a time, so an archived chat
+ * may share a value with an active one. They meet only under "All", and
+ * recency breaks the tie so the list never wobbles between two answers.
+ */
+export function byArrangement(a: ConversationSummary, b: ConversationSummary): number {
+  const ao = a.sortOrder;
+  const bo = b.sortOrder;
+  if (ao === null || bo === null) {
+    if (ao === bo) return byMostRecent(a, b);
+    return ao === null ? -1 : 1;
+  }
+  return ao === bo ? byMostRecent(a, b) : ao - bo;
 }
 
 /**

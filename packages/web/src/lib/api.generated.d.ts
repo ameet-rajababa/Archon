@@ -1010,6 +1010,64 @@ export interface paths {
     };
     trace?: never;
   };
+  '/api/conversations/order': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** Arrange a run of chats in the rail */
+    put: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          'application/json': components['schemas']['SetConversationOrderBody'];
+        };
+      };
+      responses: {
+        /** @description Arranged */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'application/json': components['schemas']['SuccessResponse'];
+          };
+        };
+        /** @description Bad request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'application/json': components['schemas']['Error'];
+          };
+        };
+        /** @description Server error */
+        500: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'application/json': components['schemas']['Error'];
+          };
+        };
+      };
+    };
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/conversations/{id}/messages': {
     parameters: {
       query?: never;
@@ -3385,11 +3443,8 @@ export interface components {
       ai_assistant_type: string;
       title: string | null;
       color: string | null;
-      brief: string | null;
-      /** Format: date-time */
-      brief_updated_at: string | null;
-      brief_pinned: boolean;
       hidden: boolean;
+      sort_order: number | null;
       /** Format: date-time */
       deleted_at: string | null;
       /** Format: date-time */
@@ -3417,8 +3472,9 @@ export interface components {
       /** @enum {string|null} */
       color?: 'magenta' | 'violet' | 'blue' | 'green' | 'amber' | 'red' | null;
       archived?: boolean;
-      brief?: string | null;
-      briefPinned?: boolean;
+    };
+    SetConversationOrderBody: {
+      ids: string[];
     };
     MessageListResponse: components['schemas']['Message'][];
     Message: {

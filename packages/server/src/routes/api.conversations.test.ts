@@ -19,6 +19,10 @@ const mockFindConversationByPlatformId = mock(
     }
 );
 const mockSoftDeleteConversation = mock(async (_id: string) => {});
+const mockFindConversationIdsByPlatformIds = mock(
+  async (platformIds: readonly string[]) => new Map(platformIds.map(id => [id, `db-${id}`]))
+);
+const mockSetConversationOrder = mock(async (_ids: readonly string[]) => {});
 const mockUpdateConversationTitle = mock(async (_id: string, _title: string) => {});
 
 const mockGenerateAndSetTitle = mock(async (..._args: unknown[]) => {});
@@ -68,6 +72,8 @@ mock.module('@archon/core/db/conversations', () => ({
   findConversationByPlatformId: mockFindConversationByPlatformId,
   softDeleteConversation: mockSoftDeleteConversation,
   updateConversationTitle: mockUpdateConversationTitle,
+  findConversationIdsByPlatformIds: mockFindConversationIdsByPlatformIds,
+  setConversationOrder: mockSetConversationOrder,
   listConversations: mock(async () => []),
   getOrCreateConversation: mock(async () => ({
     id: 'internal-uuid-123',
@@ -658,5 +664,56 @@ describe('PATCH /api/conversations/:id — forge platform IDs with encoded slash
       body: JSON.stringify({ title: 'New Title' }),
     });
     expect(response.status).toBe(404);
+  });
+});
+
+describe('PUT /api/conversations/order', () => {
+  const put = async (body: unknown): Promise<Response> => {
+    const app = new OpenAPIHono({ defaultHook: validationErrorHook });
+    registerApiRoutes(app, {} as WebAdapter, {} as ConversationLockManager);
+    return app.request('/api/conversations/order', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  };
+
+  test('arranges the named chats, in the order given', async () => {
+    mockSetConversationOrder.mockClear();
+
+    // Also proves the static path is not read as a conversation called
+    // "order" by the `{id}` routes it sits beside.
+    const response = await put({ ids: ['web-b', 'web-a', 'web-c'] });
+
+    expect(response.status).toBe(200);
+    expect(mockSetConversationOrder).toHaveBeenCalledWith(['db-web-b', 'db-web-a', 'db-web-c']);
+  });
+
+  test('a chat the database does not have is dropped, not rejected', async () => {
+    // A rail that has not refreshed since a chat was deleted is an ordinary
+    // race. Rejecting would throw away an arrangement the user did make.
+    mockSetConversationOrder.mockClear();
+    mockFindConversationIdsByPlatformIds.mockImplementationOnce(
+      async () => new Map([['web-a', 'db-a']])
+    );
+
+    const response = await put({ ids: ['web-a', 'web-gone'] });
+
+    expect(response.status).toBe(200);
+    expect(mockSetConversationOrder).toHaveBeenCalledWith(['db-a']);
+  });
+
+  test('an empty arrangement is a bad request, not a silent no-op', async () => {
+    mockSetConversationOrder.mockClear();
+    const response = await put({ ids: [] });
+    expect(response.status).toBe(400);
+    expect(mockSetConversationOrder).not.toHaveBeenCalled();
+  });
+
+  test('a body with unknown fields is rejected', async () => {
+    mockSetConversationOrder.mockClear();
+    const response = await put({ ids: ['web-a'], projectId: 'sneaky' });
+    expect(response.status).toBe(400);
+    expect(mockSetConversationOrder).not.toHaveBeenCalled();
   });
 });

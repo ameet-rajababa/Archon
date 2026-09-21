@@ -349,6 +349,10 @@ ALTER TABLE remote_agent_codebases
 ALTER TABLE remote_agent_codebases
   ADD COLUMN IF NOT EXISTS kind VARCHAR(10) NOT NULL DEFAULT 'repo';
 
+-- From migration 028: hand-arranged position of a chat in the console rail.
+ALTER TABLE remote_agent_conversations
+  ADD COLUMN IF NOT EXISTS sort_order INTEGER;
+
 -- User identity foreign keys (nullable on the four primary tables).
 -- All FKs use ON DELETE SET NULL so future user deletion never cascades destructively.
 ALTER TABLE remote_agent_conversations
@@ -650,6 +654,8 @@ CREATE INDEX IF NOT EXISTS idx_conversations_user_id
 
 COMMENT ON COLUMN remote_agent_conversations.isolation_env_id IS
   'UUID reference to isolation_environments table (the only isolation reference)';
+COMMENT ON COLUMN remote_agent_conversations.sort_order IS
+  'Hand-arranged rail position, ascending. NULL means never arranged; the console reads those as newest-first and shows them above every placed chat.';
 
 -- Sessions
 CREATE INDEX IF NOT EXISTS idx_remote_agent_sessions_conversation

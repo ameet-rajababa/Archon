@@ -121,6 +121,9 @@
       "src/db/messages.order.integration.test.ts"
     ],
     [
+      "src/db/conversations.order.integration.test.ts"
+    ],
+    [
       "src/db/isolation-environments.metadata.integration.test.ts"
     ],
     [

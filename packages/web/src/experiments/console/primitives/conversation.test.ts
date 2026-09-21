@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import {
   toConversationSummary,
+  byArrangement,
   byMostRecent,
   colorToken,
   conversationLabel,
@@ -20,6 +21,8 @@ const conv = (over: Partial<ConversationSummary> = {}): ConversationSummary => (
   color: null,
   assistant: 'claude',
   archived: false,
+  askCandidate: null,
+  sortOrder: null,
   ...over,
 });
 
@@ -163,5 +166,44 @@ describe('toConversationSummary — archived', () => {
     expect(toConversationSummary(raw({ deleted_at: null })).archived).toBe(false);
     // Older payloads omit the field entirely rather than sending null.
     expect(toConversationSummary(raw()).archived).toBe(false);
+  });
+});
+
+describe('byArrangement', () => {
+  const placed = (id: string, sortOrder: number | null, at: string) =>
+    conv({ id, sortOrder, lastActivityAt: at });
+
+  const order = (...cs: ConversationSummary[]) => [...cs].sort(byArrangement).map(c => c.id);
+
+  test('the stored position decides, whatever recency says', () => {
+    // The reported bug: a reply landing in an older chat used to move it.
+    expect(
+      order(placed('a', 2, '2026-06-05T10:00:00Z'), placed('b', 1, '2026-01-01T10:00:00Z'))
+    ).toEqual(['b', 'a']);
+  });
+
+  test('a chat with no position yet leads, newest of those first', () => {
+    expect(
+      order(
+        placed('placed', 1, '2020-01-01T10:00:00Z'),
+        placed('older-new', null, '2026-06-05T10:00:00Z'),
+        placed('newer-new', null, '2026-06-06T10:00:00Z')
+      )
+    ).toEqual(['newer-new', 'older-new', 'placed']);
+  });
+
+  test('two chats sharing a position are broken apart by recency', () => {
+    // Legal: the rail renumbers one archive scope at a time, so an archived
+    // chat can hold the same value as an active one.
+    expect(
+      order(placed('older', 3, '2026-01-01T10:00:00Z'), placed('newer', 3, '2026-06-05T10:00:00Z'))
+    ).toEqual(['newer', 'older']);
+  });
+
+  test('a negative position is as ordinary as any other', () => {
+    // Seeding a never-arranged chat extends the range downward.
+    expect(
+      order(placed('a', 0, '2026-01-01T10:00:00Z'), placed('b', -2, '2026-01-01T10:00:00Z'))
+    ).toEqual(['b', 'a']);
   });
 });

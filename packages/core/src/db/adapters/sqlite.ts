@@ -334,6 +334,11 @@ export class SqliteAdapter implements IDatabase {
       if (!colNames.has('hidden')) {
         this.db.run('ALTER TABLE remote_agent_conversations ADD COLUMN hidden INTEGER DEFAULT 0');
       }
+      // Nullable with no default: an older binary writing this table leaves it
+      // NULL, which the rail reads as "never arranged" and puts on top.
+      if (!colNames.has('sort_order')) {
+        this.db.run('ALTER TABLE remote_agent_conversations ADD COLUMN sort_order INTEGER');
+      }
       if (!colNames.has('user_id')) {
         this.db.run(
           'ALTER TABLE remote_agent_conversations ADD COLUMN user_id TEXT REFERENCES remote_agent_users(id) ON DELETE SET NULL'
@@ -703,6 +708,7 @@ export class SqliteAdapter implements IDatabase {
         isolation_env_id TEXT,
         title TEXT,
         color TEXT,
+        sort_order INTEGER,
         deleted_at TEXT,
         hidden INTEGER DEFAULT 0,
         user_id TEXT REFERENCES remote_agent_users(id) ON DELETE SET NULL,

@@ -35,6 +35,17 @@ export const conversationRowSchema = z.object({
   title: z.string().nullable(),
   color: z.string().nullable(),
   hidden: z.boolean(),
+  /**
+   * Hand-arranged position in the chat rail, ascending. NULL means never
+   * arranged, and reads as "newest first" — the client puts those above every
+   * placed chat, because a brand-new chat at the bottom of a long rail cannot
+   * be found.
+   *
+   * Ties are possible and harmless: the rail only ever renumbers the chats it
+   * is showing, so an archived chat can hold the same value as an active one.
+   * Whoever reads the column breaks a tie by recency.
+   */
+  sort_order: z.number().nullable(),
   deleted_at: z.date().nullable(),
   last_activity_at: z.date().nullable(),
   user_id: z.string().nullable(),

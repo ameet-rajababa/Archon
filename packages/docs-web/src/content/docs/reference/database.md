@@ -85,6 +85,7 @@ The database has 18 tables, all prefixed with `remote_agent_`:
    - Linked to codebase via foreign key
    - AI assistant type locked at creation
    - Nullable `user_id` records the first user who created the conversation (first-user-wins; later replies in the same thread are attributed on the workflow_run, not here)
+   - Nullable `sort_order` is the chat's hand-arranged position in the console rail, ascending. `NULL` means never arranged; the console reads those as newest-first and shows them above every placed chat. Ties are legal — the rail renumbers one archive scope at a time — and readers break them by recency
 
 3. **`remote_agent_sessions`** - AI session management
    - Active session flag (one per conversation)

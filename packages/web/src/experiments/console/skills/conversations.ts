@@ -93,6 +93,21 @@ export async function listConversations(
 }
 
 /**
+ * Arrange a run of chats: `ids` is the order they should appear in, top first.
+ *
+ * Only the chats the rail is showing are named. The server rearranges them
+ * within the positions they already hold, so chats in another archive scope —
+ * which this rail cannot see and must not speak for — keep their places.
+ */
+export async function setConversationOrder(ids: readonly string[]): Promise<void> {
+  if (ids.length === 0) return;
+  await requestJson<{ success: boolean }>('/api/conversations/order', {
+    method: 'PUT',
+    body: JSON.stringify({ ids }),
+  });
+}
+
+/**
  * Archive or restore a conversation. Symmetric by design — an archive the user
  * cannot undo is a delete wearing a friendlier word.
  */
