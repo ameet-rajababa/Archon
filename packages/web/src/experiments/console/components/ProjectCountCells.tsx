@@ -44,14 +44,14 @@ function ProjectCountCellsImpl({ projectId }: { projectId: string }): ReactEleme
   const chats = data?.chats ?? null;
   const runs = data?.runs ?? null;
   const running = data?.running ?? 0;
-  const paused = data?.paused ?? 0;
+  const awaiting = data?.awaiting ?? 0;
 
   return (
     <span className="rail-hide rail-counts">
       {/* Amber wins over blue: waiting on YOU outranks the machine being busy. */}
       <Cell
         value={runs}
-        tone={paused > 0 ? 'attention' : running > 0 ? 'running' : undefined}
+        tone={awaiting > 0 ? 'attention' : running > 0 ? 'running' : undefined}
         title={
           runs === null
             ? 'Runs in play'
@@ -59,7 +59,7 @@ function ProjectCountCellsImpl({ projectId }: { projectId: string }): ReactEleme
               ? 'Nothing running'
               : [
                   running > 0 ? `${running} running` : null,
-                  paused > 0 ? `${paused} waiting on you` : null,
+                  awaiting > 0 ? `${awaiting} waiting on you` : null,
                 ]
                   .filter(Boolean)
                   .join(', ') || `${runs} in play`

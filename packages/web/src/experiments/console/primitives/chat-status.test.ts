@@ -33,6 +33,30 @@ describe('awaitingInputIds', () => {
       ]),
     ]).toEqual([]);
   });
+  test('a chat-dispatched run is found by its worker id — the feed has no other', () => {
+    // The dashboard runs feed exposes a web run's conversation as
+    // `worker_platform_id`; `conversationPlatformId` is absent there. Reading
+    // only the latter is why this never fired.
+    expect([
+      ...awaitingInputIds([
+        { status: 'paused', approval: { message: 'ok?' }, workerPlatformId: 'web-1' },
+      ]),
+    ]).toEqual(['web-1']);
+  });
+
+  test('an explicit conversation id still wins over the worker id', () => {
+    expect([
+      ...awaitingInputIds([
+        {
+          status: 'paused',
+          approval: { message: 'ok?' },
+          conversationPlatformId: 'cli-1',
+          workerPlatformId: 'web-1',
+        },
+      ]),
+    ]).toEqual(['cli-1']);
+  });
+
   test('a run with no conversation is skipped rather than crashing', () => {
     expect([
       ...awaitingInputIds([

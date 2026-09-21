@@ -173,9 +173,11 @@ function readCost(meta: WorkflowRunMetadata | undefined): number | null {
  * persisted (#2048). Null for list-sourced rows (neither field is present)
  * and for a run that hasn't loaded yet, so message fetching stays off there.
  */
-export function runMessageConversationId(run: Run | undefined): string | null {
+export function runMessageConversationId(
+  run: { conversationPlatformId?: string | null; workerPlatformId?: string | null } | undefined
+): string | null {
   if (run === undefined) return null;
-  return run.conversationPlatformId ?? run.workerPlatformId;
+  return run.conversationPlatformId ?? run.workerPlatformId ?? null;
 }
 
 export function toRun(raw: RawWorkflowRun): Run {

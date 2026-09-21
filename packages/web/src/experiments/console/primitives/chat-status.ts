@@ -14,6 +14,8 @@
  * from the runs feed, because an approval belongs to a RUN and the run knows
  * which conversation dispatched it.
  */
+import { runMessageConversationId } from './run';
+
 export type ChatStatus = 'working' | 'awaiting' | 'idle';
 
 export interface ChatStatusSets {
@@ -36,24 +38,51 @@ export function chatStatus(conversationId: string, sets: ChatStatusSets): ChatSt
  * anything being asked of you, and marking those chats as needing you would
  * make the mark mean "something is not finished" — which is what `idle`
  * already means.
+ *
+ * Which conversation a run belongs to is `runMessageConversationId`'s to
+ * decide, and asking it is not optional here. This read `conversationPlatformId`
+ * alone, which the runs FEED never carries — the dashboard query exposes a
+ * chat-dispatched run's conversation as `worker_platform_id` (#2048). So the
+ * set came back empty for exactly the runs it exists to find, and no chat has
+ * ever gone amber.
  */
 export function awaitingInputIds(
-  runs: readonly { status: string; approval?: unknown; conversationPlatformId?: string | null }[]
+  runs: readonly {
+    status: string;
+    approval?: unknown;
+    conversationPlatformId?: string | null;
+    workerPlatformId?: string | null;
+  }[]
 ): Set<string> {
   const out = new Set<string>();
   for (const r of runs) {
     if (r.status !== 'paused') continue;
     if (r.approval === null || r.approval === undefined) continue;
-    const id = r.conversationPlatformId;
-    if (typeof id === 'string' && id !== '') out.add(id);
+    const id = runMessageConversationId(r);
+    if (id !== null && id !== '') out.add(id);
   }
   return out;
 }
 
+/**
+ * The word for each state — the one place it is spelled.
+ *
+ * Sentence case because the project chip renders it as a label in a header;
+ * the rail's stamp lower-cases it in CSS, which is where a purely
+ * presentational choice belongs. Two label maps for three states would be two
+ * vocabularies again, which is the thing this file exists to prevent.
+ */
 export const STATUS_LABEL: Readonly<Record<ChatStatus, string>> = {
-  working: 'working',
-  awaiting: 'needs you',
-  idle: '',
+  working: 'Working',
+  awaiting: 'Needs you',
+  idle: 'Idle',
+};
+
+/** The token that renders each state. Amber is "your move", red stays failure. */
+export const STATUS_COLOR: Readonly<Record<ChatStatus, string>> = {
+  working: 'var(--running)',
+  awaiting: 'var(--warning)',
+  idle: 'var(--text-tertiary)',
 };
 
 export const STATUS_TITLE: Readonly<Record<ChatStatus, string>> = {

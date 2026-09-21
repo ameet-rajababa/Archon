@@ -9,10 +9,13 @@
  * other reader sees. That bug has already been fixed once in this codebase;
  * this is the same shape.
  *
- * `limit=1` because only `counts` and `total` are wanted. The rail must not
- * pay for two hundred run records to draw a number.
+ * It asks for the SMALLEST set of run records that can answer the question —
+ * the paused ones — because `counts` covers everything else and the rail must
+ * not pay for two hundred run records to draw a number.
  */
 import { requestJson } from '../lib/http';
+import { toConversationSummary } from '../primitives/conversation';
+import { toRun } from '../primitives/run';
 
 export interface ProjectCounts {
   chats: number;
@@ -33,17 +36,22 @@ export interface ProjectCounts {
   runs: number;
   /** Executing right now. */
   running: number;
-  /** Waiting on YOU — an approval or an input request. Outranks running. */
-  paused: number;
   /**
-   * The most recent run statuses, NEWEST FIRST.
+   * Runs paused on a gate that is actually ASKING something. Outranks running.
    *
-   * A count cannot say whether you already fixed the thing — vault and
-   * wix-access both failed and then ran again successfully, and a
-   * count-in-a-window rule called them "At risk" for days afterwards. Order
-   * is what lets a success clear the warning.
+   * Not `counts.paused`: a run can be paused with nothing pending, and calling
+   * that "waiting on you" makes the amber mean "unfinished" instead of "your
+   * move". Same rule the chat rail applies per row.
    */
-  recentStatuses: string[];
+  awaiting: number;
+  /**
+   * Platform ids of this project's active chats.
+   *
+   * Carried so a caller can intersect them with the server's live-chat set and
+   * see a chat mid-turn as the PROJECT working. Free — the same response the
+   * chat count is read from.
+   */
+  chatIds: string[];
   /**
    * Open issues, or null when the repo cannot be asked — no repository, a
    * non-GitHub remote, no token, GitHub unreachable. null renders as an empty
@@ -56,7 +64,7 @@ export interface ProjectCounts {
 interface RunsCountsResponse {
   counts?: { all?: number; running?: number; paused?: number; pending?: number; failed?: number };
   total?: number;
-  runs?: { status?: string }[];
+  runs?: Parameters<typeof toRun>[0][];
 }
 
 export async function getProjectCounts(projectId: string): Promise<ProjectCounts> {
@@ -64,18 +72,25 @@ export async function getProjectCounts(projectId: string): Promise<ProjectCounts
   // Both together: neither blocks the other, and a failure in one must not
   // blank the other's number.
   const [chats, runs, issues] = await Promise.allSettled([
-    requestJson<unknown[]>(`/api/conversations?codebaseId=${q}&mine=true&archived=active`),
-    // limit=10, not 1: `counts` is lifetime, so recent health has to be read
-    // from the runs themselves. Ten is enough to distinguish "this keeps
-    // failing" from "one failed a month ago" and still a small response.
-    requestJson<RunsCountsResponse>(`/api/dashboard/runs?codebaseId=${q}&limit=10`),
+    requestJson<Parameters<typeof toConversationSummary>[0][]>(
+      `/api/conversations?codebaseId=${q}&mine=true&archived=active`
+    ),
+    // `status=paused` narrows the RECORDS without narrowing `counts` — the
+    // server computes per-status counts across the filtered set minus the
+    // status filter — so one request gives both the in-play numbers and the
+    // paused runs themselves, which is the only place a pending gate can be
+    // read from. 25 is far above the number of runs that can sit paused at
+    // once; the exact figure only reaches a tooltip.
+    requestJson<RunsCountsResponse>(`/api/dashboard/runs?codebaseId=${q}&status=paused&limit=25`),
     requestJson<{ issues?: { state?: string }[]; reason?: string | null }>(
       `/api/projects/${q}/issues`
     ),
   ]);
 
-  const chatCount =
-    chats.status === 'fulfilled' && Array.isArray(chats.value) ? chats.value.length : 0;
+  const chatRows = chats.status === 'fulfilled' && Array.isArray(chats.value) ? chats.value : [];
+  // Through the normalizer, not by reaching for the wire field: which column
+  // carries the platform id is `primitives/conversation.ts`'s to know.
+  const chatIds = chatRows.map(c => toConversationSummary(c).id).filter(id => id !== '');
   const runsValue = runs.status === 'fulfilled' ? runs.value : null;
 
   // A route that does not exist yet (or a repo that cannot be asked) means
@@ -90,12 +105,16 @@ export async function getProjectCounts(projectId: string): Promise<ProjectCounts
   const paused = runsValue?.counts?.paused ?? 0;
   const pending = runsValue?.counts?.pending ?? 0;
 
+  const awaiting = (runsValue?.runs ?? [])
+    .map(toRun)
+    .filter(r => r.approval !== null && r.approval !== undefined).length;
+
   return {
-    chats: chatCount,
+    chats: chatRows.length,
+    chatIds,
     runs: running + paused + pending,
     running,
-    paused,
-    recentStatuses: (runsValue?.runs ?? []).map(r => r.status ?? ''),
+    awaiting,
     issues: openIssues,
   };
 }

@@ -1,112 +1,67 @@
 /**
- * A project's state, in one or two words.
+ * Where a project is, in one word.
  *
- * Ported from the prototype, including the reasoning that made it one word.
+ * A project does not work, idle or wait — its CHATS and RUNS do. So the word
+ * is not a project vocabulary at all: it is the roll-up of the three states a
+ * chat already has, borrowed from `chat-status.ts` rather than restated here.
+ * One vocabulary means it is learned once, in the rail, and read everywhere.
  *
- * Status is exclusive and ordered by urgency, which is what lets it be a word
- * rather than a list. Health is ABSENT when things are fine, so the second
- * word appearing is itself the signal — "Running" alone says more than
- * "Running · Healthy" ever could.
- *
- * Chats are deliberately not workload. A project you have talked about but
- * have no issues or runs in is Clear, not Idle: counting conversation as work
- * is how a status stops meaning anything.
+ * One word, never two. There used to be a second "health" word — `At risk`
+ * for one failed run, `Off track` for a streak — and it had to be special-
+ * cased out of its own contradiction (`Clear · At risk` said nothing is wrong
+ * and something is wrong in one breath). A finished failed run is history, not
+ * a state: the Runs tab is where it is read and where it is acted on.
  */
 
-export type ProjectStatus = 'Running' | 'Waiting' | 'Idle' | 'Clear';
-export type ProjectHealth = 'At risk' | 'Off track';
+import type { ChatStatus } from './chat-status';
 
 export interface ProjectState {
-  status: ProjectStatus;
-  health: ProjectHealth | null;
+  status: ChatStatus;
   /** The arithmetic behind the word, for the tooltip. */
   why: string;
 }
 
 export interface ProjectStateInput {
+  /** Runs executing right now. */
   running: number;
-  /** Runs paused on an approval or an input request — waiting on the reader. */
-  paused: number;
   /**
-   * Recent run statuses, NEWEST FIRST.
+   * Runs paused on a gate that is actually ASKING something.
    *
-   * Not a failure count. Counting failures in a window cannot tell whether you
-   * already fixed the thing — a success has to be able to clear the warning,
-   * or it is a scar rather than a signal.
+   * Not the paused count: a run can be paused with nothing pending, and
+   * counting those as your move would make the amber mean "unfinished", which
+   * is what idle already says.
    */
-  recentStatuses: readonly string[];
+  awaiting: number;
+  /** Chats the server is executing a turn for — its conversation lock. */
+  workingChats: number;
   openIssues: number;
   chats: number;
 }
 
 export function projectState({
   running,
-  paused,
-  recentStatuses,
+  awaiting,
+  workingChats,
   openIssues,
   chats,
 }: ProjectStateInput): ProjectState {
-  /**
-   * How many of the MOST RECENT runs failed, consecutively.
-   *
-   * The streak is what matters. One failure at the head says the last thing
-   * you tried is broken; two or more says it is not a blip. A success at the
-   * head ends it immediately, which is what lets the signal recover — vault
-   * and wix-access both failed, then ran again and succeeded, and a
-   * count-in-a-window rule was still calling them "At risk" days later.
-   */
-  let failStreak = 0;
-  for (const status of recentStatuses) {
-    if (status !== 'failed') break;
-    failStreak += 1;
-  }
-
-  const health: ProjectHealth | null =
-    failStreak >= 2 ? 'Off track' : failStreak === 1 ? 'At risk' : null;
-
-  /**
-   * Clear means clear.
-   *
-   * "Clear · At risk" said nothing is wrong and something is wrong in the same
-   * breath. A project whose last run failed has unfinished business, so the
-   * most it can be is Idle — and "Idle · At risk" reads correctly: nothing is
-   * happening, and the last thing that did, failed.
-   */
-  const status: ProjectStatus =
-    running > 0
-      ? 'Running'
-      : paused > 0
-        ? 'Waiting'
-        : openIssues > 0 || health !== null
-          ? 'Idle'
-          : 'Clear';
+  // Exclusive and ordered, exactly as a single chat is ordered: the half that
+  // needs a human outranks the half that does not.
+  const status: ChatStatus =
+    awaiting > 0 ? 'awaiting' : running > 0 || workingChats > 0 ? 'working' : 'idle';
 
   const why =
     [
+      awaiting > 0 ? `${String(awaiting)} thing${awaiting === 1 ? '' : 's'} waiting on you` : null,
       running > 0 ? `${String(running)} run${running === 1 ? '' : 's'} executing` : null,
-      paused > 0 ? `${String(paused)} thing${paused === 1 ? '' : 's'} waiting on you` : null,
-      failStreak === 1
-        ? 'the last run failed'
-        : failStreak > 1
-          ? `the last ${String(failStreak)} runs failed`
-          : null,
+      workingChats > 0
+        ? `${String(workingChats)} chat${workingChats === 1 ? '' : 's'} working`
+        : null,
       openIssues > 0 ? `${String(openIssues)} open issue${openIssues === 1 ? '' : 's'}` : null,
       chats > 0 ? `${String(chats)} chat${chats === 1 ? '' : 's'}` : null,
     ]
       .filter((s): s is string => s !== null)
       .join(' · ') || 'nothing open, nothing running';
 
-  return { status, health, why };
+  return { status, why };
 }
-
-export const STATUS_COLOR: Readonly<Record<ProjectStatus, string>> = {
-  Running: 'var(--running)',
-  Waiting: 'var(--warning)',
-  Idle: 'var(--text-tertiary)',
-  Clear: 'var(--success)',
-};
-
-export const HEALTH_COLOR: Readonly<Record<ProjectHealth, string>> = {
-  'At risk': 'var(--warning)',
-  'Off track': 'var(--error)',
-};
