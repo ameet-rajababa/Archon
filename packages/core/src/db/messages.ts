@@ -97,3 +97,45 @@ export async function getRecentWorkflowResultMessages(
     return [];
   }
 }
+
+/**
+ * The newest message in each of several conversations, in one query.
+ *
+ * For deciding whether a chat is waiting on a human: the answer depends only
+ * on the LAST message, so fetching histories to look at their tails would be
+ * the wrong shape entirely.
+ *
+ * A window function rather than `DISTINCT ON` — the latter is PostgreSQL-only
+ * and this has to run on SQLite too. `created_at DESC, id DESC` matches the
+ * ordering `listMessages` uses, so "last" means the same thing in both.
+ */
+export async function getLastMessagePerConversation(
+  conversationIds: readonly string[]
+): Promise<Map<string, Pick<MessageRow, 'role' | 'content'>>> {
+  const out = new Map<string, Pick<MessageRow, 'role' | 'content'>>();
+  if (conversationIds.length === 0) return out;
+
+  const placeholders = conversationIds.map((_, i) => `$${String(i + 1)}`).join(', ');
+  try {
+    const result = await pool.query<Pick<MessageRow, 'conversation_id' | 'role' | 'content'>>(
+      `SELECT conversation_id, role, content FROM (
+         SELECT conversation_id, role, content,
+                ROW_NUMBER() OVER (
+                  PARTITION BY conversation_id
+                  ORDER BY created_at DESC, id DESC
+                ) AS rn
+         FROM remote_agent_messages
+         WHERE conversation_id IN (${placeholders})
+       ) ranked
+       WHERE rn = 1`,
+      [...conversationIds]
+    );
+    for (const row of result.rows) {
+      out.set(row.conversation_id, { role: row.role, content: row.content });
+    }
+  } catch (error) {
+    // Non-throwing: this decorates a list that must still render without it.
+    getLog().warn({ err: error as Error }, 'db.last_message_per_conversation_failed');
+  }
+  return out;
+}
