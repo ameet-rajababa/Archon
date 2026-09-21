@@ -7,6 +7,17 @@ function getLog(): ReturnType<typeof createLogger> {
   return cachedLog;
 }
 
+/**
+ * Stream id of the multiplexed dashboard feed.
+ *
+ * Not a conversation: every client watching the console subscribes to it for
+ * events that belong to no single chat — run lifecycle, chat-list changes, and
+ * which conversations are currently working. Declared here, where streams are
+ * owned, because five call sites spelling the same magic string is a pair that
+ * has to be kept in agreement by hand.
+ */
+export const DASHBOARD_STREAM = '__dashboard__';
+
 export interface SSEWriter {
   writeSSE(data: { data: string; event?: string; id?: string }): Promise<void>;
   close(): Promise<void>;
@@ -50,7 +61,21 @@ interface BufferedEvent {
 }
 
 export class SSETransport {
-  private streams = new Map<string, SSEWriter>();
+  /**
+   * Open subscribers per stream id — a SET, not a slot.
+   *
+   * A slot made every client fight for one connection. `DASHBOARD_STREAM` is
+   * shared by every console window, so two tabs evicted each other in a loop:
+   * A registers and the server closes B, B's EventSource reconnects and closes
+   * A, forever. Whatever was emitted in the gap reached at most one of them and
+   * the rest never learned of it — the rail's counts froze at whatever they
+   * were when the tab first painted. The same shape applied to two tabs on one
+   * chat, it was just quieter.
+   *
+   * A stale writer is retired when it aborts, when a write to it fails, or by
+   * the zombie reaper — not by whoever connects next.
+   */
+  private streams = new Map<string, Set<SSEWriter>>();
   private cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private zombieReaperHandle: ReturnType<typeof setInterval> | null = null;
   private eventBuffer = new Map<string, BufferedEvent[]>();
@@ -63,18 +88,17 @@ export class SSETransport {
   ) {}
 
   /**
-   * Register an SSE stream for a conversation.
-   * Closes any existing stream (browser refresh / new tab replaces old).
-   * Replays any buffered events that arrived before the stream connected.
+   * Subscribe an SSE stream to a conversation (or to the dashboard feed).
+   * Every existing subscriber keeps its connection.
+   * Replays any buffered events that arrived while nobody was subscribed.
    */
   registerStream(conversationId: string, stream: SSEWriter): void {
-    const existing = this.streams.get(conversationId);
-    if (existing && !existing.closed) {
-      existing.close().catch((e: unknown) => {
-        getLog().warn({ conversationId, err: e }, 'sse_write_failed');
-      });
+    let subscribers = this.streams.get(conversationId);
+    if (subscribers === undefined) {
+      subscribers = new Set();
+      this.streams.set(conversationId, subscribers);
     }
-    this.streams.set(conversationId, stream);
+    subscribers.add(stream);
 
     // Cancel pending cleanup — client reconnected
     const pendingCleanup = this.cleanupTimers.get(conversationId);
@@ -83,7 +107,8 @@ export class SSETransport {
       this.cleanupTimers.delete(conversationId);
     }
 
-    // Replay buffered events that arrived before the stream connected
+    // Replay buffered events to the joining stream. The buffer only fills while
+    // the id has no OPEN subscriber, so there is no one else these are owed to.
     const buffered = this.eventBuffer.get(conversationId);
     if (buffered && buffered.length > 0) {
       const now = Date.now();
@@ -111,32 +136,29 @@ export class SSETransport {
     }
   }
 
-  removeStream(conversationId: string, expectedStream?: SSEWriter): void {
-    // If a specific stream reference is provided, only remove if it matches
-    // the currently registered stream. This prevents a race condition where
-    // a stale onAbort callback (from a replaced stream) removes a newer stream.
-    // Critical in React StrictMode which double-mounts components, causing
-    // rapid connect → disconnect → reconnect cycles.
-    if (expectedStream) {
-      const current = this.streams.get(conversationId);
-      if (current !== expectedStream) return;
-    }
-    this.streams.delete(conversationId);
-    // Schedule onCleanup after grace period (allows reconnection without losing persistence state)
-    this.scheduleCleanup(conversationId, this.graceMs);
+  /**
+   * Retire ONE subscriber. The writer is required: with several clients on a
+   * stream, "remove the stream for this id" is not something a caller can say
+   * truthfully, and a late onAbort must only ever retire its own connection —
+   * never the one that replaced it (React StrictMode double-mounts make that
+   * connect → disconnect → reconnect race ordinary).
+   */
+  removeStream(conversationId: string, stream: SSEWriter): void {
+    this.dropSubscriber(conversationId, stream);
   }
 
   hasActiveStream(conversationId: string): boolean {
-    const stream = this.streams.get(conversationId);
-    return stream !== undefined && !stream.closed;
+    return this.openSubscribers(conversationId).length > 0;
   }
 
   start(): void {
     // Reap zombie streams every 5 minutes
     this.zombieReaperHandle = setInterval(() => {
-      for (const [id, stream] of this.streams) {
-        if (stream.closed) {
-          this.removeStream(id);
+      for (const [id, subscribers] of [...this.streams]) {
+        for (const stream of [...subscribers]) {
+          if (stream.closed) {
+            this.dropSubscriber(id, stream);
+          }
         }
       }
     }, 300_000);
@@ -151,13 +173,15 @@ export class SSETransport {
       this.zombieReaperHandle = null;
     }
 
-    for (const [id, stream] of this.streams) {
-      if (!stream.closed) {
-        stream.close().catch((e: unknown) => {
-          getLog().warn({ conversationId: id, err: e }, 'sse_close_failed');
-        });
+    for (const [id, subscribers] of this.streams) {
+      for (const stream of subscribers) {
+        if (!stream.closed) {
+          stream.close().catch((e: unknown) => {
+            getLog().warn({ conversationId: id, err: e }, 'sse_close_failed');
+          });
+        }
       }
-      getLog().debug({ conversationId: id }, 'sse_stream_closed');
+      getLog().debug({ conversationId: id, subscribers: subscribers.size }, 'sse_stream_closed');
     }
     this.streams.clear();
     for (const timer of this.cleanupTimers.values()) {
@@ -174,25 +198,22 @@ export class SSETransport {
   }
 
   async emit(conversationId: string, event: string): Promise<void> {
-    const stream = this.streams.get(conversationId);
-    if (stream && !stream.closed) {
-      try {
-        await stream.writeSSE({ data: event });
-      } catch (e: unknown) {
-        getLog().warn({ conversationId, err: e }, 'sse_write_failed');
-        // Remove and close the stream so the browser's EventSource detects
-        // the disconnect and auto-reconnects with a fresh connection.
-        this.streams.delete(conversationId);
-        stream.close().catch((_: unknown) => {
-          /* stream already closing */
-        });
-      }
-    } else if (stream?.closed) {
-      this.streams.delete(conversationId);
+    const targets = this.openSubscribers(conversationId);
+    if (targets.length === 0) {
       this.bufferEvent(conversationId, event);
-    } else {
-      this.bufferEvent(conversationId, event);
+      return;
     }
+    // One slow or broken subscriber must not deny the others the event, so the
+    // writes go out together and each failure is contained to its own writer.
+    await Promise.all(
+      targets.map(async stream => {
+        try {
+          await stream.writeSSE({ data: event });
+        } catch (e: unknown) {
+          this.retireOnWriteFailure(conversationId, stream, e);
+        }
+      })
+    );
   }
 
   /**
@@ -203,21 +224,54 @@ export class SSETransport {
   }
 
   /**
-   * Write an event to the stream if one exists, no-op otherwise.
+   * Write an event to every open subscriber, buffering it when there are none.
    * Used by emitWorkflowEvent and any other fire-and-forget path.
    */
   private writeToStream(conversationId: string, event: string): void {
-    const stream = this.streams.get(conversationId);
-    if (stream && !stream.closed) {
-      stream.writeSSE({ data: event }).catch((e: unknown) => {
-        getLog().warn({ conversationId, err: e }, 'sse_write_failed');
-        this.streams.delete(conversationId);
-        stream.close().catch((_: unknown) => {
-          /* stream already closing */
-        });
-      });
-    } else {
+    const targets = this.openSubscribers(conversationId);
+    if (targets.length === 0) {
       this.bufferEvent(conversationId, event);
+      return;
+    }
+    for (const stream of targets) {
+      stream.writeSSE({ data: event }).catch((e: unknown) => {
+        this.retireOnWriteFailure(conversationId, stream, e);
+      });
+    }
+  }
+
+  /** The subscribers an event can actually reach right now. */
+  private openSubscribers(conversationId: string): SSEWriter[] {
+    const subscribers = this.streams.get(conversationId);
+    if (subscribers === undefined) return [];
+    return [...subscribers].filter(stream => !stream.closed);
+  }
+
+  /**
+   * Retire a subscriber whose write failed, and close it so the browser's
+   * EventSource sees the disconnect and reconnects — rather than holding a
+   * socket that silently drops everything sent to it.
+   */
+  private retireOnWriteFailure(conversationId: string, stream: SSEWriter, err: unknown): void {
+    getLog().warn({ conversationId, err }, 'sse_write_failed');
+    this.dropSubscriber(conversationId, stream);
+    stream.close().catch((_: unknown) => {
+      /* stream already closing */
+    });
+  }
+
+  /**
+   * Remove one subscriber, and schedule cleanup only once the LAST one is gone.
+   * Persistence state is shared by every client on the conversation, so one tab
+   * closing must not flush it out from under another.
+   */
+  private dropSubscriber(conversationId: string, stream: SSEWriter): void {
+    const subscribers = this.streams.get(conversationId);
+    if (subscribers?.delete(stream) !== true) return;
+    if (subscribers.size === 0) this.streams.delete(conversationId);
+    if (!this.hasActiveStream(conversationId)) {
+      // Grace period lets a reconnect cancel this without losing state.
+      this.scheduleCleanup(conversationId, this.graceMs);
     }
   }
 
@@ -286,8 +340,11 @@ export class SSETransport {
     const timer = setTimeout(() => {
       try {
         this.cleanupTimers.delete(conversationId);
-        // Only clean up if stream is still absent (client didn't reconnect)
-        if (!this.streams.has(conversationId)) {
+        // Only clean up if nobody is listening (no client reconnected). Asks
+        // for an OPEN subscriber, not a registered one — a writer that closed
+        // without aborting is not an audience, and waiting for the reaper to
+        // say so would hold the flush for up to five minutes.
+        if (!this.hasActiveStream(conversationId)) {
           if (this.onCleanup) {
             this.onCleanup(conversationId);
           }

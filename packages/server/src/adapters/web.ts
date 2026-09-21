@@ -37,15 +37,19 @@ export class WebAdapter implements IWebPlatformAdapter {
   ) {}
 
   /**
-   * Register an SSE stream for a conversation.
-   * Closes any existing stream (browser refresh / new tab replaces old).
+   * Subscribe an SSE stream to a conversation. Existing subscribers keep
+   * their connections — a second tab joins, it does not take over.
    */
   registerStream(conversationId: string, stream: SSEWriter): void {
     this.transport.registerStream(conversationId, stream);
   }
 
-  removeStream(conversationId: string, expectedStream?: SSEWriter): void {
-    this.transport.removeStream(conversationId, expectedStream);
+  removeStream(conversationId: string, stream: SSEWriter): void {
+    this.transport.removeStream(conversationId, stream);
+    // Tool tracking is per CONVERSATION, not per connection, so it may only be
+    // discarded once the last client has gone. Clearing it while another tab is
+    // still watching would strand that tab's in-flight tool cards.
+    if (this.transport.hasActiveStream(conversationId)) return;
     // Clean up stale tool tracking state on SSE disconnect to prevent
     // spurious tool_result events on the next message to this conversation.
     this.runningTools.delete(conversationId);

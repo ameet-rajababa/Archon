@@ -39,7 +39,9 @@ function parse(raw: string): ParsedEvent | null {
  * Subscribe to the dashboard SSE stream and invalidate the runs feed on any
  * lifecycle change. Safe to mount from more than one route — RunsPage and the
  * ChatPage WorkflowDock both do; each opens an independent connection and the
- * invalidations are idempotent.
+ * invalidations are idempotent. That is only true because the server fans the
+ * stream out to every subscriber; while it kept one writer per id, a second
+ * mount was not a duplicate subscription but a reconnect loop.
  *
  * Events we care about:
  *   workflow_status      — run created / status changed / completed / failed
@@ -97,6 +99,26 @@ export function useDashboardSSE(): void {
         convDirty = convDirty === undefined || convDirty === ev.codebaseId ? ev.codebaseId : null;
         flushConversations();
       }
+    };
+
+    // A RECONNECT is a hole in the record. Everything the server emitted while
+    // the socket was down is gone — there is no replay — and nothing in the
+    // cache knows it missed anything, so the rail would keep showing whatever
+    // it last heard about, indefinitely and confidently. Refetching the keys
+    // this stream keeps live is the only honest response to a gap.
+    //
+    // The FIRST open is skipped: mount already fetched, and invalidating there
+    // would double every request on every page load.
+    let reconnect = false;
+    es.onopen = (): void => {
+      if (!reconnect) {
+        reconnect = true;
+        return;
+      }
+      invalidate('runs');
+      invalidate('counts');
+      invalidate('conversations');
+      invalidate('projectCounts');
     };
 
     // EventSource auto-reconnects on transient errors; we only surface a

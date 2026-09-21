@@ -20,7 +20,7 @@ mock.module('@archon/paths', () => ({
   createLogger: mock(() => mockLogger),
 }));
 
-import { SSETransport, type SSEWriter } from './transport';
+import { SSETransport, DASHBOARD_STREAM, type SSEWriter } from './transport';
 
 function createMockStream(overrides?: Partial<SSEWriter>): SSEWriter {
   return {
@@ -48,27 +48,16 @@ describe('SSETransport', () => {
       expect(transport.hasActiveStream('conv-1')).toBe(true);
     });
 
-    test('closes existing stream when registering a new one', () => {
+    test('a second subscriber does not evict the first', () => {
       const transport = new SSETransport();
-      const oldStream = createMockStream();
-      const newStream = createMockStream();
+      const first = createMockStream();
+      const second = createMockStream();
 
-      transport.registerStream('conv-1', oldStream);
-      transport.registerStream('conv-1', newStream);
+      transport.registerStream('conv-1', first);
+      transport.registerStream('conv-1', second);
 
-      expect(oldStream.close).toHaveBeenCalledTimes(1);
+      expect(first.close).not.toHaveBeenCalled();
       expect(transport.hasActiveStream('conv-1')).toBe(true);
-    });
-
-    test('does not close existing stream if already closed', () => {
-      const transport = new SSETransport();
-      const oldStream = createMockStream({ closed: true });
-      const newStream = createMockStream();
-
-      transport.registerStream('conv-1', oldStream);
-      transport.registerStream('conv-1', newStream);
-
-      expect(oldStream.close).not.toHaveBeenCalled();
     });
 
     test('cancels pending cleanup timer on reconnection', () => {
@@ -78,7 +67,7 @@ describe('SSETransport', () => {
       const stream2 = createMockStream();
 
       transport.registerStream('conv-1', stream1);
-      transport.removeStream('conv-1');
+      transport.removeStream('conv-1', stream1);
 
       // Re-register before grace period expires — cleanup should be cancelled
       transport.registerStream('conv-1', stream2);
@@ -99,33 +88,24 @@ describe('SSETransport', () => {
       const stream = createMockStream();
 
       transport.registerStream('conv-1', stream);
-      transport.removeStream('conv-1');
+      transport.removeStream('conv-1', stream);
 
       expect(transport.hasActiveStream('conv-1')).toBe(false);
     });
 
-    test('only removes if expectedStream matches current stream', () => {
+    test('retires only the named stream, leaving the other subscriber connected', () => {
       const transport = new SSETransport();
       const stream1 = createMockStream();
       const stream2 = createMockStream();
 
       transport.registerStream('conv-1', stream1);
       transport.registerStream('conv-1', stream2);
-
-      // Attempt to remove with stale stream reference — should be no-op
       transport.removeStream('conv-1', stream1);
 
       expect(transport.hasActiveStream('conv-1')).toBe(true);
-    });
-
-    test('removes when expectedStream matches', () => {
-      const transport = new SSETransport();
-      const stream = createMockStream();
-
-      transport.registerStream('conv-1', stream);
-      transport.removeStream('conv-1', stream);
-
-      expect(transport.hasActiveStream('conv-1')).toBe(false);
+      transport.emitWorkflowEvent('conv-1', '{"type":"workflow_status"}');
+      expect(stream1.writeSSE).not.toHaveBeenCalled();
+      expect(stream2.writeSSE).toHaveBeenCalledWith({ data: '{"type":"workflow_status"}' });
     });
 
     test('calls onCleanup after grace period if stream not re-registered', () => {
@@ -134,7 +114,7 @@ describe('SSETransport', () => {
       const stream = createMockStream();
 
       transport.registerStream('conv-1', stream);
-      transport.removeStream('conv-1');
+      transport.removeStream('conv-1', stream);
 
       return new Promise<void>(resolve => {
         setTimeout(() => {
@@ -203,6 +183,79 @@ describe('SSETransport', () => {
       // Should not throw
       transport.emitWorkflowEvent('conv-1', '{"type":"workflow_status"}');
     });
+  });
+
+  describe('fan-out to every subscriber', () => {
+    // The dashboard feed is one stream id shared by every console window. When
+    // it held a single writer, a second tab closed the first, the first
+    // reconnected and closed the second, and events landed on whichever
+    // connection happened to be current — so the rail's counts stopped
+    // updating. Both delivery paths must reach all of them.
+    test('emit reaches every subscriber on the dashboard stream', async () => {
+      const transport = new SSETransport();
+      const tabA = createMockStream();
+      const tabB = createMockStream();
+
+      transport.registerStream(DASHBOARD_STREAM, tabA);
+      transport.registerStream(DASHBOARD_STREAM, tabB);
+      await transport.emit(DASHBOARD_STREAM, '{"type":"conversation_changed"}');
+
+      expect(tabA.writeSSE).toHaveBeenCalledWith({ data: '{"type":"conversation_changed"}' });
+      expect(tabB.writeSSE).toHaveBeenCalledWith({ data: '{"type":"conversation_changed"}' });
+    });
+
+    test('emitWorkflowEvent reaches every subscriber', () => {
+      const transport = new SSETransport();
+      const tabA = createMockStream();
+      const tabB = createMockStream();
+
+      transport.registerStream(DASHBOARD_STREAM, tabA);
+      transport.registerStream(DASHBOARD_STREAM, tabB);
+      transport.emitWorkflowEvent(DASHBOARD_STREAM, '{"type":"workflow_status"}');
+
+      expect(tabA.writeSSE).toHaveBeenCalledWith({ data: '{"type":"workflow_status"}' });
+      expect(tabB.writeSSE).toHaveBeenCalledWith({ data: '{"type":"workflow_status"}' });
+    });
+
+    test('one failing subscriber does not deny the others the event', async () => {
+      const transport = new SSETransport();
+      const broken = createMockStream({
+        writeSSE: mock(() => Promise.reject(new Error('write failed'))),
+      });
+      const healthy = createMockStream();
+
+      transport.registerStream('conv-1', broken);
+      transport.registerStream('conv-1', healthy);
+      await transport.emit('conv-1', '{"type":"text"}');
+
+      expect(healthy.writeSSE).toHaveBeenCalledWith({ data: '{"type":"text"}' });
+      // The broken one is retired and closed so its client reconnects.
+      expect(broken.close).toHaveBeenCalledTimes(1);
+      expect(transport.hasActiveStream('conv-1')).toBe(true);
+    });
+
+    test('onCleanup waits for the LAST subscriber to leave', () => {
+      const cleanup = mock((_id: string) => undefined);
+      const transport = new SSETransport(cleanup, 1);
+      const stream1 = createMockStream();
+      const stream2 = createMockStream();
+
+      transport.registerStream('conv-1', stream1);
+      transport.registerStream('conv-1', stream2);
+      transport.removeStream('conv-1', stream1);
+
+      return new Promise<void>(resolve => {
+        setTimeout(() => {
+          // stream2 is still watching — flushing persistence now would strand it.
+          expect(cleanup).not.toHaveBeenCalled();
+          transport.removeStream('conv-1', stream2);
+          setTimeout(() => {
+            expect(cleanup).toHaveBeenCalledWith('conv-1');
+            resolve();
+          }, 50);
+        }, 50);
+      });
+    }, 1_000);
   });
 
   describe('hasActiveStream', () => {
@@ -281,7 +334,7 @@ describe('SSETransport', () => {
 
       transport.start();
       transport.registerStream('conv-1', stream);
-      transport.removeStream('conv-1');
+      transport.removeStream('conv-1', stream);
       transport.stop();
 
       // Wait longer than grace period — cleanup should NOT fire (timer was cleared)
