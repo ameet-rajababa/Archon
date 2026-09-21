@@ -8,7 +8,6 @@ import {
   issueColumn,
   issueType,
   runningIssues,
-  TYPE_COLOR,
   type IssueColumn,
 } from '../primitives/issue-board';
 import type { Run } from '../primitives/run';
@@ -17,6 +16,7 @@ import type { GithubIssue, IssuesResponse } from '../skills';
 import { invalidate, useEntity } from '../store/cache';
 import { K } from '../store/keys';
 import { useParams } from 'react-router';
+import { IssueTypeChip } from '../components/IssueTypeChip';
 
 /** Why a board is legitimately empty, in the words a person would use. */
 const REASON_TEXT: Readonly<Record<string, string>> = {
@@ -44,16 +44,11 @@ function Card({ issue, column }: { issue: GithubIssue; column: IssueColumn }): R
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <span className="font-mono text-[10.5px] text-text-tertiary">#{issue.number}</span>
         {type !== null ? (
-          <span
+          <IssueTypeChip
+            name={type.name}
+            derived={type.derived}
             title={type.derived ? 'Derived from a label — no GitHub type set' : 'GitHub issue type'}
-            className="inline-flex h-[17px] items-center rounded-full px-[7px] text-[9.5px] font-semibold uppercase tracking-[0.05em]"
-            style={{
-              color: TYPE_COLOR[type.name] ?? 'var(--text-secondary)',
-              border: `1px ${type.derived ? 'dashed' : 'solid'} ${TYPE_COLOR[type.name] ?? 'var(--border-bright)'}`,
-            }}
-          >
-            {type.name}
-          </span>
+          />
         ) : null}
         {areas.map(a => (
           <span
@@ -156,21 +151,15 @@ export function IssuesPage(): ReactElement {
         </button>
 
         {types.map(t => (
-          <button
+          <IssueTypeChip
             key={t}
-            type="button"
+            name={t}
+            dimmed={typeFilter !== null && typeFilter !== t}
+            title={typeFilter === t ? `Showing only ${t}` : `Show only ${t}`}
             onClick={() => {
               setTypeFilter(v => (v === t ? null : t));
             }}
-            className="inline-flex h-[19px] items-center rounded-full border px-[8px] text-[9.5px] font-semibold uppercase tracking-[0.05em] transition-opacity"
-            style={{
-              color: TYPE_COLOR[t] ?? 'var(--text-secondary)',
-              borderColor: TYPE_COLOR[t] ?? 'var(--border-bright)',
-              opacity: typeFilter !== null && typeFilter !== t ? 0.38 : 1,
-            }}
-          >
-            {t}
-          </button>
+          />
         ))}
 
         {hidden.size > 0 ? (

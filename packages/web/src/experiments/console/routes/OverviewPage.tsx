@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router';
 import { ActiveRunCard } from '../components/ActiveRunCard';
 import { EmptyState } from '../components/EmptyState';
 import { ProjectBriefCard } from '../components/ProjectBriefCard';
-import { issueType, TYPE_COLOR } from '../primitives/issue-board';
+import { issueType } from '../primitives/issue-board';
 import type { ConversationSummary } from '../primitives/conversation';
 import { conversationLabel } from '../primitives/conversation';
 import type { Run } from '../primitives/run';
@@ -13,6 +13,7 @@ import * as skill from '../skills';
 import type { GithubIssue, IssuesResponse } from '../skills';
 import { useEntity } from '../store/cache';
 import { K } from '../store/keys';
+import { IssueTypeChip } from '../components/IssueTypeChip';
 
 function Section({
   label,
@@ -194,20 +195,15 @@ export function OverviewPage(): ReactElement {
             <>
               <div className="flex flex-wrap gap-1.5">
                 {byType.map(([t, n]) => (
-                  <button
+                  <IssueTypeChip
                     key={t}
-                    type="button"
+                    name={t}
+                    count={n}
+                    title={`${String(n)} open ${t.toLowerCase()} issue${n === 1 ? '' : 's'}`}
                     onClick={() => {
                       navigate(`/console/p/${projectId}/issues`);
                     }}
-                    className="inline-flex h-[19px] items-center rounded-full border px-[8px] text-[9.5px] font-semibold uppercase tracking-[0.05em]"
-                    style={{
-                      color: TYPE_COLOR[t] ?? 'var(--text-secondary)',
-                      borderColor: TYPE_COLOR[t] ?? 'var(--border-bright)',
-                    }}
-                  >
-                    {t} {n}
-                  </button>
+                  />
                 ))}
               </div>
               <div className="flex flex-col overflow-hidden rounded-[10px] border border-border">
