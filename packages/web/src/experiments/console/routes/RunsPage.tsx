@@ -289,15 +289,22 @@ export function RunsPage(): ReactElement {
   const [searchParams] = useSearchParams();
   const demoMode = searchParams.get('demo') === '1';
 
-  // Land on the view this project was last opened in. Only the project's index
-  // route redirects: a deep link to a run is explicit, and clicking the Runs tab
-  // records 'runs' before navigating, so it is never bounced back to Chat.
-  // `replace` keeps the skipped Runs entry out of history, so Back still leaves
-  // the project rather than ping-ponging.
+  // Land on the view this project was last opened in, and on Overview when it
+  // has never been opened. Overview is the default because it answers "what is
+  // this and where is it" — the question you have on arriving, which a list of
+  // runs does not answer.
+  //
+  // The stored preference still wins, per project: a project you always work in
+  // Chat keeps opening in Chat. Only the project's index route redirects — a
+  // deep link to a run is explicit, and each tab records itself before
+  // navigating, so nothing is ever bounced back. `replace` keeps the skipped
+  // entry out of history, so Back still leaves the project rather than
+  // ping-ponging.
   useEffect(() => {
     if (projectId === undefined) return;
-    if (readProjectView(projectId) === 'chat') {
-      void navigate(`/console/p/${projectId}/chat`, { replace: true });
+    const view = readProjectView(projectId) ?? 'overview';
+    if (view !== 'runs') {
+      void navigate(`/console/p/${projectId}/${view}`, { replace: true });
     }
   }, [projectId, navigate]);
 

@@ -1,10 +1,14 @@
 /**
  * Keeps the local presentation stores and the server in step.
  *
- * The icon, the rail order and the brief are all read SYNCHRONOUSLY during
- * render — the rail draws a glyph on its first frame — so they stay in
- * localStorage. This pushes every change up and pulls the server's copy down,
- * which is what makes them follow you to another machine.
+ * The icon and the rail order are read SYNCHRONOUSLY during render — the rail
+ * draws a glyph on its first frame — so they stay in localStorage. This pushes
+ * every change up and pulls the server's copy down, which is what makes them
+ * follow you to another machine.
+ *
+ * The BRIEF is not here. It is written by the agent, never by the reader, so
+ * there is no local copy to reconcile: it arrives on the project row and is
+ * read straight off it.
  *
  * Every server call is failure-tolerant on purpose. The route does not exist
  * until the container restarts, and a console that broke its own icons while
@@ -14,7 +18,6 @@
  */
 import * as skill from '../skills';
 import { getIdentity, setIdentity } from './project-identity';
-import { getBrief, setBrief } from './project-brief';
 import { readProjectOrder, writeProjectOrder } from './project-order';
 
 const MIGRATED = 'archon.console.presentationMigrated';
@@ -24,17 +27,6 @@ export function pushIdentity(projectId: string): void {
   const id = getIdentity(projectId);
   void skill
     .savePresentation(projectId, { presentation: { color: id.color, glyph: id.glyph } })
-    .catch(() => undefined);
-}
-
-export function pushBrief(projectId: string): void {
-  const b = getBrief(projectId);
-  void skill
-    .savePresentation(projectId, {
-      presentation: {
-        brief: { why: b.why, doing: b.doing, where: b.where, updatedAt: b.updatedAt },
-      },
-    })
     .catch(() => undefined);
 }
 
@@ -78,22 +70,11 @@ export async function syncPresentation(projectIds: readonly string[]): Promise<v
 
     const p = remote.presentation;
     const serverHasIdentity = p != null && (p.color != null || p.glyph != null);
-    const serverHasBrief = p?.brief != null && (p.brief.why ?? '') + (p.brief.doing ?? '') !== '';
 
     if (serverHasIdentity) {
       setIdentity(projectId, { color: p.color ?? null, glyph: p.glyph ?? null });
     } else if (!migrated[projectId]) {
       pushIdentity(projectId);
-    }
-
-    if (serverHasBrief && p.brief != null) {
-      setBrief(projectId, {
-        why: p.brief.why ?? '',
-        doing: p.brief.doing ?? '',
-        where: p.brief.where ?? '',
-      });
-    } else if (!migrated[projectId]) {
-      pushBrief(projectId);
     }
 
     if (remote.sortOrder !== null) serverOrder.push({ id: projectId, at: remote.sortOrder });
