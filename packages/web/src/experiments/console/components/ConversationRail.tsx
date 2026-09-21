@@ -1,5 +1,13 @@
 import { MessageCircle, Plus } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactElement,
+} from 'react';
 import {
   byMostRecent,
   conversationLabel,
@@ -8,9 +16,8 @@ import {
 } from '../primitives/conversation';
 import { relativeTime } from '../lib/format';
 import { chatStatus, STATUS_LABEL, STATUS_TITLE } from '../primitives/chat-status';
+import { RowMenu } from './RowMenu';
 
-/** Shared empty set, so an absent prop does not allocate one per row per render. */
-const EMPTY_SET: ReadonlySet<string> = new Set();
 import { chooseNeighbourChat } from '../lib/last-chat';
 import {
   applyChatOrder,
@@ -22,6 +29,9 @@ import {
   writeChatOrder,
   type RowBox,
 } from '../lib/chat-order';
+
+/** Shared empty set, so an absent prop does not allocate one per row per render. */
+const EMPTY_SET: ReadonlySet<string> = new Set();
 
 /** Which archived state the rail is showing. */
 export type ArchiveScope = 'active' | 'archived' | 'all';
@@ -109,6 +119,10 @@ export function ConversationRail({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  // Stable, because RowMenu holds it in a listener effect.
+  const closeMenu = useCallback((): void => {
+    setMenuFor(null);
+  }, []);
   const renameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -459,50 +473,44 @@ export function ConversationRail({
                 </button>
               )}
 
-              {menuFor === c.id ? (
-                <div
-                  role="menu"
-                  onClick={e => {
-                    e.stopPropagation();
+              <RowMenu
+                anchor={rowRefs.current.get(c.id) ?? null}
+                open={menuFor === c.id}
+                onClose={closeMenu}
+                width={188}
+                label={`Actions for ${conversationLabel(c)}`}
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setDraft(conversationLabel(c));
+                    setRenamingId(c.id);
+                    setMenuFor(null);
                   }}
-                  className="absolute right-2 top-9 z-30 w-[188px] rounded-[11px] border p-[5px] shadow-[0_18px_44px_-18px_rgba(0,0,0,0.85)]"
-                  style={{
-                    borderColor: 'var(--border-bright)',
-                    background: 'var(--surface-hover)',
-                  }}
+                  className="w-full rounded-lg px-2.5 py-1.5 text-left text-[12.5px] text-text-secondary hover:bg-surface-elevated hover:text-text-primary disabled:cursor-default disabled:opacity-40"
                 >
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      setDraft(conversationLabel(c));
-                      setRenamingId(c.id);
-                      setMenuFor(null);
-                    }}
-                    className="w-full rounded-lg px-2.5 py-1.5 text-left text-[12.5px] text-text-secondary hover:bg-surface-elevated hover:text-text-primary disabled:cursor-default disabled:opacity-40"
-                  >
-                    Rename…
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      const ids = [c.id];
-                      onArchive(
-                        ids,
-                        !c.archived,
-                        activeConvId !== null && ids.includes(activeConvId)
-                          ? chooseNeighbourChat(visible, activeConvId, ids)
-                          : null
-                      );
-                      setMenuFor(null);
-                    }}
-                    className="w-full rounded-lg px-2.5 py-1.5 text-left text-[12.5px] text-text-secondary hover:bg-surface-elevated hover:text-text-primary"
-                  >
-                    {c.archived ? 'Restore' : 'Archive'}
-                  </button>
-                </div>
-              ) : null}
+                  Rename…
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    const ids = [c.id];
+                    onArchive(
+                      ids,
+                      !c.archived,
+                      activeConvId !== null && ids.includes(activeConvId)
+                        ? chooseNeighbourChat(visible, activeConvId, ids)
+                        : null
+                    );
+                    setMenuFor(null);
+                  }}
+                  className="w-full rounded-lg px-2.5 py-1.5 text-left text-[12.5px] text-text-secondary hover:bg-surface-elevated hover:text-text-primary"
+                >
+                  {c.archived ? 'Restore' : 'Archive'}
+                </button>
+              </RowMenu>
             </div>
           );
         })}

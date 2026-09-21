@@ -1,9 +1,10 @@
 import { IdentityPicker } from './IdentityPicker';
-import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { ProjectGlyph } from '../lib/project-glyph';
 import { openInIde, useIdeEnv } from '../lib/health';
 import { getIdentity, resolveColor } from '../lib/project-identity';
 import { ProjectCountCells } from './ProjectCountCells';
+import { RowMenu } from './RowMenu';
 import { useDisplayName, setDisplayName } from '../lib/display-name';
 import { formatProjectLocator } from '../lib/format';
 import type { Project } from '../primitives/project';
@@ -76,6 +77,12 @@ export function ProjectRow({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(displayName);
   const [menuOpen, setMenuOpen] = useState(false);
+  // The row element, kept in state rather than a ref so opening the menu has a
+  // node to measure on the render it opens.
+  const [rowEl, setRowEl] = useState<HTMLElement | null>(null);
+  const closeMenu = useCallback((): void => {
+    setMenuOpen(false);
+  }, []);
   /**
    * Draggable only while the grip is under the pointer.
    *
@@ -95,18 +102,6 @@ export function ProjectRow({
       inputRef.current?.select();
     }
   }, [editing, displayName]);
-
-  // Close the ⋯ menu on outside click.
-  useEffect(() => {
-    if (!menuOpen) return;
-    const close = (): void => {
-      setMenuOpen(false);
-    };
-    window.addEventListener('click', close);
-    return (): void => {
-      window.removeEventListener('click', close);
-    };
-  }, [menuOpen]);
 
   const commit = (): void => {
     if (draft.trim() === project.name) setDisplayName(project.id, '');
@@ -137,7 +132,10 @@ export function ProjectRow({
         }}
         aria-pressed={selected}
         title={`${displayName}\n${formatProjectLocator(project)}\n\nDouble-click to rename`}
-        ref={registerRow}
+        ref={el => {
+          setRowEl(el);
+          registerRow?.(el);
+        }}
         draggable={armed && !editing && !menuOpen}
         onDragStart={e => {
           onDragBegin?.();
@@ -258,89 +256,84 @@ export function ProjectRow({
               >
                 <DotsIcon />
               </button>
-              {menuOpen ? (
-                <div
-                  role="menu"
+              <RowMenu
+                anchor={rowEl}
+                open={menuOpen}
+                onClose={closeMenu}
+                width={196}
+                label={`Actions for ${displayName}`}
+              >
+                {/* The prototype's order: identity, then name, then the two things you
+                    reach for occasionally, then the destructive one behind a rule. */}
+                <button
+                  type="button"
+                  role="menuitem"
                   onClick={e => {
                     e.stopPropagation();
+                    setMenuOpen(false);
+                    const row = (e.currentTarget as HTMLElement).closest('.rail-row');
+                    setPickerAt(row?.getBoundingClientRect() ?? null);
                   }}
-                  className="absolute right-0 top-full z-30 mt-1 min-w-[178px] rounded-[11px] border bg-surface-hover p-[5px] shadow-[0_18px_44px_-18px_rgba(0,0,0,0.85)]"
-                  // Inline because the console scope's wildcard border-color
-                  // rule repaints Tailwind border utilities (see theme.css).
-                  style={{ borderColor: 'var(--border-bright)' }}
+                  className={MENU_ITEM}
                 >
-                  {/* The prototype's order: identity, then name, then the two things you
-                    reach for occasionally, then the destructive one behind a rule. */}
+                  Change icon and color…
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={e => {
+                    e.stopPropagation();
+                    setMenuOpen(false);
+                    setEditing(true);
+                  }}
+                  className={MENU_ITEM}
+                >
+                  Rename project
+                </button>
+                <div className="my-1 h-px bg-border" />
+                {onEditEnv !== undefined ? (
                   <button
                     type="button"
                     role="menuitem"
                     onClick={e => {
                       e.stopPropagation();
                       setMenuOpen(false);
-                      const row = (e.currentTarget as HTMLElement).closest('.rail-row');
-                      setPickerAt(row?.getBoundingClientRect() ?? null);
+                      onEditEnv();
                     }}
                     className={MENU_ITEM}
                   >
-                    Change icon and color…
+                    Environment variables…
                   </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={e => {
-                      e.stopPropagation();
-                      setMenuOpen(false);
-                      setEditing(true);
-                    }}
-                    className={MENU_ITEM}
-                  >
-                    Rename project
-                  </button>
-                  <div className="my-1 h-px bg-border" />
-                  {onEditEnv !== undefined ? (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={e => {
-                        e.stopPropagation();
-                        setMenuOpen(false);
-                        onEditEnv();
-                      }}
-                      className={MENU_ITEM}
-                    >
-                      Environment variables…
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={e => {
-                      e.stopPropagation();
-                      setMenuOpen(false);
-                      openInIde(project.path, ideEnv);
-                    }}
-                    className={MENU_ITEM}
-                  >
-                    Open in editor
-                  </button>
-                  <div className="my-1 h-px bg-border" />
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={e => {
-                      e.stopPropagation();
-                      setMenuOpen(false);
-                      const confirmed = window.confirm(
-                        `Remove project "${displayName}"?\n\nLocal files and worktrees are not deleted.`
-                      );
-                      if (confirmed) onRemove?.();
-                    }}
-                    className="flex w-full items-center gap-2.5 rounded-lg px-[11px] py-[9px] text-left text-[13px] font-semibold text-error transition-colors hover:bg-error/10"
-                  >
-                    Remove project
-                  </button>
-                </div>
-              ) : null}
+                ) : null}
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={e => {
+                    e.stopPropagation();
+                    setMenuOpen(false);
+                    openInIde(project.path, ideEnv);
+                  }}
+                  className={MENU_ITEM}
+                >
+                  Open in editor
+                </button>
+                <div className="my-1 h-px bg-border" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={e => {
+                    e.stopPropagation();
+                    setMenuOpen(false);
+                    const confirmed = window.confirm(
+                      `Remove project "${displayName}"?\n\nLocal files and worktrees are not deleted.`
+                    );
+                    if (confirmed) onRemove?.();
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-[11px] py-[9px] text-left text-[13px] font-semibold text-error transition-colors hover:bg-error/10"
+                >
+                  Remove project
+                </button>
+              </RowMenu>
             </div>
           ) : null}
         </div>
