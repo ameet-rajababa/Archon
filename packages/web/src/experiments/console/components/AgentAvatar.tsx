@@ -1,35 +1,82 @@
-import { useId, type ReactElement } from 'react';
+import { useState, type ReactElement } from 'react';
+import { Glyph } from '../lib/glyph';
+import {
+  setAssistantIdentity,
+  useActiveAssistant,
+  useAssistantIdentity,
+} from '../lib/assistant-identity';
+import { useStreamContext } from '../lib/stream-context';
+import { IdentityPicker } from './IdentityPicker';
 
 interface AgentAvatarProps {
   size?: number;
 }
 
 /**
- * 30px gradient-ring avatar for assistant messages. Ring + punched inner
- * circle mirror the design handoff's `chat-icons.jsx:23-41`; the mark inside
- * is the real Archon shield logo (`/favicon.png`, same asset as the console
- * topbar) instead of the handoff's placeholder triangle. SVG `linearGradient`
- * cannot read CSS custom props reliably, so brand stops are hard-coded —
- * same trade-off the handoff takes.
+ * The assistant's mark: a ring in its color around its glyph, and a click
+ * target for changing both.
  *
- * Inner fill references `--surface-elevated` so the punched-hole effect
- * tracks any future surface-token rebalance (handoff's `#15171d` resolves
- * to the same family).
+ * It was a fixed brand gradient around `/favicon.png`. The gradient left a
+ * chosen color nowhere to go and the PNG could not be tinted, so both gave way
+ * to the vocabulary the rail already uses — a lucide glyph stroked in the
+ * chosen color, which means all 245 icons work in every color for free.
+ *
+ * Which assistant it shows is whichever one answers where it is drawn: the
+ * chat's own provider inside a chat (recorded on the conversation row, so it
+ * is provenance rather than a guess), and the configured default in the rail
+ * head, which belongs to no chat.
  */
 export function AgentAvatar({ size = 30 }: AgentAvatarProps): ReactElement {
-  const gid = useId();
+  const declared = useStreamContext().assistant;
+  const configured = useActiveAssistant();
+  const assistant = declared ?? configured;
+  const { identity, color } = useAssistantIdentity(assistant);
+  // The button rather than a ref, so the panel is placed against the live rect
+  // — and so `null` cannot be mistaken for "closed" (the bug that silently
+  // stopped the project picker opening at all).
+  const [button, setButton] = useState<HTMLButtonElement | null>(null);
+  const [open, setOpen] = useState(false);
+
   return (
-    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" aria-hidden>
-      <defs>
-        <linearGradient id={gid} x1="2" y1="2" x2="30" y2="30" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#ED10EC" />
-          <stop offset="0.5" stopColor="#8E40C8" />
-          <stop offset="1" stopColor="#06CE94" />
-        </linearGradient>
-      </defs>
-      <circle cx="16" cy="16" r="15" stroke={`url(#${gid})`} strokeWidth="1.6" />
-      <circle cx="16" cy="16" r="11.5" fill="var(--surface-elevated)" />
-      <image href="/favicon.png" x="8" y="8" width="16" height="16" />
-    </svg>
+    <>
+      <button
+        type="button"
+        ref={setButton}
+        onClick={() => {
+          setOpen(v => !v);
+        }}
+        title={`Change the ${assistant} icon and color…`}
+        aria-label={`Change the ${assistant} icon and color`}
+        aria-expanded={open}
+        className="flex shrink-0 items-center justify-center rounded-full transition-colors"
+        style={{
+          width: size,
+          height: size,
+          // The ring, the gap and the mark, in that order: a 1.6px border, a
+          // background that matches the card behind it, and a glyph at half
+          // the box. Punching the hole with a border rather than a second SVG
+          // circle is what lets the color be a plain CSS value.
+          border: `1.6px solid ${color}`,
+          background: 'var(--surface-elevated)',
+        }}
+      >
+        <Glyph seed={assistant} glyph={identity.glyph} color={color} size={Math.round(size / 2)} />
+      </button>
+      {open && button !== null ? (
+        <IdentityPicker
+          identity={identity}
+          color={color}
+          anchor={button}
+          onPick={patch => {
+            // No `settled` branch: this is one localStorage write, so there is
+            // nothing expensive to defer to the end of a drag.
+            setAssistantIdentity(assistant, patch);
+          }}
+          onClose={() => {
+            setOpen(false);
+          }}
+        />
+      ) : null}
+    </>
   );
 }

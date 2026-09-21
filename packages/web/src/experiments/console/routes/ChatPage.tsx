@@ -613,7 +613,9 @@ export function ChatPage(): ReactElement {
                   hint="Ask the agent about this project, or tell it what to run."
                 />
               ) : (
-                <StreamContextProvider value={{ runStartedAt: null }}>
+                <StreamContextProvider
+                  value={{ runStartedAt: null, assistant: activeConversation?.assistant ?? null }}
+                >
                   <ChatStream
                     messages={renderedMessages}
                     showTools={showTools}

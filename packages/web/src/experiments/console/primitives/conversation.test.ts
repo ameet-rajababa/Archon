@@ -18,6 +18,7 @@ const conv = (over: Partial<ConversationSummary> = {}): ConversationSummary => (
   platformType: 'web',
   lastActivityAt: '2026-06-05T10:00:00Z',
   color: null,
+  assistant: 'claude',
   archived: false,
   ...over,
 });
@@ -143,7 +144,15 @@ describe('toConversationSummary — archived', () => {
     title: 'Refund reconciliation',
     last_activity_at: '2026-06-05T10:00:00Z',
     color: null,
+    ai_assistant_type: 'claude',
     ...over,
+  });
+
+  test('the chat carries the assistant that answers it', () => {
+    // What the agent avatar paints. Read off the row rather than guessed from
+    // the current default, so a codex chat keeps its mark after the default
+    // moves to claude.
+    expect(toConversationSummary(raw({ ai_assistant_type: 'codex' })).assistant).toBe('codex');
   });
 
   test('a soft-deleted conversation reads as archived', () => {

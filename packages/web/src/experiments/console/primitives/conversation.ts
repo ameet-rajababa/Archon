@@ -32,6 +32,12 @@ export interface ConversationSummary {
   lastActivityAt: string | null;
   /** User-chosen color label, or null for none. */
   color: ConversationColor | null;
+  /**
+   * Which assistant answers this chat — `claude`, `codex`, `pi`, a community
+   * provider id. Set when the chat is created and stored on the row, so it is
+   * real provenance rather than a guess from the current default.
+   */
+  assistant: string;
   /** Archived chats are hidden from the default list but are never destroyed. */
   archived: boolean;
   /** Short summary of the chat, or null when nothing has written one yet. */
@@ -46,6 +52,7 @@ interface RawConversation {
   title: string | null;
   last_activity_at: string | null;
   color: string | null;
+  ai_assistant_type: string;
   deleted_at?: string | null;
 }
 
@@ -57,6 +64,7 @@ export function toConversationSummary(raw: RawConversation): ConversationSummary
     platformType: raw.platform_type,
     lastActivityAt: raw.last_activity_at,
     color: parseConversationColor(raw.color),
+    assistant: raw.ai_assistant_type,
     // Archiving is a soft delete, so the timestamp's presence is the state.
     archived: raw.deleted_at != null,
   };

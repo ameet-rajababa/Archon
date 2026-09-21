@@ -1,8 +1,9 @@
 import { IdentityPicker } from './IdentityPicker';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { ProjectGlyph } from '../lib/project-glyph';
+import { Glyph } from '../lib/glyph';
 import { openInIde, useIdeEnv } from '../lib/health';
-import { getIdentity, resolveColor } from '../lib/project-identity';
+import { getIdentity, resolveColor, setIdentity } from '../lib/project-identity';
+import { pushIdentity } from '../lib/presentation-sync';
 import { ProjectCountCells } from './ProjectCountCells';
 import { RowMenu } from './RowMenu';
 import { useDisplayName, setDisplayName } from '../lib/display-name';
@@ -185,7 +186,7 @@ export function ProjectRow({
         ) : null}
 
         <span aria-hidden className="rail-ico">
-          <ProjectGlyph projectId={project.id} glyph={identity.glyph} color={color} />
+          <Glyph seed={project.id} glyph={identity.glyph} color={color} />
         </span>
 
         <div className="rail-hide flex min-w-0 flex-1 items-center">
@@ -343,9 +344,13 @@ export function ProjectRow({
       </div>
       {pickerOpen && rowEl !== null ? (
         <IdentityPicker
-          projectId={project.id}
+          identity={identity}
+          color={color}
           anchor={rowEl}
-          onChange={() => {
+          onPick={(patch, { settled }) => {
+            setIdentity(project.id, patch);
+            // Once per gesture, not once per frame of a color drag.
+            if (settled) pushIdentity(project.id);
             setIdentityTick(t => t + 1);
           }}
           onClose={() => {

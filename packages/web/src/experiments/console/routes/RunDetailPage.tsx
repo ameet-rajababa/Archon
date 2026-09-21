@@ -440,7 +440,7 @@ export function RunDetailPage(): ReactElement {
   );
 
   return (
-    <StreamContextProvider value={{ runStartedAt: run.startedAt }}>
+    <StreamContextProvider value={{ runStartedAt: run.startedAt, assistant: null }}>
       <section className="flex h-full flex-col">
         <RunDetailHeader run={run} projectId={projectId} projectName={project?.name ?? projectId} />
 

@@ -2,7 +2,7 @@ import type { ReactElement } from 'react';
 import { ICON_NAMES, ICON_PATHS } from './glyph-data';
 
 /**
- * A project's glyph.
+ * A subject's glyph — a project's, an assistant's.
  *
  * Renders from the same path data the picker offers, so anything choosable is
  * renderable — the earlier version drew from a curated set of 35 component
@@ -12,13 +12,14 @@ import { ICON_NAMES, ICON_PATHS } from './glyph-data';
  * An emoji is stored as the character itself, which is not an icon name, so it
  * renders as text.
  */
-export function ProjectGlyph({
-  projectId,
+export function Glyph({
+  seed,
   glyph,
   color,
   size = 15,
 }: {
-  projectId: string;
+  /** Identifies the subject, and decides its glyph when none was chosen. */
+  seed: string;
   glyph: string | null;
   color: string;
   size?: number;
@@ -34,7 +35,7 @@ export function ProjectGlyph({
     );
   }
 
-  const key = name ?? defaultGlyph(projectId);
+  const key = name ?? defaultGlyph(seed);
   return (
     <svg
       aria-hidden
@@ -52,13 +53,13 @@ export function ProjectGlyph({
 }
 
 /**
- * A stable glyph for a project that has not chosen one.
+ * A stable glyph for a subject that has not chosen one.
  *
  * Same idea as the deterministic color: every project reads as distinct
  * before anyone configures anything, and it never changes underneath you.
  */
-export function defaultGlyph(projectId: string): string {
+export function defaultGlyph(seed: string): string {
   let h = 0;
-  for (let i = 0; i < projectId.length; i++) h = (h * 31 + projectId.charCodeAt(i)) >>> 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
   return ICON_NAMES[h % ICON_NAMES.length] ?? 'hexagon';
 }

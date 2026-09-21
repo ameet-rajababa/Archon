@@ -25,6 +25,7 @@ import {
 } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router';
 import { Settings, PenTool, type LucideIcon } from 'lucide-react';
+import { AgentAvatar } from './AgentAvatar';
 import { ProjectRow } from './ProjectRow';
 import { ProjectCountHeader } from './ProjectCountCells';
 import type { RunCounts } from '../skills';
@@ -341,24 +342,37 @@ export function ProjectRail({ onAddProject, onSearch }: ProjectRailProps): React
         <div className="px-3.5 pb-2.5 pt-4">
           {/* The head is a ROW, on the same icon column as everything below it.
             Collapsed, the toggle is the only thing left and it has not moved —
-            which is what makes the panel read as sliding rather than jumping. */}
-          <button
-            type="button"
-            onClick={toggleCollapsed}
-            title={`${collapsed ? 'Expand' : 'Collapse'}  ⌘.`}
-            aria-label={collapsed ? 'Expand the rail' : 'Collapse the rail'}
-            className="rail-row"
-          >
-            <span aria-hidden className="rail-ico" style={{ color: 'var(--text-secondary)' }}>
-              <PanelLeft />
+            which is what makes the panel read as sliding rather than jumping.
+            A div, not a button: the toggle owns the icon and the wordmark, the
+            assistant's mark is its own control at the trailing edge, and one
+            button inside another is invalid markup that leaves the inner one
+            unreachable by keyboard. */}
+          <div className="rail-row">
+            <button
+              type="button"
+              onClick={toggleCollapsed}
+              title={`${collapsed ? 'Expand' : 'Collapse'}  ⌘.`}
+              aria-label={collapsed ? 'Expand the rail' : 'Collapse the rail'}
+              className="flex min-w-0 flex-1 items-center gap-2 text-left"
+            >
+              <span aria-hidden className="rail-ico" style={{ color: 'var(--text-secondary)' }}>
+                <PanelLeft />
+              </span>
+              {/* leading pinned to the row's 17px content box. .rail-row has a
+                  fixed height so hovering cannot make the rail jump, and the
+                  wordmark's default 1.5 line-height overflowed it by 4px. */}
+              <span className="rail-hide brand-text text-base font-semibold leading-[17px] tracking-tight">
+                Archon
+              </span>
+            </button>
+            {/* Archon's own face, on Archon's own row — the same panel the
+                project rows open, pointed at the assistant instead. Hidden
+                when collapsed, like every other label in the rail: the toggle
+                is the only thing that survives a collapse. */}
+            <span className="rail-hide">
+              <AgentAvatar size={18} />
             </span>
-            {/* leading pinned to the row's 17px content box. .rail-row has a
-                fixed height so hovering cannot make the rail jump, and the
-                wordmark's default 1.5 line-height overflowed it by 4px. */}
-            <span className="rail-hide brand-text text-base font-semibold leading-[17px] tracking-tight">
-              Archon
-            </span>
-          </button>
+          </div>
           {/* A ROW, not a text field. The box was permanent chrome for something
             done occasionally, and the palette already jumps to a project by
             name — across every project, not just the visible list. */}

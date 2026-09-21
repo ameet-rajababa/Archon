@@ -6,11 +6,11 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { clamp, hexToHsv, hsvToHex, isHexColor, type Hsv } from '../lib/color-hsv';
 import { ICON_PATHS } from '../lib/glyph-data';
 import { searchEmoji, searchIcons } from '../lib/glyph-search';
-import { IDENTITY_COLORS, getIdentity, resolveColor, setIdentity } from '../lib/project-identity';
-import { pushIdentity } from '../lib/presentation-sync';
+import { IDENTITY_COLORS, type Identity } from '../lib/identity';
 
 /** Where the custom picker starts when the current color is a preset: a warm, obviously-editable orange. */
 const CUSTOM_START: Hsv = { h: 28, s: 0.7, v: 0.95 };
@@ -20,7 +20,7 @@ const PANEL_PRESETS = 420;
 const PANEL_CUSTOM = 560;
 
 /**
- * Choose a project's icon and color.
+ * Choose a subject's icon and color — a project's, an assistant's.
  *
  * Ported from the prototype. Two vocabularies behind tabs, a color row above
  * both, and a ranked search — icons are tinted with the chosen color because
@@ -33,12 +33,20 @@ const PANEL_CUSTOM = 560;
  * One row, two modes, rather than a second panel to get lost in.
  */
 export function IdentityPicker({
-  projectId,
+  identity,
+  color,
   anchor,
   onClose,
-  onChange,
+  onPick,
 }: {
-  projectId: string;
+  /**
+   * The subject's identity as the caller currently holds it. The panel reads
+   * storage for nothing — the caller owns it, which is what lets one panel
+   * serve projects and assistants.
+   */
+  identity: Identity;
+  /** The resolved color the subject is painted with — `resolveIdentityColor`. */
+  color: string;
   /**
    * The row to place against — the ELEMENT, not a rect.
    *
@@ -49,15 +57,18 @@ export function IdentityPicker({
    */
   anchor: HTMLElement;
   onClose: () => void;
-  onChange: () => void;
+  /**
+   * Write a choice through. `settled` is false for the intermediate frames of
+   * a color drag: the caller should still paint them, but defer anything
+   * expensive — a server save, a network push — until the gesture ends.
+   */
+  onPick: (patch: Partial<Identity>, opts: { settled: boolean }) => void;
 }): ReactElement {
   const [tab, setTab] = useState<'icons' | 'emojis'>('icons');
   const [query, setQuery] = useState('');
-  const identity = getIdentity(projectId);
-  const color = resolveColor(projectId, identity);
   const ref = useRef<HTMLDivElement | null>(null);
 
-  // A project already wearing a custom color opens on the custom row. Landing
+  // A subject already wearing a custom color opens on the custom row. Landing
   // on the presets would show a row with no check in it and no sign of where
   // the current color came from.
   const [custom, setCustom] = useState(() => identity.color !== null && isHexColor(identity.color));
@@ -83,18 +94,17 @@ export function IdentityPicker({
    * Write a color change through to storage and the rail.
    *
    * `text: false` leaves the hex box exactly as typed — rewriting it under the
-   * cursor turns "#3b82f" into a fight. `push: false` keeps a drag local; the
-   * server save happens once on pointer up rather than on every frame of it.
+   * cursor turns "#3b82f" into a fight. `settled: false` marks the intermediate
+   * frames of a drag, so the caller can persist once on pointer up rather than
+   * on every frame of it.
    */
-  const apply = (patch: Partial<Hsv>, opts: { text: boolean; push: boolean }): void => {
+  const apply = (patch: Partial<Hsv>, opts: { text: boolean; settled: boolean }): void => {
     const next = { ...hsvRef.current, ...patch };
     hsvRef.current = next;
     setHsv(next);
     const value = hsvToHex(next.h, next.s, next.v);
     if (opts.text) setHexText(value);
-    setIdentity(projectId, { color: value });
-    if (opts.push) pushIdentity(projectId);
-    onChange();
+    onPick({ color: value }, { settled: opts.settled });
   };
 
   /** Track the pointer across the whole window: a drag that leaves the square should keep working. */
@@ -102,10 +112,10 @@ export function IdentityPicker({
     e.preventDefault();
     e.stopPropagation();
     const rect = e.currentTarget.getBoundingClientRect();
-    const at = (point: { clientX: number; clientY: number }, push: boolean): void => {
+    const at = (point: { clientX: number; clientY: number }, settled: boolean): void => {
       const x = clamp((point.clientX - rect.left) / rect.width, 0, 1);
       const y = clamp((point.clientY - rect.top) / rect.height, 0, 1);
-      apply(axis === 'sv' ? { s: x, v: 1 - y } : { h: y * 360 }, { text: true, push });
+      apply(axis === 'sv' ? { s: x, v: 1 - y } : { h: y * 360 }, { text: true, settled });
     };
     const onMove = (ev: PointerEvent): void => {
       at(ev, false);
@@ -119,6 +129,26 @@ export function IdentityPicker({
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
   };
+
+  /**
+   * Re-render when anything scrolls or resizes, so the panel keeps tracking the
+   * element it was opened from. It is fixed-positioned and portaled, so it does
+   * not travel with that element on its own — and the chat it can open from
+   * scrolls under it every time a reply streams in.
+   */
+  const [, reposition] = useState(0);
+  useEffect(() => {
+    const bump = (): void => {
+      reposition(n => n + 1);
+    };
+    // Capture, so a scroll of the LIST repositions it, not only the window.
+    window.addEventListener('scroll', bump, true);
+    window.addEventListener('resize', bump);
+    return (): void => {
+      window.removeEventListener('scroll', bump, true);
+      window.removeEventListener('resize', bump);
+    };
+  }, []);
 
   // Dismiss on outside click or Escape. Bound on the next tick so the click
   // that opened the picker does not immediately close it.
@@ -144,7 +174,8 @@ export function IdentityPicker({
   const chosenGlyph = identity.glyph;
 
   // Clamp to the viewport: the rail sits at the left edge, so only the bottom
-  // realistically overflows.
+  // realistically overflows. Measured on every render rather than captured on
+  // open, which is why the listener above re-renders on scroll.
   const rect = anchor.getBoundingClientRect();
   const top = Math.min(
     rect.bottom + 6,
@@ -152,8 +183,16 @@ export function IdentityPicker({
   );
   const left = Math.min(rect.left, window.innerWidth - 404);
 
-  return (
-    <div ref={ref} className="pick" style={{ top: Math.max(8, top), left: Math.max(8, left) }}>
+  // Portaled, like RowMenu and for the same reason: the panel is taller than
+  // the row or the message it opens from, and both live inside something that
+  // clips. `console-root` travels with it because the console's palette is
+  // scoped to that class.
+  return createPortal(
+    <div
+      ref={ref}
+      className="pick console-root"
+      style={{ top: Math.max(8, top), left: Math.max(8, left) }}
+    >
       <div className="pick-tabs">
         {(['icons', 'emojis'] as const).map(t => (
           <button
@@ -183,7 +222,7 @@ export function IdentityPicker({
               onChange={e => {
                 setHexText(e.target.value);
                 const parsed = hexToHsv(e.target.value);
-                if (parsed !== null) apply(parsed, { text: false, push: true });
+                if (parsed !== null) apply(parsed, { text: false, settled: true });
               }}
               onBlur={() => {
                 // Snap a half-typed or invalid value back to where the knobs
@@ -238,9 +277,7 @@ export function IdentityPicker({
               aria-label={c.key}
               style={{ background: c.value }}
               onClick={() => {
-                setIdentity(projectId, { color: c.key });
-                pushIdentity(projectId);
-                onChange();
+                onPick({ color: c.key }, { settled: true });
               }}
             >
               {identity.color === c.key ? <Check /> : null}
@@ -287,9 +324,7 @@ export function IdentityPicker({
               aria-pressed={chosenGlyph === k}
               style={tab === 'icons' ? { color: paint } : undefined}
               onClick={() => {
-                setIdentity(projectId, { glyph: k });
-                pushIdentity(projectId);
-                onChange();
+                onPick({ glyph: k }, { settled: true });
                 onClose();
               }}
             >
@@ -312,6 +347,7 @@ export function IdentityPicker({
           ))}
         </div>
       )}
-    </div>
+    </div>,
+    document.body
   );
 }

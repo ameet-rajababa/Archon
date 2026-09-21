@@ -5,12 +5,18 @@ import { createContext, useContext, type ReactElement, type ReactNode } from 're
  * prop-drill through five layers.
  *
  * `runStartedAt` drives relative timestamps like `+04:12`.
+ *
+ * `assistant` is which provider answers this stream, and it decides the mark on
+ * every agent message. Null where the stream has no assistant of its own — a
+ * run log, or an avatar rendered outside a stream entirely — and the reader
+ * falls back to the configured default.
  */
 export interface StreamContextValue {
   runStartedAt: string | null;
+  assistant: string | null;
 }
 
-const context = createContext<StreamContextValue>({ runStartedAt: null });
+const context = createContext<StreamContextValue>({ runStartedAt: null, assistant: null });
 
 // Wrap Provider as a function so naming-convention allows PascalCase.
 export function StreamContextProvider({
