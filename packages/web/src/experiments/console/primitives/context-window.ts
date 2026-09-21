@@ -1,11 +1,11 @@
 /**
  * How full a chat's context is, and whether that can honestly be said at all.
  *
- * The reading is a turn's gross prompt input — everything the model re-read,
- * cache included. Turning it into a PERCENTAGE needs the window of the model
- * that actually answered, and that is resolved SERVER-SIDE and written
- * alongside the reading (see core/orchestrator/context-window.ts). This file
- * divides; it does not look anything up.
+ * The reading is gross input on the LAST REQUEST of the last turn — not the
+ * turn's total, which sums every request and runs to millions on a tool-heavy
+ * turn. Turning it into a PERCENTAGE needs the window of the model that
+ * answered, resolved SERVER-SIDE and written alongside the reading (see
+ * core/orchestrator/context-window.ts). This file divides; it looks nothing up.
  *
  * That split is the point. A second table here would be a second opinion about
  * how full a conversation is, and the two would drift the first time either
@@ -31,7 +31,7 @@ export interface ContextReading {
  * The newest turn that reported a reading, plus the running cost of all of them.
  *
  * Occupancy is the NEWEST value, never a sum: it describes the prefix replayed
- * on that turn, and it FALLS when the provider compacts — which is the only
+ * on the last request, and it FALLS when the provider compacts — which is the only
  * visible sign compaction happened. Cost is the opposite and is summed,
  * because every turn was paid for separately.
  */
