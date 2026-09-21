@@ -15,6 +15,7 @@
  * Same storage shape as `archon.console.chatOrder.*` and the rail width, so it
  * lifts to the server later without the callers changing.
  */
+import { isHexColor } from './color-hsv';
 import { tileColor } from './icon-color';
 
 const KEY = 'archon.console.projectIdentity';
@@ -34,7 +35,12 @@ export const IDENTITY_COLORS: readonly { key: string; value: string }[] = [
 ];
 
 export interface ProjectIdentity {
-  /** A key from IDENTITY_COLORS, or null to use the deterministic default. */
+  /**
+   * A key from IDENTITY_COLORS, a literal `#rrggbb` from the custom picker, or
+   * null to use the deterministic default. Two spellings of one field rather
+   * than two fields: every reader goes through `resolveColor`, and a project
+   * has exactly one color however it was chosen.
+   */
   color: string | null;
   /** A glyph name the rail knows how to draw, or null for the default. */
   glyph: string | null;
@@ -90,6 +96,7 @@ export function clearIdentity(projectId: string): void {
 export function resolveColor(projectId: string, identity?: ProjectIdentity): string {
   const chosen = (identity ?? getIdentity(projectId)).color;
   if (chosen !== null) {
+    if (isHexColor(chosen)) return chosen;
     const hit = IDENTITY_COLORS.find(c => c.key === chosen);
     if (hit !== undefined) return hit.value;
   }
