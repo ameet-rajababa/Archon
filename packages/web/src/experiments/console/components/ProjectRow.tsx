@@ -214,7 +214,7 @@ export function ProjectRow({
               onDoubleClick={e => {
                 e.stopPropagation();
               }}
-              className="w-full rounded border border-border-bright bg-surface px-1 py-0.5 text-[13px] font-medium text-text-primary focus:outline-none"
+              className="rail-rename font-medium tracking-[-0.1px]"
             />
           ) : (
             <span
