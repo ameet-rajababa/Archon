@@ -1,8 +1,16 @@
 import { describe, expect, test } from 'bun:test';
-import { contextReading, formatTokens } from './context-window';
+import { contextReading, formatTokens, shortModel } from './context-window';
 
-const turn = (input: number, window?: number, costUsd: number | null = null) => ({
-  usage: { input, costUsd, ...(window === undefined ? {} : { window }) },
+const turn = (context: number, window?: number, costUsd: number | null = null) => ({
+  usage: {
+    context,
+    // The turn TOTAL, deliberately absurd next to the window: a tool-heavy
+    // turn really does sum to millions, and nothing may divide by it.
+    input: context * 80,
+    costUsd,
+    model: 'claude-opus-5',
+    ...(window === undefined ? {} : { window }),
+  },
 });
 
 describe('contextReading', () => {
@@ -34,6 +42,39 @@ describe('contextReading', () => {
     expect(contextReading([{ usage: null }, { usage: null }])).toBeNull();
     const r = contextReading([turn(1_000, 200_000), { usage: null }]);
     expect(r?.tokens).toBe(1_000);
+  });
+});
+
+describe('the numerator is occupancy, never the turn total', () => {
+  test('a tool-heavy turn does not report 6600% full', () => {
+    const r = contextReading([turn(90_000, 200_000)]);
+    expect(r?.tokens).toBe(90_000);
+    expect(r?.fraction).toBeCloseTo(0.45);
+  });
+
+  test('a reading written before the distinction existed is skipped, not shown', () => {
+    // `input` alone cannot be compared to a window, so it yields no reading
+    // rather than a wrong one.
+    expect(
+      contextReading([{ usage: { input: 13_290_665, costUsd: null, window: 200_000 } }])
+    ).toBeNull();
+  });
+
+  test('the denominator and the model come back for display', () => {
+    const r = contextReading([turn(50_000, 200_000)]);
+    expect(r?.window).toBe(200_000);
+    expect(r?.model).toBe('claude-opus-5');
+  });
+});
+
+describe('shortModel', () => {
+  test('drops the vendor prefix and the build date, keeps the name', () => {
+    expect(shortModel('claude-opus-5-20260101')).toBe('opus-5');
+    expect(shortModel('claude-sonnet-4-5')).toBe('sonnet-4-5');
+  });
+
+  test('leaves a name that IS its family alone', () => {
+    expect(shortModel('gpt-5.5')).toBe('gpt-5.5');
   });
 });
 

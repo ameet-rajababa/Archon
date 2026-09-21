@@ -15,10 +15,14 @@
  */
 
 export interface ContextReading {
-  /** Gross prompt input on the most recent completed turn. */
+  /** How full the context was when the last turn ended. */
   tokens: number;
-  /** Fraction of the model's window, or null when the server named no window. */
+  /** The model's window — the denominator — or null when it is not known. */
+  window: number | null;
+  /** Fraction of that window, or null when the server named no window. */
   fraction: number | null;
+  /** The model that answered, as the provider named it. */
+  model: string | null;
   /** What this chat has cost so far, when turns reported it. */
   costUsd: number | null;
 }
@@ -33,16 +37,32 @@ export interface ContextReading {
  */
 export function contextReading(
   messages: readonly {
-    usage: { input: number; costUsd: number | null; window?: number } | null;
+    usage: {
+      context?: number;
+      input: number;
+      costUsd: number | null;
+      window?: number;
+      model?: string;
+    } | null;
   }[]
 ): ContextReading | null {
-  let newest: { input: number; window: number | null } | null = null;
+  let newest: { tokens: number; window: number | null; model: string | null } | null = null;
   let cost = 0;
   let sawCost = false;
 
   for (const m of messages) {
     if (m.usage === null) continue;
-    newest = { input: m.usage.input, window: m.usage.window ?? null };
+    // `context` only. `input` is the turn's TOTAL — every request summed — so
+    // a tool-heavy turn reports millions against a 200k window. A reading
+    // written before that distinction existed is skipped for occupancy rather
+    // than shown as 6600% full.
+    if (m.usage.context !== undefined) {
+      newest = {
+        tokens: m.usage.context,
+        window: m.usage.window ?? null,
+        model: m.usage.model ?? null,
+      };
+    }
     if (m.usage.costUsd !== null) {
       cost += m.usage.costUsd;
       sawCost = true;
@@ -51,10 +71,25 @@ export function contextReading(
   if (newest === null) return null;
 
   return {
-    tokens: newest.input,
-    fraction: newest.window === null ? null : newest.input / newest.window,
+    tokens: newest.tokens,
+    window: newest.window,
+    fraction: newest.window === null ? null : newest.tokens / newest.window,
+    model: newest.model,
     costUsd: sawCost ? cost : null,
   };
+}
+
+/**
+ * `claude-opus-5-20260101` → `opus-5`. The vendor prefix and the build date
+ * are the same on every model in a fleet, so they cost width and say nothing.
+ * The full id stays in the tooltip.
+ */
+export function shortModel(model: string): string {
+  return model
+    .replace(/^(anthropic|openai|google|claude|gpt|gemini)[-/]/i, m =>
+      /^(gpt|gemini)/i.test(m) ? m : ''
+    )
+    .replace(/-\d{8}$/, '');
 }
 
 /** `163k`, `1.2M`, `840` — a token count at a glance. */

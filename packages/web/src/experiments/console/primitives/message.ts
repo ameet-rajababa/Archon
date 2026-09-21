@@ -85,6 +85,8 @@ export interface Message {
  * a running total: it falls when the provider compacts.
  */
 export interface TurnUsage {
+  /** How full the context was when the turn ended. Absent on older readings. */
+  context?: number;
   input: number;
   output: number;
   costUsd: number | null;
@@ -112,6 +114,7 @@ interface ParsedMetadata {
   }[];
   category?: string;
   usage?: {
+    context?: unknown;
     input?: unknown;
     output?: unknown;
     costUsd?: unknown;
@@ -228,6 +231,7 @@ function toTurnUsage(raw: ParsedMetadata['usage']): TurnUsage | null {
     return null;
   }
   return {
+    ...(typeof raw.context === 'number' && raw.context > 0 ? { context: raw.context } : {}),
     input: raw.input,
     output: raw.output,
     costUsd: typeof raw.costUsd === 'number' ? raw.costUsd : null,

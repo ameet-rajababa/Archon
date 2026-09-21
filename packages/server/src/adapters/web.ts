@@ -122,7 +122,13 @@ export class WebAdapter implements IWebPlatformAdapter {
    */
   async sendResultFooter(
     conversationId: string,
-    info: { cost?: number; tokens?: TokenUsage; stopReason?: string; model?: string }
+    info: {
+      cost?: number;
+      tokens?: TokenUsage;
+      contextTokens?: number;
+      stopReason?: string;
+      model?: string;
+    }
   ): Promise<void> {
     if (!info.tokens) return;
     try {
@@ -132,6 +138,7 @@ export class WebAdapter implements IWebPlatformAdapter {
       const { input, output, cacheRead, cacheWrite } = info.tokens;
       const window = contextWindowFor(info.model);
       await attachUsageToLatestAssistantMessage(dbId, {
+        ...(info.contextTokens === undefined ? {} : { context: info.contextTokens }),
         input,
         output,
         ...(cacheRead === undefined ? {} : { cacheRead }),

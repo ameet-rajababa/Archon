@@ -2787,7 +2787,13 @@ async function handleStreamMode(
   let commandDetected = false;
   let commandFullyParsed = false;
   let lastResult:
-    | { cost?: number; tokens?: TokenUsage; stopReason?: string; model?: string }
+    | {
+        cost?: number;
+        tokens?: TokenUsage;
+        contextTokens?: number;
+        stopReason?: string;
+        model?: string;
+      }
     | undefined;
 
   for await (const msg of aiClient.sendQuery(
@@ -2903,6 +2909,10 @@ async function handleStreamMode(
       lastResult = {
         cost: msg.cost,
         tokens: msg.tokens,
+        // How full the context was when the turn ended. NOT `tokens.input`,
+        // which sums every request in the turn and is therefore a cost figure
+        // — a tool-heavy turn reports millions against a 200k window.
+        contextTokens: msg.contextTokens,
         stopReason: msg.stopReason,
         // Carried because a token count without the model it was spent on
         // cannot be turned into "how full is this context" — the denominator
@@ -3027,7 +3037,13 @@ async function handleBatchMode(
   let commandDetected = false;
   let commandFullyParsed = false;
   let lastResult:
-    | { cost?: number; tokens?: TokenUsage; stopReason?: string; model?: string }
+    | {
+        cost?: number;
+        tokens?: TokenUsage;
+        contextTokens?: number;
+        stopReason?: string;
+        model?: string;
+      }
     | undefined;
 
   for await (const msg of aiClient.sendQuery(
@@ -3141,6 +3157,10 @@ async function handleBatchMode(
       lastResult = {
         cost: msg.cost,
         tokens: msg.tokens,
+        // How full the context was when the turn ended. NOT `tokens.input`,
+        // which sums every request in the turn and is therefore a cost figure
+        // — a tool-heavy turn reports millions against a 200k window.
+        contextTokens: msg.contextTokens,
         stopReason: msg.stopReason,
         // Carried because a token count without the model it was spent on
         // cannot be turned into "how full is this context" — the denominator
@@ -3273,7 +3293,15 @@ async function handleBatchMode(
 async function maybeSendResultFooter(
   platform: IPlatformAdapter,
   conversationId: string,
-  info: { cost?: number; tokens?: TokenUsage; stopReason?: string; model?: string } | undefined
+  info:
+    | {
+        cost?: number;
+        tokens?: TokenUsage;
+        contextTokens?: number;
+        stopReason?: string;
+        model?: string;
+      }
+    | undefined
 ): Promise<void> {
   if (!info) return;
   if (info.cost === undefined && info.tokens === undefined) return;

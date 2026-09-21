@@ -131,6 +131,15 @@ export interface MessageMetadata {
    * turn has one.
    */
   usage?: {
+    /**
+     * How full the context was when the turn ended — gross input on the LAST
+     * request. This is the figure the bar divides by `window`.
+     *
+     * Absent on readings written before the distinction existed, and on
+     * providers that report no per-request usage. `input` is NOT a substitute:
+     * it sums every request in the turn, so a tool-heavy turn reports millions.
+     */
+    context?: number;
     input: number;
     output: number;
     cacheRead?: number;
@@ -206,7 +215,13 @@ export interface IPlatformAdapter {
    */
   sendResultFooter?(
     conversationId: string,
-    info: { cost?: number; tokens?: TokenUsage; stopReason?: string; model?: string }
+    info: {
+      cost?: number;
+      tokens?: TokenUsage;
+      contextTokens?: number;
+      stopReason?: string;
+      model?: string;
+    }
   ): Promise<void>;
 }
 

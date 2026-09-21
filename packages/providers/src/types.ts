@@ -257,6 +257,17 @@ export type MessageChunk =
       /** SDK-provided error detail strings. Populated when isError is true. */
       errors?: string[];
       cost?: number;
+      /**
+       * How full the context was when the turn ended: gross input on the LAST
+       * request, not summed across the turn.
+       *
+       * Separate from `tokens` because they answer different questions and
+       * only one of them can be divided by a context window. `tokens.input` is
+       * a cost figure — every request in the turn added together — so a
+       * tool-heavy turn reports millions of input tokens against a 200k
+       * window. Omitted when the provider reports no per-request usage.
+       */
+      contextTokens?: number;
       stopReason?: string;
       numTurns?: number;
       /** Concrete model reported by the provider; omitted when its SDK does not expose one. */

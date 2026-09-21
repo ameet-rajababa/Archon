@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import { contextReading, formatTokens } from '../primitives/context-window';
+import { contextReading, formatTokens, shortModel } from '../primitives/context-window';
 import type { Message } from '../primitives/message';
 
 /** Where the bar changes colour. Amber is "think about wrapping up", red is "do". */
@@ -7,23 +7,29 @@ const AMBER_AT = 0.4;
 const RED_AT = 0.75;
 
 /**
- * How full this chat's context is.
+ * How full this chat's context is, said out loud: used, total, and the model
+ * whose window that total belongs to.
  *
- * The number that matters is the last turn's gross prompt input — everything
- * the model re-read. It is occupancy, not a total: when the provider compacts,
- * it DROPS, and that drop is the only visible sign that compaction happened at
- * all. A bar that only ever rises would be hiding the more interesting half.
+ * A bare percentage was not enough to act on. `81%` of what, on which model,
+ * is the difference between "wrap up soon" and "this is fine" — and the same
+ * conversation is half full on one model and a tenth full on another, so the
+ * denominator has to be visible for the number to mean anything.
  *
- * Renders nothing until a turn has reported usage, and shows the figure
- * WITHOUT a bar when the model's window is unknown — a percentage against a
- * guessed denominator is a confident lie, and this one would be used to decide
- * when to abandon a conversation.
+ * The figure is occupancy on the LAST request of the last turn, which is the
+ * only quantity a context window can be compared against. It is not the turn's
+ * token total: a turn with twenty tool calls makes twenty requests, and
+ * summing their inputs reports millions against a 200k window.
+ *
+ * Renders nothing until a turn has reported one. Shows the raw figure with no
+ * bar and no percentage when the model's window is unknown — a percentage
+ * against a guessed denominator is a confident lie, and this one decides when
+ * a conversation gets abandoned.
  */
 export function ContextBar({ messages }: { messages: readonly Message[] }): ReactElement | null {
   const reading = contextReading(messages);
   if (reading === null) return null;
 
-  const { tokens, fraction, costUsd } = reading;
+  const { tokens, window, fraction, model, costUsd } = reading;
   const pct = fraction === null ? null : Math.min(1, fraction);
   const color =
     pct === null
@@ -35,8 +41,11 @@ export function ContextBar({ messages }: { messages: readonly Message[] }): Reac
           : 'var(--text-tertiary)';
 
   const title = [
-    `${formatTokens(tokens)} tokens replayed on the last turn`,
-    pct === null ? 'model window unknown — no percentage claimed' : null,
+    window === null
+      ? `${tokens.toLocaleString()} tokens in context`
+      : `${tokens.toLocaleString()} of ${window.toLocaleString()} tokens in context`,
+    model === null ? null : model,
+    window === null ? 'model window unknown — no percentage claimed' : null,
     costUsd === null ? null : `$${costUsd.toFixed(2)} so far`,
   ]
     .filter((s): s is string => s !== null)
@@ -47,7 +56,7 @@ export function ContextBar({ messages }: { messages: readonly Message[] }): Reac
       {pct === null ? null : (
         <span
           aria-hidden
-          className="h-[4px] w-[56px] overflow-hidden rounded-full"
+          className="h-[4px] w-[48px] shrink-0 overflow-hidden rounded-full"
           style={{ background: 'var(--surface-bright)' }}
         >
           <span
@@ -57,8 +66,13 @@ export function ContextBar({ messages }: { messages: readonly Message[] }): Reac
         </span>
       )}
       <span style={{ color }}>
-        {pct === null ? formatTokens(tokens) : `${String(Math.round(pct * 100))}%`}
+        {formatTokens(tokens)}
+        {window === null ? '' : `/${formatTokens(window)}`}
+        {pct === null ? '' : ` ${String(Math.round(pct * 100))}%`}
       </span>
+      {model === null ? null : (
+        <span className="truncate text-text-tertiary">{shortModel(model)}</span>
+      )}
     </span>
   );
 }

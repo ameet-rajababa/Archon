@@ -950,6 +950,16 @@ async function* streamClaudeMessages(
   // field on a '<synthetic>' assistant message, then `is_error: true` on the
   // result. See ClaudeApiResultError.
   let pendingSdkError: { code: SDKAssistantMessageError; text: string } | undefined;
+  /**
+   * Usage of the most recent single request in this turn.
+   *
+   * Kept apart from the turn total because the two answer different questions.
+   * The total is what the turn COST — every request's input summed, which for
+   * a tool-heavy turn runs to millions against a 200k window. This is how full
+   * the context WAS on the last request, which is the only figure that can be
+   * compared to a window.
+   */
+  let lastRequestUsage: TokenUsage | undefined;
   // Progress frames carry no visibility marker, so retain the start decision
   // for the lifetime of this query and suppress the complete hidden lifecycle.
   const hiddenTaskIds = new Set<string>();
@@ -973,10 +983,21 @@ async function* streamClaudeMessages(
 
     if (event.type === 'assistant') {
       const message = msg as {
-        message: { content: ContentBlock[]; model?: string };
+        message: {
+          content: ContentBlock[];
+          model?: string;
+          usage?: Parameters<typeof normalizeClaudeUsage>[0];
+        };
         error?: SDKAssistantMessageError;
       };
       const content = message.message.content;
+      // Keep the LAST request's usage, overwriting as the turn goes. The
+      // result message reports the turn's TOTAL, which is a cost figure: a
+      // turn with twenty tool calls makes twenty requests and sums their
+      // inputs, so it ran to 13.3M against a 200k window. Occupancy is a
+      // property of ONE request — the final one — and only this loop sees it.
+      const perRequest = normalizeClaudeUsage(message.message.usage);
+      if (perRequest !== undefined) lastRequestUsage = perRequest;
 
       // API-level failure surfaced as text (#1797): the SDK writes the error
       // prose into a synthesized assistant message instead of throwing. Both
@@ -1239,6 +1260,7 @@ async function* streamClaudeMessages(
         type: 'result',
         sessionId: resultMsg.session_id,
         ...(tokens ? { tokens } : {}),
+        ...(lastRequestUsage === undefined ? {} : { contextTokens: lastRequestUsage.input }),
         ...('structured_output' in resultMsg && resultMsg.structured_output !== undefined
           ? { structuredOutput: resultMsg.structured_output }
           : {}),
