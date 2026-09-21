@@ -1,13 +1,28 @@
 import { Search, Inbox, Play, PanelLeft } from 'lucide-react';
 import { useRailPeek } from '../lib/use-rail-peek';
 import { RAIL_AUTO_COLLAPSE_PX, useViewportWidth } from '../lib/use-viewport';
-import { applyManualOrder, dropIndexAt, previewShift, reorder, rowBoxes } from '../lib/chat-order';
+import {
+  applyManualOrder,
+  dropIndexAt,
+  mergeManualOrder,
+  previewShift,
+  reorder,
+  rowBoxes,
+} from '../lib/chat-order';
 import { readProjectOrder, writeProjectOrder } from '../lib/project-order';
 import { pushOrder, syncPresentation } from '../lib/presentation-sync';
 
 /** Matches `margin-bottom: var(--row-gap)` on .rail-row at comfortable density. */
 const PROJECT_ROW_GAP = 2;
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import {
+  Fragment,
+  type ReactElement,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Link, useNavigate, useLocation } from 'react-router';
 import { Settings, PenTool, type LucideIcon } from 'lucide-react';
 import { ProjectRow } from './ProjectRow';
@@ -17,7 +32,7 @@ import { EnvVarsDialog } from './EnvVarsDialog';
 import { useEntity, invalidate } from '../store/cache';
 import { K } from '../store/keys';
 import * as skill from '../skills';
-import type { Project } from '../primitives/project';
+import { clampDropToGroup, groupByOwner, type Project } from '../primitives/project';
 
 interface ProjectRailProps {
   onAddProject: () => void;
@@ -114,9 +129,9 @@ function RailNavLink({
 }
 
 /**
- * Left rail, design v2: header with count pill, filter input, projects
- * grouped by owner with hairline section labels, and a drag handle on the
- * right edge (232–440px, persisted).
+ * Left rail: header, search row, the global scope, then the projects grouped
+ * by owner under mono section labels, and a drag handle on the right edge
+ * (232–440px, persisted).
  *
  * Note: ProjectRail mounts outside the inner `<Routes>` (sibling to the
  * <main> that hosts them), so `useParams()` returns `{}` here even on a
@@ -231,7 +246,18 @@ export function ProjectRail({ onAddProject, onSearch }: ProjectRailProps): React
     });
   }, [projects]);
 
-  const flat = useMemo(() => applyManualOrder(filtered, readProjectOrder()), [filtered, orderTick]);
+  /**
+   * Grouped by owner, and `flat` is the REGROUPED order.
+   *
+   * The drag primitives index into the list as rendered, so the two must not
+   * disagree. Grouping does not sort: each owner's section appears where its
+   * first project already sat, so a rail dragged into shape stays in shape.
+   */
+  const groups = useMemo(
+    () => groupByOwner(applyManualOrder(filtered, readProjectOrder())),
+    [filtered, orderTick]
+  );
+  const flat = useMemo(() => groups.flatMap(g => g.items), [groups]);
 
   /* ── drag to arrange ────────────────────────────────────────────────────
      The same primitives the chat rail uses: geometry measured ONCE at drag
@@ -260,9 +286,14 @@ export function ProjectRail({ onAddProject, onSearch }: ProjectRailProps): React
     setDropIndex(-1);
   };
   const commitDrag = (): void => {
-    const target = flat[dropIndex];
+    // A drag may only land inside its own owner group — see clampDropToGroup.
+    const clamped = dragId === null ? dropIndex : clampDropToGroup(groups, dragId, dropIndex);
+    const target = flat[clamped];
     if (dragId !== null && target !== undefined && target.id !== dragId) {
-      const next = reorder(flat, dragId, target.id);
+      // `flat` is the SEARCH-filtered list, so it is not the whole order.
+      // Folding it in leaves every project the query hid where it was, instead
+      // of writing an order made only of the rows that happened to match.
+      const next = mergeManualOrder(readProjectOrder(), reorder(flat, dragId, target.id));
       writeProjectOrder(next);
       pushOrder(next);
       // localStorage is invisible to useMemo; this is what makes it recompute.
@@ -411,34 +442,46 @@ export function ProjectRail({ onAddProject, onSearch }: ProjectRailProps): React
               </div>
             </>
           ) : null}
-          {flat.map((p, index) => (
-            <ProjectRow
-              key={p.id}
-              project={p}
-              dragging={dragId === p.id}
-              shift={
-                dragId === null ? 0 : previewShift(boxesRef.current, dragFrom, dropIndex, index)
-              }
-              registerRow={el => {
-                if (el === null) rowRefs.current.delete(p.id);
-                else rowRefs.current.set(p.id, el);
-              }}
-              onDragBegin={() => {
-                beginDrag(p.id, index);
-              }}
-              onDragEnd={endDrag}
-              selected={scope === p.id}
-              onClick={() => {
-                navigate(`/console/p/${p.id}`);
-              }}
-              onRemove={() => {
-                void handleRemove(p.id);
-                if (scope === p.id) navigate('/console');
-              }}
-              onEditEnv={() => {
-                setEnvProject(p);
-              }}
-            />
+          {groups.map(group => (
+            <Fragment key={group.owner}>
+              {/* Hidden with the rest of the labels when the rail is collapsed:
+                  at 63px there is nothing to label. */}
+              <div className="rail-hide rail-owner">{group.owner}</div>
+              {group.items.map((p, i) => {
+                const index = group.start + i;
+                return (
+                  <ProjectRow
+                    key={p.id}
+                    project={p}
+                    dragging={dragId === p.id}
+                    shift={
+                      dragId === null
+                        ? 0
+                        : previewShift(boxesRef.current, dragFrom, dropIndex, index)
+                    }
+                    registerRow={el => {
+                      if (el === null) rowRefs.current.delete(p.id);
+                      else rowRefs.current.set(p.id, el);
+                    }}
+                    onDragBegin={() => {
+                      beginDrag(p.id, index);
+                    }}
+                    onDragEnd={endDrag}
+                    selected={scope === p.id}
+                    onClick={() => {
+                      navigate(`/console/p/${p.id}`);
+                    }}
+                    onRemove={() => {
+                      void handleRemove(p.id);
+                      if (scope === p.id) navigate('/console');
+                    }}
+                    onEditEnv={() => {
+                      setEnvProject(p);
+                    }}
+                  />
+                );
+              })}
+            </Fragment>
           ))}
           {flat.length === 0 && error === undefined ? (
             <div className="px-3 py-6 text-center text-[12.5px] text-text-tertiary">

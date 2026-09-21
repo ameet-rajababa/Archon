@@ -73,3 +73,76 @@ export function toProject(raw: RawCodebase): Project {
     brief: toBrief(raw),
   };
 }
+
+/**
+ * The account or org a project belongs to — the part of `owner/repo` before
+ * the first slash. A bare name has no owner and groups under itself, which is
+ * what a locally-added folder looks like.
+ */
+export function ownerOf(name: string): string {
+  const i = name.indexOf('/');
+  return i === -1 ? name : name.slice(0, i);
+}
+
+export interface OwnerGroup<T> {
+  owner: string;
+  items: T[];
+  /** Index of this group's first item in the flat list it came from. */
+  start: number;
+}
+
+/**
+ * Group a list by owner WITHOUT reordering it.
+ *
+ * Each group appears where its first project already sat, and items keep their
+ * relative order inside it. That matters because the list handed in is the
+ * user's hand-arranged order: sorting the groups alphabetically would silently
+ * rearrange a rail somebody dragged into shape.
+ *
+ * A project whose owner already has a group joins it even if other owners
+ * appear in between, so the groups are contiguous in the output even when they
+ * were interleaved in the input.
+ */
+export function groupByOwner<T extends { name: string }>(items: readonly T[]): OwnerGroup<T>[] {
+  const out: OwnerGroup<T>[] = [];
+  const index = new Map<string, OwnerGroup<T>>();
+  for (const item of items) {
+    const owner = ownerOf(item.name);
+    let g = index.get(owner);
+    if (g === undefined) {
+      g = { owner, items: [], start: 0 };
+      index.set(owner, g);
+      out.push(g);
+    }
+    g.items.push(item);
+  }
+  let at = 0;
+  for (const g of out) {
+    g.start = at;
+    at += g.items.length;
+  }
+  return out;
+}
+
+/**
+ * Keep a drop inside the dragged row's own owner group.
+ *
+ * Grouping and a hand-chosen order were called mutually exclusive when the
+ * owner headers were first removed. They are — but only if a drag can land
+ * anywhere. Scoped to its own section both hold: dragging arranges an owner's
+ * projects, and no gesture can quietly move a project to an account it does
+ * not belong to.
+ *
+ * Returns the index to commit. An unknown id or an out-of-range drop is passed
+ * through unchanged so the caller's own "nothing to do" checks still decide.
+ */
+export function clampDropToGroup<T extends { id: string; name: string }>(
+  groups: readonly OwnerGroup<T>[],
+  dragId: string,
+  dropIndex: number
+): number {
+  const g = groups.find(x => x.items.some(i => i.id === dragId));
+  if (g === undefined) return dropIndex;
+  const last = g.start + g.items.length - 1;
+  return Math.min(Math.max(dropIndex, g.start), last);
+}

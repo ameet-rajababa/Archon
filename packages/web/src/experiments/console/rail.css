@@ -301,17 +301,21 @@
 .pick-colors {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   padding: 11px 13px;
   border-bottom: 1px solid var(--border);
+  /* One line, with room to spare: ten presets, a rule and the rainbow come to
+     353px inside a 366px row. Wrapping is left on so an eleventh preset looks
+     wrong rather than pushing the rainbow out of a clipped panel. */
   flex-wrap: wrap;
 }
 .pick-colors button {
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   display: grid;
   place-items: center;
+  flex: 0 0 auto;
   transition: transform 0.1s;
 }
 .pick-colors button:hover {
@@ -321,6 +325,131 @@
   width: 13px;
   height: 13px;
   color: #fff;
+}
+.pick-colors .vr {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  flex: 0 0 auto;
+}
+/* The swatch that means "not one of these" — a hue wheel, so it can't be
+   mistaken for an eleventh preset. */
+.rainbow {
+  background: conic-gradient(#f87171, #fbbf24, #4ade80, #22d3ee, #818cf8, #e879f9, #f87171);
+}
+
+/* Custom color: hex readout, saturation/value field, vertical hue rail. */
+.cust {
+  padding: 11px 13px;
+  border-bottom: 1px solid var(--border);
+}
+.cust-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 11px;
+}
+.cust-dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.18);
+}
+.cust-lab {
+  font-size: var(--text-body);
+  color: var(--text-tertiary);
+  letter-spacing: 0.02em;
+}
+.cust-hex {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: var(--text-body);
+  color: var(--text-primary);
+  width: 92px;
+  background: none;
+  border: 0;
+  padding: 2px 0;
+}
+.cust-hex:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-ring);
+  border-radius: 4px;
+}
+.cust-back {
+  margin-left: auto;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  transition: transform 0.1s;
+}
+.cust-back:hover {
+  transform: scale(1.08);
+}
+.cust-body {
+  display: flex;
+  gap: 11px;
+  align-items: stretch;
+  height: 118px;
+}
+.sv {
+  position: relative;
+  flex: 1;
+  border-radius: 6px;
+  cursor: crosshair;
+  touch-action: none;
+}
+.sv-white {
+  position: absolute;
+  inset: 0;
+  border-radius: 6px;
+  background: linear-gradient(to right, #fff, rgb(255 255 255 / 0));
+}
+.sv-black {
+  position: absolute;
+  inset: 0;
+  border-radius: 6px;
+  background: linear-gradient(to bottom, rgb(0 0 0 / 0), #000);
+}
+.sv-knob,
+.hue-knob {
+  position: absolute;
+  pointer-events: none;
+  border: 2px solid #fff;
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.35),
+    0 1px 3px rgb(0 0 0 / 0.4);
+}
+.sv-knob {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+.hue {
+  position: relative;
+  width: 13px;
+  flex: 0 0 auto;
+  border-radius: 7px;
+  cursor: ns-resize;
+  touch-action: none;
+  background: linear-gradient(
+    to bottom,
+    #f00 0%,
+    #ff0 17%,
+    #0f0 33%,
+    #0ff 50%,
+    #00f 67%,
+    #f0f 83%,
+    #f00 100%
+  );
+}
+.hue-knob {
+  left: -2px;
+  right: -2px;
+  height: 7px;
+  border-radius: 4px;
+  transform: translateY(-50%);
 }
 .pick-search {
   display: flex;
@@ -482,8 +611,12 @@
   height: 13px;
   display: block;
 }
+/* The rail speaks in lower case. The word itself is owned by
+   primitives/chat-status.ts, so the casing is a rendering choice made here
+   rather than a second copy of the vocabulary. */
 .chat-stamp {
   display: block;
+  text-transform: lowercase;
   margin-top: 2px;
   font-size: var(--text-micro);
   color: var(--text-tertiary);
@@ -611,4 +744,22 @@
 }
 .chat-stamp.is-working {
   color: var(--running);
+}
+
+/* Owner section label.
+   The account a run of projects belongs to, in the console's section voice:
+   mono, uppercase, micro, tertiary — the same register as WHERE THIS PROJECT
+   IS and NEEDS YOU on the Overview, so it reads as a label rather than as
+   another row you could click. Indented to the icon column so the project
+   names below start where the label does. */
+.rail-owner {
+  padding: 10px 7px 3px 17px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  line-height: 1;
+  user-select: none;
 }
