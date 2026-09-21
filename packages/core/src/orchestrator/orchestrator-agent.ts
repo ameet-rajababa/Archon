@@ -30,6 +30,7 @@ import { toError } from '../utils/error';
 import { safeDeactivateSession } from '../state/session-transitions';
 import { getAgentProvider, getProviderCapabilities } from '@archon/providers';
 import { buildManageRunTool } from './manage-run-tool';
+import { buildProjectBriefTool } from './update-project-brief-tool';
 import { getArchonWorkspacesPath, ensureArchonWorkspacesPath } from '@archon/paths';
 import { resolveWorkflowSourceRoot } from '../utils/workflow-source-root';
 import {
@@ -2615,6 +2616,9 @@ export async function handleMessage(
     if (conversation.codebase_id !== null && scopedCaps?.nativeTools) {
       const scopedCodebaseId = conversation.codebase_id;
       requestOptions.nativeTools = [
+        // Keeps the project's brief current. Same gate as manage_run: a chat
+        // scoped to a project, on a provider with in-process native tools.
+        buildProjectBriefTool({ codebaseId: scopedCodebaseId }),
         buildManageRunTool({
           codebaseId: scopedCodebaseId,
           // One continuation per turn: the resume runs in this conversation and
