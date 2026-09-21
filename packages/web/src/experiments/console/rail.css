@@ -743,6 +743,26 @@
     opacity: 0;
   }
 }
+/* The working mark for a dot that is not a chat's — a run in the dock, the
+   project header's activity pill. Same colour it already had, but now the same
+   HEARTBEAT: a static blue dot and a breathing one meant the same thing in two
+   places, which is how a reader learns that the movement is decoration.
+   The ring takes `background-color: inherit` so it picks up whatever colour the
+   dot itself was given, rather than needing to be told twice. */
+.live-mark {
+  position: relative;
+  animation: chat-throb 1.9s ease-in-out infinite;
+}
+.live-mark::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background-color: inherit;
+  opacity: 0.5;
+  animation: chat-ping 1.9s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
 /* Awaiting: an open ring. Unresolved, and deliberately not a filled dot —
    filled reads as "done", which is the opposite of what it means.
    The MARK variant of the warning colour, not the text one: a 2px ring is a

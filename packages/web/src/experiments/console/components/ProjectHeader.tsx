@@ -83,7 +83,13 @@ export function ProjectHeader(): ReactElement {
             // semantic tokens, which are tuned per mode and verified at AA.
             style={{ color: needsYou ? 'var(--warning)' : 'var(--running)' }}
           >
-            <span aria-hidden className="h-[6px] w-[6px] rounded-full bg-current" />
+            {/* `live-mark` only while something is actually executing: a needs-you
+                pill is waiting, and a waiting thing that pulses is asking to be
+                looked at twice. */}
+            <span
+              aria-hidden
+              className={`h-[6px] w-[6px] rounded-full bg-current${needsYou ? '' : ' live-mark'}`}
+            />
             {activity}
           </span>
         ) : null}

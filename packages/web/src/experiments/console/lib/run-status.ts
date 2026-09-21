@@ -71,7 +71,11 @@ export const statusTextClass: Record<RunStatus, string> = {
 };
 
 export const statusDotClass: Record<RunStatus, string> = {
-  running: 'bg-[color:var(--running)]',
+  // `live-mark` (rail.css) is the shared working mark — the same breathe and
+  // radiating ring a working chat wears. A run executing right now and a chat
+  // executing right now are the same news; they looked different only because
+  // they were drawn in different files.
+  running: 'bg-[color:var(--running)] live-mark',
   paused: 'bg-warning animate-pulse',
   failed: 'bg-error',
   completed: 'bg-success',
