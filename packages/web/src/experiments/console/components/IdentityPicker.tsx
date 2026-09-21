@@ -9,15 +9,17 @@ import {
 import { createPortal } from 'react-dom';
 import { clamp, hexToHsv, hsvToHex, isHexColor, type Hsv } from '../lib/color-hsv';
 import { ICON_PATHS } from '../lib/glyph-data';
+import { isEmojiGlyph } from '../lib/glyph';
 import { searchEmoji, searchIcons } from '../lib/glyph-search';
 import { IDENTITY_COLORS, type Identity } from '../lib/identity';
 
 /** Where the custom picker starts when the current color is a preset: a warm, obviously-editable orange. */
 const CUSTOM_START: Hsv = { h: 28, s: 0.7, v: 0.95 };
 
-/** Panel heights, for clamping to the viewport. The custom row is the taller of the two. */
-const PANEL_PRESETS = 420;
-const PANEL_CUSTOM = 560;
+/** Panel heights for clamping to the viewport: the body, plus whichever color row is showing. */
+const PANEL_BODY = 372;
+const PRESET_ROW = 48;
+const CUSTOM_ROW = 188;
 
 /**
  * Choose a subject's icon and color — a project's, an assistant's.
@@ -31,6 +33,10 @@ const PANEL_CUSTOM = 560;
  * swatch swaps the row for a full custom picker — hex readout, saturation and
  * value field, vertical hue rail — and the rainbow in its corner swaps back.
  * One row, two modes, rather than a second panel to get lost in.
+ *
+ * It is absent entirely for a project wearing an emoji, because an emoji is not
+ * stroke art: the color would paint nothing anywhere. The stored color is kept,
+ * not cleared, so choosing an icon again brings it back.
  */
 export function IdentityPicker({
   identity,
@@ -172,15 +178,16 @@ export function IdentityPicker({
 
   const items = tab === 'icons' ? searchIcons(query) : searchEmoji(query);
   const chosenGlyph = identity.glyph;
+  // Keyed on the CHOSEN glyph, not the open tab: browsing emoji while still
+  // wearing an icon leaves a color control that does something.
+  const tintable = !isEmojiGlyph(chosenGlyph);
 
   // Clamp to the viewport: the rail sits at the left edge, so only the bottom
   // realistically overflows. Measured on every render rather than captured on
   // open, which is why the listener above re-renders on scroll.
   const rect = anchor.getBoundingClientRect();
-  const top = Math.min(
-    rect.bottom + 6,
-    window.innerHeight - (custom ? PANEL_CUSTOM : PANEL_PRESETS)
-  );
+  const height = PANEL_BODY + (tintable ? (custom ? CUSTOM_ROW : PRESET_ROW) : 0);
+  const top = Math.min(rect.bottom + 6, window.innerHeight - height);
   const left = Math.min(rect.left, window.innerWidth - 404);
 
   // Portaled, like RowMenu and for the same reason: the panel is taller than
@@ -209,7 +216,7 @@ export function IdentityPicker({
         ))}
       </div>
 
-      {custom ? (
+      {!tintable ? null : custom ? (
         <div className="cust">
           <div className="cust-top">
             <span className="cust-dot" style={{ background: paint }} />

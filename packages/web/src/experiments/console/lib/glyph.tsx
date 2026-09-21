@@ -12,6 +12,17 @@ import { ICON_NAMES, ICON_PATHS } from './glyph-data';
  * An emoji is stored as the character itself, which is not an icon name, so it
  * renders as text.
  */
+/**
+ * True when the chosen glyph is an emoji rather than an icon name.
+ *
+ * The one place that decides it. `Glyph` uses it to skip the tint, and the
+ * picker uses it to hide a color control that would paint nothing — two
+ * answers that have to agree, so they come from the same function.
+ */
+export function isEmojiGlyph(glyph: string | null): boolean {
+  return glyph !== null && glyph !== '' && !(glyph in ICON_PATHS);
+}
+
 export function Glyph({
   seed,
   glyph,
@@ -27,7 +38,7 @@ export function Glyph({
   const name = glyph !== null && glyph in ICON_PATHS ? glyph : null;
 
   // Chosen an emoji: it carries its own color and is not tinted.
-  if (name === null && glyph !== null && glyph !== '') {
+  if (isEmojiGlyph(glyph)) {
     return (
       <span aria-hidden style={{ fontSize: size + 1, lineHeight: `${String(size + 2)}px` }}>
         {glyph}
