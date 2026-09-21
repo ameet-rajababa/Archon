@@ -30,7 +30,11 @@ export function ContextBar({ messages }: { messages: readonly Message[] }): Reac
   if (reading === null) return null;
 
   const { tokens, window, fraction, model, costUsd } = reading;
-  const pct = fraction === null ? null : Math.min(1, fraction);
+  // The BAR clamps, the NUMBER does not. A percentage capped at 100 lets a
+  // wrong denominator hide: this read "567k/200k 100%" for a conversation that
+  // was 283% of the window it had been given, and the cap is what made that
+  // look merely full rather than impossible.
+  const pct = fraction;
   const color =
     pct === null
       ? 'var(--text-tertiary)'
@@ -61,7 +65,10 @@ export function ContextBar({ messages }: { messages: readonly Message[] }): Reac
         >
           <span
             className="block h-full rounded-full"
-            style={{ width: `${String(Math.max(2, pct * 100))}%`, background: color }}
+            style={{
+              width: `${String(Math.min(100, Math.max(2, pct * 100)))}%`,
+              background: color,
+            }}
           />
         </span>
       )}
