@@ -185,12 +185,51 @@ export interface GlobalConfig {
 
   /** Default-off policy for continuing terminal quota failures after time passes. */
   workflows?: WorkflowContinuationConfig;
+
+  /** When a chat has grown enough to be worth moving out of. */
+  chats?: ChatsConfig;
 }
 
 // Ordinary global/repo config remains forward-compatible: unlike the explicitly
 // selected run layer, it strips extension keys it does not understand yet.
 export const workflowContinuationConfigSchema = workflowRunContinuationConfigSchema.strip();
 export type WorkflowContinuationConfig = NonNullable<WorkflowRunConfigLayer['workflows']>;
+
+/**
+ * When a chat has grown enough to be worth moving out of.
+ *
+ * Percentages of the model's context window, not token counts: the same
+ * conversation is half full on one model and a tenth full on another, and the
+ * point of the setting is "how much room is left to think in".
+ *
+ * The defaults sit far below the window's ceiling on purpose. A model's
+ * attention dilutes long before its context fills — early instructions get
+ * out-argued by recent tool output — so the useful threshold is about
+ * sharpness, not capacity. Handing off at half also means never reaching the
+ * provider's own auto-compaction, which summarises with ITS priorities and
+ * silently drops the decisions that were reversed along the way.
+ *
+ * A chat whose model has no known window is never acted on: no window, no
+ * percentage, no automatic anything.
+ */
+export interface ChatsConfig {
+  /**
+   * Suggest wrapping up at this fill level. Informational only.
+   * @default 40
+   */
+  nudgeAtPercent?: number;
+  /**
+   * Hand off automatically at this fill level, at the next safe boundary —
+   * never mid-task. Set `autoHandoff: false` to suggest instead of act.
+   * @default 50
+   */
+  handoffAtPercent?: number;
+  /**
+   * Whether crossing `handoffAtPercent` acts or merely reports.
+   * @default true
+   */
+  autoHandoff?: boolean;
+}
 
 /**
  * Repository configuration (project-specific settings)
@@ -216,6 +255,9 @@ export interface RepoConfig {
 
   /** Project override for quota-failure continuation. */
   workflows?: WorkflowContinuationConfig;
+
+  /** Project override for chat handoff thresholds. */
+  chats?: ChatsConfig;
 
   /**
    * Commands configuration

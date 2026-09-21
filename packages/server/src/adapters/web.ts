@@ -5,6 +5,7 @@
 import type { IWebPlatformAdapter, MessageMetadata } from '@archon/core';
 import type { MessageChunk, TokenUsage } from '@archon/providers/types';
 import { attachUsageToLatestAssistantMessage } from '@archon/core/db/messages';
+import { contextWindowFor } from '@archon/core/orchestrator/context-window';
 import { createLogger } from '@archon/paths';
 import { MessagePersistence } from './web/persistence';
 import { SSETransport, DASHBOARD_STREAM, type SSEWriter } from './web/transport';
@@ -129,6 +130,7 @@ export class WebAdapter implements IWebPlatformAdapter {
       const dbId = this.persistence.conversationDbId(conversationId);
       if (dbId === undefined) return;
       const { input, output, cacheRead, cacheWrite } = info.tokens;
+      const window = contextWindowFor(info.model);
       await attachUsageToLatestAssistantMessage(dbId, {
         input,
         output,
@@ -136,6 +138,10 @@ export class WebAdapter implements IWebPlatformAdapter {
         ...(cacheWrite === undefined ? {} : { cacheWrite }),
         ...(info.cost === undefined ? {} : { costUsd: info.cost }),
         ...(info.model === undefined ? {} : { model: info.model }),
+        // Resolved here so the console divides rather than looks up. An
+        // unknown model writes no window, and the bar then declines to claim
+        // a percentage at all.
+        ...(window === null ? {} : { window }),
       });
     } catch (error) {
       getLog().warn({ conversationId, err: error }, 'result_footer_persist_failed');

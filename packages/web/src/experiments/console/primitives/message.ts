@@ -90,6 +90,8 @@ export interface TurnUsage {
   costUsd: number | null;
   /** The model that answered, when the provider names one. */
   model?: string;
+  /** That model's context window, resolved server-side. Absent when unknown. */
+  window?: number;
 }
 
 interface RawMessage {
@@ -114,6 +116,7 @@ interface ParsedMetadata {
     output?: unknown;
     costUsd?: unknown;
     model?: unknown;
+    window?: unknown;
   };
   workflowDispatch?: {
     workflowName: string;
@@ -229,5 +232,6 @@ function toTurnUsage(raw: ParsedMetadata['usage']): TurnUsage | null {
     output: raw.output,
     costUsd: typeof raw.costUsd === 'number' ? raw.costUsd : null,
     ...(typeof raw.model === 'string' ? { model: raw.model } : {}),
+    ...(typeof raw.window === 'number' && raw.window > 0 ? { window: raw.window } : {}),
   };
 }

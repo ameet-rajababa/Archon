@@ -138,6 +138,16 @@ export interface MessageMetadata {
     costUsd?: number;
     /** The model that answered. Without it the reading has no denominator. */
     model?: string;
+    /**
+     * That model's context window, resolved where the model is known.
+     *
+     * Written here rather than looked up by every reader: the table belongs to
+     * one place (orchestrator/context-window.ts), and a client that divides a
+     * number it was handed cannot disagree with the server about how full a
+     * conversation is. Absent when the model is unrecognised, which is what
+     * makes "no percentage" possible instead of a guessed one.
+     */
+    window?: number;
   };
 }
 

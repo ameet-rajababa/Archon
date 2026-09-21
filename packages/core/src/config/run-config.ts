@@ -70,6 +70,10 @@ const keyClassifications = {
     kind: 'unavailable',
     reason: 'recommended workflows are listing-only and have no run consumer',
   },
+  chats: {
+    kind: 'unavailable',
+    reason: 'chat handoff thresholds govern conversations, not workflow runs',
+  },
 } as const satisfies Record<ConfigKey, KeyClassification>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
