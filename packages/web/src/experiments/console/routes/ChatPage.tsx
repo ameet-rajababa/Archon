@@ -31,8 +31,6 @@ import type { ConversationSummary } from '../primitives/conversation';
 // still surface if a per-conversation SSE event is dropped (cross-origin
 // EventSource in dev can miss bursts). Mirrors RunDetailPage's safety-net poll.
 const ACTIVE_POLL_MS = 3000;
-/** Shared empty set, so the status call below allocates nothing per render. */
-const EMPTY_ID_SET: ReadonlySet<string> = new Set();
 /**
  * How long a send waits to be confirmed by the server before it stops counting
  * as working on its own.
@@ -396,18 +394,12 @@ export function ChatPage(): ReactElement {
   }, [liveIds, activeConvId, working]);
   /** The status of the chat being READ. Same three states and same ordering as
    * every row in the rail — `chatStatus` owns the precedence. */
-  const loaded = messages ?? [];
-  const lastSpeaker = loaded[loaded.length - 1]?.role ?? null;
   const status: ChatStatus =
     activeConvId === null
       ? 'idle'
       : chatStatus(activeConvId, {
           working: railLiveIds,
           awaiting: awaitingIds,
-          // Read off the transcript rather than the conversation list: this is
-          // the one chat whose messages are already loaded, so it knows who
-          // spoke last without waiting for the list to be refetched.
-          awaitingReply: lastSpeaker === 'assistant' ? new Set([activeConvId]) : EMPTY_ID_SET,
         });
 
   // Belt and braces: an echo must never outlive its turn. If the reply has

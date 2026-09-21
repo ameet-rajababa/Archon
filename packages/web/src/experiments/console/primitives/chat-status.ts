@@ -34,25 +34,26 @@ export interface ChatStatusSets {
    * ask is not running.
    */
   awaiting: ReadonlySet<string>;
-  /**
-   * Chats whose last word was the agent's.
-   *
-   * Ranked BELOW working, and that ordering is the whole reason this is a
-   * third set rather than more ids in `awaiting`. Mid-turn the agent's own
-   * streamed text is the last message, so a working chat is nearly always also
-   * a chat the agent spoke in last — merging the two would paint every running
-   * chat amber the moment it said anything.
-   *
-   * Optional: a caller with no way to know who spoke last omits it and gets
-   * the two-state answer rather than a wrong one.
-   */
-  awaitingReply?: ReadonlySet<string>;
 }
 
+/**
+ * Exclusive and ordered, and the order ends at two.
+ *
+ * There was a third set — chats whose last word was the agent's — ranked below
+ * working so that a streaming chat would not go amber mid-sentence. The
+ * ranking was right and the state was wrong: EVERY finished chat ends with the
+ * agent, so five of five went amber and the colour stopped meaning anything.
+ * Worse, `working` is a polled signal, so in the seconds after a reconnect the
+ * mask was simply missing and a chat being actively worked on announced that
+ * it needed a human.
+ *
+ * An unknown answer now falls to `idle`. A signal that degrades to silence
+ * costs a moment of under-reporting; one that degrades to a call for help
+ * teaches the reader to ignore the only colour that was supposed to move them.
+ */
 export function chatStatus(conversationId: string, sets: ChatStatusSets): ChatStatus {
   if (sets.awaiting.has(conversationId)) return 'awaiting';
   if (sets.working.has(conversationId)) return 'working';
-  if (sets.awaitingReply?.has(conversationId) === true) return 'awaiting';
   return 'idle';
 }
 
@@ -99,25 +100,6 @@ export function askAwaitingIds(
  * set came back empty for exactly the runs it exists to find, and no chat has
  * ever gone amber.
  */
-/**
- * Chats whose last word was the agent's.
- *
- * Every one of them is waiting on a human. A reply that has been read is
- * indistinguishable from one nobody has seen, so only the person can settle
- * it, and until they do the chat is theirs to act on. A chat you spoke in last
- * is deliberately NOT here: there the ball is with the machine, or the turn
- * was dropped, and neither is something to prompt you about.
- */
-export function awaitingReplyIds(
-  conversations: readonly { id: string; lastMessageRole: string | null }[]
-): Set<string> {
-  const out = new Set<string>();
-  for (const c of conversations) {
-    if (c.lastMessageRole === 'assistant') out.add(c.id);
-  }
-  return out;
-}
-
 export function awaitingInputIds(
   runs: readonly {
     status: string;

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { askAwaitingIds, awaitingInputIds, awaitingReplyIds, chatStatus } from './chat-status';
+import { askAwaitingIds, awaitingInputIds, chatStatus } from './chat-status';
 
 const sets = (working: string[], awaiting: string[]) => ({
   working: new Set(working),
@@ -93,50 +93,23 @@ describe('askAwaitingIds', () => {
   });
 });
 
-describe('awaitingReplyIds', () => {
-  test('a chat the agent spoke in last is waiting on you', () => {
-    expect([...awaitingReplyIds([{ id: 'a', lastMessageRole: 'assistant' }])]).toEqual(['a']);
-  });
-
-  test('a chat you spoke in last is not — the ball is with the machine', () => {
-    expect([...awaitingReplyIds([{ id: 'a', lastMessageRole: 'user' }])]).toEqual([]);
-  });
-
-  test('an empty chat, or a server that does not send the field, is not amber', () => {
-    expect([...awaitingReplyIds([{ id: 'a', lastMessageRole: null }])]).toEqual([]);
-    expect([...awaitingReplyIds([{ id: 'a', lastMessageRole: 'system' }])]).toEqual([]);
-  });
-});
-
-describe('chatStatus precedence with awaitingReply', () => {
+describe('chatStatus when the working signal is missing', () => {
   const none: ReadonlySet<string> = new Set();
 
-  // The ordering that matters: mid-turn the agent's own streamed text is the
-  // last message, so without this a running chat would go amber the moment it
-  // said anything.
-  test('working outranks the agent having spoken last', () => {
-    expect(
-      chatStatus('a', { working: new Set(['a']), awaiting: none, awaitingReply: new Set(['a']) })
-    ).toBe('working');
+  // The regression this replaced: a third set marked every chat whose last
+  // word was the agent's as awaiting. Every finished chat ends that way, so
+  // the rail went five-for-five amber — and because `working` is polled, a
+  // chat being actively worked on announced that it needed a human for the
+  // seconds after a reconnect.
+  test('the agent having spoken last is not a call for help', () => {
+    expect(chatStatus('a', { working: none, awaiting: none })).toBe('idle');
+  });
+
+  test('an unknown answer falls to silence, never to amber', () => {
+    expect(chatStatus('unheard-of', { working: none, awaiting: none })).toBe('idle');
   });
 
   test('a gate still outranks working', () => {
-    expect(
-      chatStatus('a', {
-        working: new Set(['a']),
-        awaiting: new Set(['a']),
-        awaitingReply: new Set(['a']),
-      })
-    ).toBe('awaiting');
-  });
-
-  test('once the turn ends, the agent having spoken last is your move', () => {
-    expect(chatStatus('a', { working: none, awaiting: none, awaitingReply: new Set(['a']) })).toBe(
-      'awaiting'
-    );
-  });
-
-  test('a caller that omits the set gets the old two-state answer', () => {
-    expect(chatStatus('a', { working: none, awaiting: none })).toBe('idle');
+    expect(chatStatus('a', { working: new Set(['a']), awaiting: new Set(['a']) })).toBe('awaiting');
   });
 });
