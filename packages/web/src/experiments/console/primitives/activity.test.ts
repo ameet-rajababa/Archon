@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { describeActivity, formatElapsed } from './activity';
+import { describeActivity, formatElapsed, traceLine } from './activity';
 
 describe('describeActivity', () => {
   test('names the file, not the tool', () => {
@@ -82,5 +82,48 @@ describe('formatElapsed', () => {
 
   test('never renders a negative clock', () => {
     expect(formatElapsed(-5_000)).toBe('0s');
+  });
+});
+
+describe('traceLine', () => {
+  test('names the file, not the mechanism', () => {
+    expect(traceLine('Read', { file_path: 'a/b/tokens.css' })).toEqual({
+      verb: 'read',
+      target: 'tokens.css',
+    });
+    expect(traceLine('Edit', { file_path: 'src/lib/activity-log.ts' })).toEqual({
+      verb: 'edit',
+      target: 'activity-log.ts',
+    });
+  });
+
+  test('a shell command keeps the command, because the basename would read as a file', () => {
+    expect(traceLine('Bash', { command: 'bun  run   lint' })).toEqual({
+      verb: 'run',
+      target: 'bun run lint',
+    });
+  });
+
+  test('a search says what and where', () => {
+    expect(traceLine('Grep', { pattern: 'actionType', path: 'src/' })).toEqual({
+      verb: 'grep',
+      target: 'actionType in src/',
+    });
+    expect(traceLine('Grep', { pattern: 'actionType' })).toEqual({
+      verb: 'grep',
+      target: 'actionType',
+    });
+  });
+
+  test('an MCP tool keeps both halves, unlike the one-line description', () => {
+    expect(traceLine('mcp__workspace_ameet__create_doc')).toEqual({
+      verb: 'workspace ameet',
+      target: 'create_doc',
+    });
+  });
+
+  test('an unknown tool is named, never blank', () => {
+    expect(traceLine('SomethingNew')).toEqual({ verb: 'somethingnew', target: '' });
+    expect(traceLine('Read', {})).toEqual({ verb: 'read', target: '' });
   });
 });

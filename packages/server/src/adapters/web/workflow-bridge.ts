@@ -9,7 +9,7 @@ import {
   type SkipCause,
 } from '@archon/workflows/schemas/workflow-run';
 import type { WorkflowEventRow } from '@archon/core/db/workflow-events';
-import { SSETransport } from './transport';
+import { SSETransport, DASHBOARD_STREAM } from './transport';
 import type { DagNodeSseEvent } from './workflow-event.schemas';
 
 type NodeSkipReason = Extract<WorkflowEmitterEvent, { type: 'node_skipped' }>['reason'];
@@ -399,7 +399,7 @@ export class WorkflowEventBridge {
           this.transport.emitWorkflowEvent(conversationId, sseEvent);
         }
         // Fan-out to dashboard stream — no-op when no dashboard client connected
-        this.transport.emitWorkflowEvent('__dashboard__', sseEvent);
+        this.transport.emitWorkflowEvent(DASHBOARD_STREAM, sseEvent);
       }
     });
   }

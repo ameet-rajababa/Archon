@@ -36,12 +36,13 @@ function parse(raw: string): ParsedEvent | null {
 }
 
 /**
- * Subscribe to the dashboard SSE stream and invalidate the runs feed on any
- * lifecycle change. Safe to mount from more than one route — RunsPage and the
- * ChatPage WorkflowDock both do; each opens an independent connection and the
- * invalidations are idempotent. That is only true because the server fans the
- * stream out to every subscriber; while it kept one writer per id, a second
- * mount was not a duplicate subscription but a reconnect loop.
+ * Subscribe to the dashboard SSE stream and invalidate the affected caches on
+ * any lifecycle change.
+ *
+ * Mount it ONCE, at the root (ConsoleApp does). The server keeps a single
+ * stream per id, so a second EventSource on `__dashboard__` evicts the first,
+ * whose browser then reconnects and evicts the second — two mounts is not a
+ * duplicate subscription, it is a reconnect loop.
  *
  * Events we care about:
  *   workflow_status      — run created / status changed / completed / failed
@@ -49,6 +50,9 @@ function parse(raw: string): ParsedEvent | null {
  *                          each ActiveRunCard
  *   conversation_changed — a chat created, renamed, archived, recolored, or
  *                          touched by new activity (Postgres only)
+ *   conversation_lock    — a chat started or stopped working. This is what
+ *                          makes "working" live across the whole console
+ *                          rather than up to one poll interval stale.
  */
 export function useDashboardSSE(): void {
   useEffect(() => {
@@ -80,9 +84,26 @@ export function useDashboardSSE(): void {
     es.onmessage = (e: MessageEvent<string>): void => {
       const ev = parse(e.data);
       if (ev?.type === undefined || ev.type === 'heartbeat') return;
+      if (ev.type === 'conversation_lock') {
+        // Read as a trigger, never as state: /api/health is the authority on
+        // which chats are working, and it merges in background workflows that
+        // never touch the conversation lock at all.
+        invalidate(K.activeChats);
+        // A turn beginning or ending also moves the chat's last-activity stamp
+        // and its position in the rail. On Postgres `conversation_changed`
+        // says so as well; on SQLite there are no triggers, so this is the
+        // only push the list gets. The event carries no codebase, so the
+        // debounced flush widens to the prefix.
+        convDirty = null;
+        flushConversations();
+        return;
+      }
       if (ev.type === 'workflow_status' || ev.type === 'dag_node') {
         // Refetch every runs:* key (runs:all, runs:project:<id>).
         invalidate('runs');
+        // A background workflow holds no conversation lock, so the active-chat
+        // list changes with the RUN rather than with a lock event.
+        invalidate(K.activeChats);
         // The rail's own numbers live under a separate key, so they need
         // naming here or they would freeze while the runs feed stayed live.
         invalidate('projectCounts');
@@ -119,6 +140,7 @@ export function useDashboardSSE(): void {
       invalidate('counts');
       invalidate('conversations');
       invalidate('projectCounts');
+      invalidate(K.activeChats);
     };
 
     // EventSource auto-reconnects on transient errors; we only surface a

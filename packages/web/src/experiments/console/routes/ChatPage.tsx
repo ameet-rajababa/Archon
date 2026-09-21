@@ -31,6 +31,8 @@ import type { ConversationSummary } from '../primitives/conversation';
 // still surface if a per-conversation SSE event is dropped (cross-origin
 // EventSource in dev can miss bursts). Mirrors RunDetailPage's safety-net poll.
 const ACTIVE_POLL_MS = 3000;
+/** Shared empty set, so the status call below allocates nothing per render. */
+const EMPTY_ID_SET: ReadonlySet<string> = new Set();
 /**
  * How long a send waits to be confirmed by the server before it stops counting
  * as working on its own.
@@ -392,26 +394,21 @@ export function ChatPage(): ReactElement {
     if (activeConvId === null || !working || liveIds.has(activeConvId)) return liveIds;
     return new Set([...liveIds, activeConvId]);
   }, [liveIds, activeConvId, working]);
-  /**
-   * The status of the chat being READ, which needs a precedence the rail's does
-   * not have.
-   *
-   * `chatStatus` ranks awaiting above working, and for a paused gate that is
-   * right: a run that has stopped to ask something is not running. "The agent
-   * spoke last" cannot be ranked that way — mid-turn the agent's own streamed
-   * text IS the last message, and that is working, not your move. So it is
-   * asked last, of a chat that has already been found not to be working.
-   */
+  /** The status of the chat being READ. Same three states and same ordering as
+   * every row in the rail — `chatStatus` owns the precedence. */
   const loaded = messages ?? [];
   const lastSpeaker = loaded[loaded.length - 1]?.role ?? null;
   const status: ChatStatus =
     activeConvId === null
       ? 'idle'
-      : awaitingIds.has(activeConvId) || working
-        ? chatStatus(activeConvId, { working: railLiveIds, awaiting: awaitingIds })
-        : lastSpeaker === 'assistant'
-          ? 'awaiting'
-          : 'idle';
+      : chatStatus(activeConvId, {
+          working: railLiveIds,
+          awaiting: awaitingIds,
+          // Read off the transcript rather than the conversation list: this is
+          // the one chat whose messages are already loaded, so it knows who
+          // spoke last without waiting for the list to be refetched.
+          awaitingReply: lastSpeaker === 'assistant' ? new Set([activeConvId]) : EMPTY_ID_SET,
+        });
 
   // Belt and braces: an echo must never outlive its turn. If the reply has
   // landed and released the composer, whatever the echo was waiting for is

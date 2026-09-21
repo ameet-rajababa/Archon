@@ -22,7 +22,7 @@ mock.module('@archon/paths', () => ({
 
 import { WebAdapter } from './web';
 import { MAX_TOOL_OUTPUT_CHARS } from './web/truncate';
-import type { SSETransport } from './web/transport';
+import { DASHBOARD_STREAM, type SSETransport } from './web/transport';
 import type { MessagePersistence } from './web/persistence';
 import type { WorkflowEventBridge } from './web/workflow-bridge';
 
@@ -30,17 +30,25 @@ import type { WorkflowEventBridge } from './web/workflow-bridge';
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeAdapter(): {
+function makeAdapter(options?: { dashboardConnected?: boolean }): {
   adapter: WebAdapter;
   emitted: string[];
+  dashboard: string[];
   appendToolResultCalls: unknown[][];
 } {
   const emitted: string[] = [];
+  const dashboard: string[] = [];
   const appendToolResultCalls: unknown[][] = [];
 
   const mockTransport = {
     emit: mock(async (_id: string, event: string) => {
       emitted.push(event);
+    }),
+    hasActiveStream: mock((id: string) =>
+      id === DASHBOARD_STREAM ? (options?.dashboardConnected ?? true) : true
+    ),
+    emitWorkflowEvent: mock((id: string, event: string) => {
+      if (id === DASHBOARD_STREAM) dashboard.push(event);
     }),
   } as unknown as SSETransport;
 
@@ -65,7 +73,7 @@ function makeAdapter(): {
   } as unknown as WorkflowEventBridge;
 
   const adapter = new WebAdapter(mockTransport, mockPersistence, mockBridge);
-  return { adapter, emitted, appendToolResultCalls };
+  return { adapter, emitted, dashboard, appendToolResultCalls };
 }
 
 // ---------------------------------------------------------------------------
@@ -162,5 +170,41 @@ describe('WebAdapter.sendMessage — text event category', () => {
     });
 
     expect(emitted.length).toBe(0);
+  });
+});
+
+describe('WebAdapter.emitLockEvent — dashboard mirror', () => {
+  test('a chat starting and stopping work is announced on the dashboard feed', async () => {
+    const { adapter, dashboard } = makeAdapter();
+
+    await adapter.emitLockEvent('conv-1', true);
+    await adapter.emitLockEvent('conv-1', false);
+
+    // Without this, a console looking at a DIFFERENT chat learns that this one
+    // is working only when its /api/health poll next comes round.
+    expect(dashboard.map(e => JSON.parse(e) as { type: string; locked: boolean })).toEqual([
+      {
+        type: 'conversation_lock',
+        conversationId: 'conv-1',
+        locked: true,
+        timestamp: expect.any(Number),
+      },
+      {
+        type: 'conversation_lock',
+        conversationId: 'conv-1',
+        locked: false,
+        timestamp: expect.any(Number),
+      },
+    ] as unknown as { type: string; locked: boolean }[]);
+  });
+
+  test('nothing is buffered for a dashboard nobody is watching', async () => {
+    const { adapter, dashboard, emitted } = makeAdapter({ dashboardConnected: false });
+
+    await adapter.emitLockEvent('conv-1', true);
+
+    expect(dashboard).toEqual([]);
+    // The conversation's own stream still gets it — that one buffers on purpose.
+    expect(emitted.some(e => e.includes('conversation_lock'))).toBe(true);
   });
 });

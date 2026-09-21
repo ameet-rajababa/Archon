@@ -15,7 +15,13 @@ import {
   type ConversationSummary,
 } from '../primitives/conversation';
 import { relativeTime } from '../lib/format';
-import { askAwaitingIds, chatStatus, STATUS_LABEL, STATUS_TITLE } from '../primitives/chat-status';
+import {
+  askAwaitingIds,
+  awaitingReplyIds,
+  chatStatus,
+  STATUS_LABEL,
+  STATUS_TITLE,
+} from '../primitives/chat-status';
 import { RowMenu } from './RowMenu';
 
 import { chooseNeighbourChat } from '../lib/last-chat';
@@ -210,6 +216,13 @@ export function ConversationRail({
 
   // The server has caught up; stop overriding it. Anything else — a failed
   // write — leaves the arrangement on screen and the error on the page.
+  /**
+   * The third route, kept apart because it must rank BELOW working rather than
+   * above it. A chat the agent merely spoke in last is your move too, but only
+   * once the turn it was speaking in has ended.
+   */
+  const awaitingReply = useMemo(() => awaitingReplyIds(conversations), [conversations]);
+
   useEffect(() => {
     if (pending === null) return;
     const server = arranged.map(c => c.id);
@@ -444,6 +457,7 @@ export function ConversationRail({
           const status = chatStatus(c.id, {
             working: liveIds ?? EMPTY_SET,
             awaiting,
+            awaitingReply,
           });
           const shift =
             dragId === null ? 0 : previewShift(boxesRef.current, dragFrom, dropIndex, index);

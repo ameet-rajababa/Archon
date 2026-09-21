@@ -2,18 +2,25 @@
  * What a chat is doing, in three states.
  *
  *   working   the server is executing a turn for it right now
- *   awaiting  a run it started is paused on an approval — it is your move
+ *   awaiting  it is your move — a run it started is paused on a gate, or the
+ *             agent asked a question and has not been answered
  *   idle      neither
  *
  * Exclusive and ordered: a chat that is both working and awaiting is awaiting,
  * because the half that needs a human outranks the half that does not.
  *
- * The two signals are different in kind and that is deliberate. "Working" is
- * the server's own answer — the conversation lock, read from /api/health — so
- * it is true even for a turn this browser did not start. "Awaiting" is derived
- * from the runs feed, because an approval belongs to a RUN and the run knows
- * which conversation dispatched it.
+ * The signals are different in kind and that is deliberate. "Working" is the
+ * server's own answer — the conversation lock, read from /api/health — so it
+ * is true even for a turn this browser did not start. "Awaiting" arrives three
+ * ways, all meaning the same thing to a reader: a run paused on a gate, an
+ * unanswered question, and a chat whose last word was the agent's. Only the
+ * ordering separates them — see ChatStatusSets.
+ *
+ * That leaves idle meaning what it should. Not "finished", but "nothing is
+ * pending here": an empty chat, or one where you spoke last and nothing picked
+ * it up.
  */
+import { splitReply } from './ask';
 import { runMessageConversationId } from './run';
 
 export type ChatStatus = 'working' | 'awaiting' | 'idle';
@@ -21,14 +28,60 @@ export type ChatStatus = 'working' | 'awaiting' | 'idle';
 export interface ChatStatusSets {
   /** Platform conversation ids the server is executing a turn for. */
   working: ReadonlySet<string>;
-  /** Platform conversation ids with a run paused on an approval. */
+  /**
+   * Chats asking for something specific: a run paused on an approval, or an
+   * unanswered question. Outranks working, because a run that has stopped to
+   * ask is not running.
+   */
   awaiting: ReadonlySet<string>;
+  /**
+   * Chats whose last word was the agent's.
+   *
+   * Ranked BELOW working, and that ordering is the whole reason this is a
+   * third set rather than more ids in `awaiting`. Mid-turn the agent's own
+   * streamed text is the last message, so a working chat is nearly always also
+   * a chat the agent spoke in last — merging the two would paint every running
+   * chat amber the moment it said anything.
+   *
+   * Optional: a caller with no way to know who spoke last omits it and gets
+   * the two-state answer rather than a wrong one.
+   */
+  awaitingReply?: ReadonlySet<string>;
 }
 
 export function chatStatus(conversationId: string, sets: ChatStatusSets): ChatStatus {
   if (sets.awaiting.has(conversationId)) return 'awaiting';
   if (sets.working.has(conversationId)) return 'working';
+  if (sets.awaitingReply?.has(conversationId) === true) return 'awaiting';
   return 'idle';
+}
+
+/**
+ * Chats whose newest message is an unanswered question.
+ *
+ * An ask block is the agent asking you something in a form you can click, and
+ * a chat sitting on one is waiting for a human exactly as a paused gate is.
+ * The two arrive by different routes — a gate belongs to a RUN, a question is
+ * a MESSAGE — but they mean the same thing to a reader scanning the rail.
+ *
+ * "Unanswered" needs no state of its own: answering an ask block is sending a
+ * message, so a reply makes the newest message the human's and the question
+ * stops being the last word. That is also why this reads the LAST message
+ * only, and why nothing has to be marked as resolved.
+ *
+ * `splitReply` is the authority on what an ask block is, deliberately: the
+ * server's test for what to send is broader on purpose (see `ask_candidate`),
+ * so the decision has to be made here, with the parser that renders the card.
+ */
+export function askAwaitingIds(
+  conversations: readonly { id: string; askCandidate: string | null }[]
+): Set<string> {
+  const out = new Set<string>();
+  for (const c of conversations) {
+    if (c.askCandidate === null || c.askCandidate === '') continue;
+    if (splitReply(c.askCandidate).some(part => part.kind === 'ask')) out.add(c.id);
+  }
+  return out;
 }
 
 /**
@@ -46,6 +99,25 @@ export function chatStatus(conversationId: string, sets: ChatStatusSets): ChatSt
  * set came back empty for exactly the runs it exists to find, and no chat has
  * ever gone amber.
  */
+/**
+ * Chats whose last word was the agent's.
+ *
+ * Every one of them is waiting on a human. A reply that has been read is
+ * indistinguishable from one nobody has seen, so only the person can settle
+ * it, and until they do the chat is theirs to act on. A chat you spoke in last
+ * is deliberately NOT here: there the ball is with the machine, or the turn
+ * was dropped, and neither is something to prompt you about.
+ */
+export function awaitingReplyIds(
+  conversations: readonly { id: string; lastMessageRole: string | null }[]
+): Set<string> {
+  const out = new Set<string>();
+  for (const c of conversations) {
+    if (c.lastMessageRole === 'assistant') out.add(c.id);
+  }
+  return out;
+}
+
 export function awaitingInputIds(
   runs: readonly {
     status: string;

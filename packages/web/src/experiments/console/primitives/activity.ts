@@ -127,3 +127,73 @@ export function formatElapsed(ms: number): string {
   if (m < 60) return `${String(m)}m ${String(total % 60)}s`;
   return `${String(Math.floor(m / 60))}h ${String(m % 60)}m`;
 }
+
+/**
+ * One row of the expanded trace: a verb and what it acted on.
+ *
+ * Deliberately narrower than {@link describeActivity}. That writes the sentence
+ * shown on the strip itself, where one line stands for the whole turn; this
+ * writes the log of steps underneath it, where a column of sentences reads
+ * worse than a column of `read  ChatPage.tsx`. Same inputs, different job.
+ *
+ * `target` may be empty — a tool with nothing worth naming gets the verb alone
+ * rather than an invented object.
+ */
+export interface TraceLine {
+  verb: string;
+  target: string;
+}
+
+export function traceLine(name: string, input?: Record<string, unknown>): TraceLine {
+  const tool = name.trim();
+
+  switch (tool) {
+    case 'Read':
+      return {
+        verb: 'read',
+        target: baseName(str(input, 'file_path') ?? str(input, 'path')) ?? '',
+      };
+    case 'Write':
+      return {
+        verb: 'write',
+        target: baseName(str(input, 'file_path') ?? str(input, 'path')) ?? '',
+      };
+    case 'Edit':
+      return { verb: 'edit', target: baseName(str(input, 'file_path')) ?? '' };
+    case 'NotebookEdit':
+      return { verb: 'edit', target: baseName(str(input, 'notebook_path')) ?? '' };
+    case 'Bash': {
+      // The command itself, not a basename: `bun run lint` is the useful half,
+      // and `lint` alone would read as a file.
+      const cmd = str(input, 'command') ?? '';
+      return { verb: 'run', target: cmd.replace(/\s+/g, ' ').slice(0, 64) };
+    }
+    case 'Grep': {
+      const pattern = str(input, 'pattern') ?? '';
+      const path = str(input, 'path');
+      const where = path === null ? '' : ` in ${path}`;
+      return { verb: 'grep', target: `${pattern.slice(0, 40)}${where}` };
+    }
+    case 'Glob':
+      return { verb: 'glob', target: str(input, 'pattern') ?? '' };
+    case 'Task':
+      return { verb: 'task', target: str(input, 'description') ?? '' };
+    case 'WebSearch':
+      return { verb: 'search', target: str(input, 'query')?.slice(0, 48) ?? '' };
+    case 'WebFetch':
+      return { verb: 'fetch', target: str(input, 'url')?.replace(/^[a-z]+:\/\//i, '') ?? '' };
+    case 'TodoWrite':
+      return { verb: 'plan', target: '' };
+    default:
+      break;
+  }
+
+  // `mcp__<server>__<verb>` — both halves are worth showing here, unlike the
+  // strip line, which has room for only the server.
+  const mcp = /^mcp__([^_]+(?:_[^_]+)*)__(.+)$/.exec(tool);
+  if (mcp !== null) {
+    return { verb: (mcp[1] ?? 'mcp').replace(/[-_]+/g, ' '), target: mcp[2] ?? '' };
+  }
+
+  return { verb: tool.toLowerCase(), target: '' };
+}

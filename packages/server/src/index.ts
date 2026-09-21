@@ -73,7 +73,7 @@ import { GiteaAdapter } from '@archon/adapters/community/forge/gitea';
 import { GitLabAdapter } from '@archon/adapters/community/forge/gitlab';
 import { WebAdapter } from './adapters/web';
 import { MessagePersistence } from './adapters/web/persistence';
-import { SSETransport } from './adapters/web/transport';
+import { SSETransport, DASHBOARD_STREAM } from './adapters/web/transport';
 import { WorkflowEventBridge } from './adapters/web/workflow-bridge';
 import { DashboardEventPoller } from './adapters/web/dashboard-event-poller';
 import { PgNotifyListener } from './adapters/web/pg-notify-listener';
@@ -406,7 +406,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<void> {
       CONVERSATION_EVENT_NOTIFY_CHANNEL,
       (codebaseId: string) => {
         transport.emitWorkflowEvent(
-          '__dashboard__',
+          DASHBOARD_STREAM,
           JSON.stringify({
             type: 'conversation_changed',
             codebaseId: codebaseId === '' ? null : codebaseId,
@@ -898,8 +898,26 @@ export async function startServer(opts: ServerOptions = {}): Promise<void> {
       getLog().warn({ webDistPath }, 'web_dist_not_found');
     }
 
+    // Assets are content-hashed by the build, so their names change whenever
+    // their contents do. That makes them safe to cache hard and forever — a new
+    // build simply asks for different files.
+    app.use('/assets/*', async (c, next) => {
+      await next();
+      c.header('Cache-Control', 'public, max-age=31536000, immutable');
+    });
     app.use('/assets/*', serveStatic({ root: webDistPath }));
     app.use('/favicon.png', serveStatic({ root: webDistPath, path: 'favicon.png' }));
+    // The shell is the opposite case and must never be cached. Its own URL never
+    // changes, so a browser holding a copy keeps asking for the asset names that
+    // copy names — and a deployed build stays invisible until someone thinks to
+    // hard-reload. Worse, the old asset names no longer exist, so the SPA
+    // fallback answers them with this HTML and the app fails to boot at all.
+    // Served with no validators before this, which left the decision to the
+    // browser's heuristics.
+    app.get('*', async (c, next) => {
+      await next();
+      c.header('Cache-Control', 'no-store, must-revalidate');
+    });
     // SPA fallback - serve index.html for unmatched routes (after all API routes)
     app.get('*', serveStatic({ root: webDistPath, path: 'index.html' }));
   }

@@ -2633,15 +2633,23 @@ export function registerApiRoutes(
    * turns out not to have one; being narrower would hide a question, so it is
    * the one direction this may never drift in.
    */
-  async function askCandidateContent(
+  async function lastMessageFacts(
     conversations: readonly import('@archon/core').Conversation[]
-  ): Promise<Map<string, string>> {
-    const out = new Map<string, string>();
+  ): Promise<Map<string, { askCandidate: string | null; lastRole: string }>> {
+    const out = new Map<string, { askCandidate: string | null; lastRole: string }>();
     const last = await messageDb.getLastMessagePerConversation(conversations.map(c => c.id));
     for (const [conversationId, message] of last) {
-      if (message.role !== 'assistant') continue;
-      if (!message.content.includes('```ask')) continue;
-      out.set(conversationId, message.content);
+      // Who spoke last, always — not only when the message looks like a
+      // question. A chat whose last word was the agent's is waiting on a
+      // human, and nothing else on the row distinguishes that from a chat with
+      // nothing pending: `last_activity_at` moves for both. Read off the same
+      // row the ask candidate comes from, because fetching it twice would
+      // double a query that already runs on every list request.
+      const isAsk = message.role === 'assistant' && message.content.includes('```ask');
+      out.set(conversationId, {
+        askCandidate: isAsk ? message.content : null,
+        lastRole: message.role,
+      });
     }
     return out;
   }
@@ -2740,12 +2748,18 @@ export function registerApiRoutes(
         userId,
         archived
       );
-      const askCandidates = await askCandidateContent(conversations);
+      const facts = await lastMessageFacts(conversations);
       return c.json(
-        conversations.map(row => ({
-          ...toApiConversation(row),
-          ask_candidate: askCandidates.get(row.id) ?? null,
-        }))
+        conversations.map(row => {
+          const fact = facts.get(row.id);
+          return {
+            ...toApiConversation(row),
+            ask_candidate: fact?.askCandidate ?? null,
+            // A chat nobody has said anything in has no last speaker, which
+            // reads as null rather than as a role nobody played.
+            last_message_role: fact?.lastRole ?? null,
+          };
+        })
       );
     } catch (error) {
       getLog().error({ err: error }, 'list_conversations_failed');

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { awaitingInputIds, chatStatus } from './chat-status';
+import { askAwaitingIds, awaitingInputIds, awaitingReplyIds, chatStatus } from './chat-status';
 
 const sets = (working: string[], awaiting: string[]) => ({
   working: new Set(working),
@@ -64,5 +64,79 @@ describe('awaitingInputIds', () => {
         { status: 'paused', approval: {} },
       ]),
     ]).toEqual([]);
+  });
+});
+
+describe('askAwaitingIds', () => {
+  const ask = (body: string): string => ['```ask', body, '```'].join('\n');
+  const spec = '{"questions":[{"title":"Ship it?","options":[{"label":"Yes"}]}]}';
+
+  test('a chat whose last message is a question is your move', () => {
+    expect([
+      ...askAwaitingIds([{ id: 'a', askCandidate: `Here is the call:\n${ask(spec)}` }]),
+    ]).toEqual(['a']);
+  });
+
+  test('no candidate, nothing to decide', () => {
+    expect([...askAwaitingIds([{ id: 'a', askCandidate: null }])]).toEqual([]);
+  });
+
+  test('the parser decides, not the fence — an unparseable block is prose', () => {
+    // The server sends anything containing the fence, deliberately. What counts
+    // as a question is settled here.
+    expect([...askAwaitingIds([{ id: 'a', askCandidate: ask('{ not json') }])]).toEqual([]);
+  });
+
+  test('an ask block shown as an EXAMPLE inside a longer fence is not a question', () => {
+    const quoted = ['````markdown', ask(spec), '````'].join('\n');
+    expect([...askAwaitingIds([{ id: 'a', askCandidate: quoted }])]).toEqual([]);
+  });
+});
+
+describe('awaitingReplyIds', () => {
+  test('a chat the agent spoke in last is waiting on you', () => {
+    expect([...awaitingReplyIds([{ id: 'a', lastMessageRole: 'assistant' }])]).toEqual(['a']);
+  });
+
+  test('a chat you spoke in last is not — the ball is with the machine', () => {
+    expect([...awaitingReplyIds([{ id: 'a', lastMessageRole: 'user' }])]).toEqual([]);
+  });
+
+  test('an empty chat, or a server that does not send the field, is not amber', () => {
+    expect([...awaitingReplyIds([{ id: 'a', lastMessageRole: null }])]).toEqual([]);
+    expect([...awaitingReplyIds([{ id: 'a', lastMessageRole: 'system' }])]).toEqual([]);
+  });
+});
+
+describe('chatStatus precedence with awaitingReply', () => {
+  const none: ReadonlySet<string> = new Set();
+
+  // The ordering that matters: mid-turn the agent's own streamed text is the
+  // last message, so without this a running chat would go amber the moment it
+  // said anything.
+  test('working outranks the agent having spoken last', () => {
+    expect(
+      chatStatus('a', { working: new Set(['a']), awaiting: none, awaitingReply: new Set(['a']) })
+    ).toBe('working');
+  });
+
+  test('a gate still outranks working', () => {
+    expect(
+      chatStatus('a', {
+        working: new Set(['a']),
+        awaiting: new Set(['a']),
+        awaitingReply: new Set(['a']),
+      })
+    ).toBe('awaiting');
+  });
+
+  test('once the turn ends, the agent having spoken last is your move', () => {
+    expect(chatStatus('a', { working: none, awaiting: none, awaitingReply: new Set(['a']) })).toBe(
+      'awaiting'
+    );
+  });
+
+  test('a caller that omits the set gets the old two-state answer', () => {
+    expect(chatStatus('a', { working: none, awaiting: none })).toBe('idle');
   });
 });

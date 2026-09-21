@@ -6,7 +6,7 @@ import type { IWebPlatformAdapter, MessageMetadata } from '@archon/core';
 import type { MessageChunk } from '@archon/providers/types';
 import { createLogger } from '@archon/paths';
 import { MessagePersistence } from './web/persistence';
-import { SSETransport, type SSEWriter } from './web/transport';
+import { SSETransport, DASHBOARD_STREAM, type SSEWriter } from './web/transport';
 import { truncateToolOutput } from './web/truncate';
 import { WorkflowEventBridge } from './web/workflow-bridge';
 
@@ -317,6 +317,16 @@ export class WebAdapter implements IWebPlatformAdapter {
       timestamp: Date.now(),
     });
     await this.transport.emit(conversationId, lockEvent);
+
+    // Announce it on the dashboard stream too. The lock lives in this process's
+    // memory, so a client that is looking at a DIFFERENT chat — or at the chat
+    // list — has no way to learn that this one started or stopped working
+    // except by asking /api/health on a timer. This is what makes that instant.
+    // Fire-and-forget and unordered with respect to the stream above: the
+    // console reads it purely as "ask again", never as state.
+    if (this.transport.hasActiveStream(DASHBOARD_STREAM)) {
+      this.transport.emitWorkflowEvent(DASHBOARD_STREAM, lockEvent);
+    }
   }
 
   hasActiveStream(conversationId: string): boolean {
