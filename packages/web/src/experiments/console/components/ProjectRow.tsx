@@ -93,7 +93,7 @@ export function ProjectRow({
   const ideEnv = useIdeEnv();
   const [armed, setArmed] = useState(false);
   /** Anchor rect for the identity picker, or null when it is closed. */
-  const [pickerAt, setPickerAt] = useState<DOMRect | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -271,8 +271,11 @@ export function ProjectRow({
                   onClick={e => {
                     e.stopPropagation();
                     setMenuOpen(false);
-                    const row = (e.currentTarget as HTMLElement).closest('.rail-row');
-                    setPickerAt(row?.getBoundingClientRect() ?? null);
+                    // rowEl, not closest('.rail-row'): RowMenu portals to the
+                    // body, so this button is not inside the row it belongs to
+                    // and the walk returned null every time — which read as
+                    // "closed" and made the item do nothing at all.
+                    setPickerOpen(true);
                   }}
                   className={MENU_ITEM}
                 >
@@ -338,15 +341,15 @@ export function ProjectRow({
           ) : null}
         </div>
       </div>
-      {pickerAt !== null ? (
+      {pickerOpen && rowEl !== null ? (
         <IdentityPicker
           projectId={project.id}
-          anchor={pickerAt}
+          anchor={rowEl}
           onChange={() => {
             setIdentityTick(t => t + 1);
           }}
           onClose={() => {
-            setPickerAt(null);
+            setPickerOpen(false);
           }}
         />
       ) : null}

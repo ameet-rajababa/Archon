@@ -21,7 +21,15 @@ export function IdentityPicker({
   onChange,
 }: {
   projectId: string;
-  anchor: DOMRect;
+  /**
+   * The row to place against — the ELEMENT, not a rect.
+   *
+   * A rect captured at click time is stale the moment the rail scrolls, and a
+   * null rect is indistinguishable from "closed", which is how this panel
+   * silently stopped opening at all. RowMenu already takes the element for the
+   * same reason.
+   */
+  anchor: HTMLElement;
   onClose: () => void;
   onChange: () => void;
 }): ReactElement {
@@ -56,8 +64,9 @@ export function IdentityPicker({
 
   // Clamp to the viewport: the rail sits at the left edge, so only the bottom
   // realistically overflows.
-  const top = Math.min(anchor.bottom + 6, window.innerHeight - 420);
-  const left = Math.min(anchor.left, window.innerWidth - 404);
+  const rect = anchor.getBoundingClientRect();
+  const top = Math.min(rect.bottom + 6, window.innerHeight - 420);
+  const left = Math.min(rect.left, window.innerWidth - 404);
 
   return (
     <div ref={ref} className="pick" style={{ top: Math.max(8, top), left: Math.max(8, left) }}>
