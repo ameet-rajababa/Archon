@@ -14,6 +14,7 @@ import { existsSync, readFileSync } from 'fs';
 import { normalize, join, sep, basename, dirname, resolve } from 'path';
 import { randomUUID } from 'crypto';
 import type { Context } from 'hono';
+import { cleanupUploads } from './upload-cleanup';
 import type {
   ConversationLockManager,
   AttachedFile,
@@ -2413,24 +2414,12 @@ export function registerApiRoutes(
         // has had a chance to read them. Doing this in the HTTP handler's finally block
         // would delete files while the fire-and-forget lock handler is still running.
         if (filesToCleanup) {
-          for (const f of filesToCleanup.files) {
-            await unlink(f.path).catch((err: NodeJS.ErrnoException) => {
-              if (err.code !== 'ENOENT') {
-                getLog().warn({ err, filePath: f.path, conversationId }, 'upload.cleanup_failed');
-              }
-            });
-          }
-          // Remove the now-empty upload directory for this conversation.
-          await rm(filesToCleanup.uploadDir, { recursive: true, force: true }).catch(
-            (err: NodeJS.ErrnoException) => {
-              if (err.code !== 'ENOENT') {
-                getLog().warn(
-                  { err, uploadDir: filesToCleanup.uploadDir, conversationId },
-                  'upload.dir_cleanup_failed'
-                );
-              }
-            }
-          );
+          await cleanupUploads(filesToCleanup.files, filesToCleanup.uploadDir, (err, ctx) => {
+            getLog().warn(
+              { err, ...ctx, conversationId },
+              ctx.uploadDir === undefined ? 'upload.cleanup_failed' : 'upload.dir_cleanup_failed'
+            );
+          });
         }
       }
     });
