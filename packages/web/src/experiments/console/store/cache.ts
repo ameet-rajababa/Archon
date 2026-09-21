@@ -43,6 +43,15 @@ const versions = new Map<string, number>();
 // warms the cache) and released together with them by `invalidate()`.
 const loadSeq = new Map<string, number>();
 
+/**
+ * When each key's value last came back from its loader.
+ *
+ * So a view can say how fresh its data is instead of implying it is always
+ * current. The Issues board is fetched once when you open it and then only on
+ * demand — without this there is no honest way to say so.
+ */
+const fetchedAt = new Map<string, number>();
+
 function notify(key: string): void {
   // No subscribers ⇒ nothing snapshots the counter, so don't bump it — a late
   // write (an in-flight load settling after the last unsubscribe, or an SSE
@@ -69,6 +78,7 @@ function runLoad(key: string, loader: () => Promise<unknown>): void {
     .then(v => {
       if ((loadSeq.get(key) ?? 0) !== seq) return; // superseded by a newer load for this key
       cache.set(key, v);
+      fetchedAt.set(key, Date.now());
       errors.delete(key);
       notify(key);
     })
@@ -99,6 +109,7 @@ export function get(key: string): unknown {
 
 export function set(key: string, value: unknown): void {
   cache.set(key, value);
+  fetchedAt.set(key, Date.now());
   errors.delete(key);
   notify(key);
 }
@@ -124,6 +135,7 @@ function revalidate(key: string): void {
   if (loader === undefined) {
     cache.delete(key);
     errors.delete(key);
+    fetchedAt.delete(key);
     versions.delete(key); // fully release the key — nothing subscribes, so nothing snapshots it
     loadSeq.delete(key); // release the sequence alongside cache/errors (they move together)
     return;
@@ -221,6 +233,13 @@ export interface EntityView<T> {
   error: Error | undefined;
   loading: boolean;
   refetch: () => void;
+  /** Epoch ms of the last successful load; `undefined` until one lands. */
+  fetchedAt: number | undefined;
+}
+
+/** When this key last loaded, for callers that are not using useEntity. */
+export function fetchedAtOf(key: string): number | undefined {
+  return fetchedAt.get(key);
 }
 
 /**
@@ -262,6 +281,7 @@ export function useEntity<T>(key: string, loader: () => Promise<T>): EntityView<
     data: cache.get(key) as T | undefined,
     error: errors.get(key),
     loading: !cache.has(key) && inflight.has(key),
+    fetchedAt: fetchedAt.get(key),
     refetch: (): void => {
       revalidate(key);
     },

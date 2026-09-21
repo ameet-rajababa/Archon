@@ -1,4 +1,4 @@
-import { ExternalLink, RefreshCw } from 'lucide-react';
+import { Check, Columns3, ExternalLink, RefreshCw } from 'lucide-react';
 import { useMemo, useState, type ReactElement } from 'react';
 import { EmptyState } from '../components/EmptyState';
 import {
@@ -17,6 +17,9 @@ import { invalidate, useEntity } from '../store/cache';
 import { K } from '../store/keys';
 import { useParams } from 'react-router';
 import { IssueTypeChip } from '../components/IssueTypeChip';
+import { useNow } from '../lib/clock';
+import { relativeTime } from '../lib/format';
+import { RowMenu } from '../components/RowMenu';
 
 /** Why a board is legitimately empty, in the words a person would use. */
 const REASON_TEXT: Readonly<Record<string, string>> = {
@@ -78,9 +81,12 @@ function Card({ issue, column }: { issue: GithubIssue; column: IssueColumn }): R
 export function IssuesPage(): ReactElement {
   const { projectId = '' } = useParams<{ projectId: string }>();
   const [hidden, setHidden] = useState<ReadonlySet<IssueColumn>>(() => new Set());
+  const [columnsOpen, setColumnsOpen] = useState(false);
+  const [columnsEl, setColumnsEl] = useState<HTMLElement | null>(null);
+  const now = useNow();
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
 
-  const { data, loading, error } = useEntity<IssuesResponse>(K.issues(projectId), () =>
+  const { data, loading, error, fetchedAt } = useEntity<IssuesResponse>(K.issues(projectId), () =>
     skill.listIssues(projectId)
   );
   const { data: feed } = useEntity<{ runs: Run[] }>(K.runs(projectId), () =>
@@ -136,12 +142,21 @@ export function IssuesPage(): ReactElement {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 px-8 pb-6 pt-4">
       <div className="flex items-center gap-2">
+        {/* How fresh this is, stated rather than implied.
+            The prototype's line reads "Live · synced 4s ago · webhook + 60s
+            conditional poll". None of that is true here: there is no issues
+            webhook, the route does a plain GraphQL POST with no ETag, and
+            nothing polls. It is read when you open the tab and when you press
+            refresh, so that is what it says. */}
         <span className="font-mono text-[11px] text-text-tertiary">
           {data?.repo ?? ''} · read-only
+          {fetchedAt === undefined
+            ? ''
+            : ` · read ${relativeTime(new Date(fetchedAt).toISOString(), now)}`}
         </span>
         <button
           type="button"
-          title="Refresh from GitHub"
+          title="Read from GitHub again"
           onClick={() => {
             invalidate(K.issues(projectId));
           }}
@@ -162,18 +177,88 @@ export function IssuesPage(): ReactElement {
           />
         ))}
 
-        {hidden.size > 0 ? (
+        <div className="ml-auto flex items-center gap-2.5">
+          {hidden.size > 0 ? (
+            <span className="text-[11px] text-text-tertiary">
+              {hiddenCount} issue{hiddenCount === 1 ? '' : 's'} in {hidden.size} hidden column
+              {hidden.size === 1 ? '' : 's'}
+            </span>
+          ) : null}
           <button
+            ref={setColumnsEl}
             type="button"
             onClick={() => {
-              setHidden(new Set());
+              setColumnsOpen(v => !v);
             }}
-            className="ml-auto text-[11px] text-text-tertiary hover:text-text-primary"
+            title="Choose which columns to show"
+            className="inline-flex h-[22px] items-center gap-1.5 rounded-[7px] border px-2 text-[11px] text-text-secondary transition-colors hover:text-text-primary"
+            style={{ borderColor: 'var(--border)' }}
           >
-            {hiddenCount} issue{hiddenCount === 1 ? '' : 's'} in {hidden.size} hidden column
-            {hidden.size === 1 ? '' : 's'} — show all
+            <Columns3 className="h-[12px] w-[12px]" />
+            Columns
+            {hidden.size > 0 ? (
+              <span className="font-mono text-text-tertiary">
+                {ISSUE_COLUMNS.length - hidden.size}/{ISSUE_COLUMNS.length}
+              </span>
+            ) : null}
           </button>
-        ) : null}
+          <RowMenu
+            anchor={columnsEl}
+            open={columnsOpen}
+            onClose={() => {
+              setColumnsOpen(false);
+            }}
+            width={210}
+            label="Columns"
+          >
+            {ISSUE_COLUMNS.map(c => {
+              const shown = !hidden.has(c.key);
+              const n = byColumn.get(c.key)?.length ?? 0;
+              return (
+                <button
+                  key={c.key}
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked={shown}
+                  onClick={() => {
+                    setHidden(prev => {
+                      const next = new Set(prev);
+                      // Never hide the last one: an empty board is a dead end
+                      // reachable in three clicks.
+                      if (shown && next.size === ISSUE_COLUMNS.length - 1) return prev;
+                      if (shown) next.add(c.key);
+                      else next.delete(c.key);
+                      return next;
+                    });
+                  }}
+                  className="flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-[12.5px] text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+                >
+                  <Check
+                    className={`h-[13px] w-[13px] shrink-0 ${shown ? '' : 'opacity-0'}`}
+                    aria-hidden
+                  />
+                  <span className="flex-1">{c.label}</span>
+                  <span className="font-mono text-[10.5px] text-text-tertiary">{n}</span>
+                </button>
+              );
+            })}
+            {hidden.size > 0 ? (
+              <>
+                <div className="my-1 h-px bg-border" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setHidden(new Set());
+                  }}
+                  className="flex w-full items-center rounded-[6px] px-2 py-1.5 text-left text-[12.5px] text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+                >
+                  Show all columns
+                </button>
+              </>
+            ) : null}
+          </RowMenu>
+        </div>
       </div>
 
       <div

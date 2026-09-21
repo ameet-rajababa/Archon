@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { ensureUtc } from './format';
 
 /**
@@ -99,4 +99,24 @@ export function formatClockIn(iso: string, format: ClockFormat): string {
 export function useClock(): (iso: string) => string {
   const format = useSyncExternalStore(subscribe, getClockFormat, getClockFormat);
   return (iso: string) => formatClockIn(iso, format);
+}
+
+/**
+ * A `Date.now()` that re-renders its caller on an interval.
+ *
+ * For text that claims an age — "read 4m ago". Computed once at render it is
+ * correct for a second and a lie thereafter, and the whole point of saying how
+ * fresh something is, is that the claim stays true while you look at it.
+ */
+export function useNow(everyMs = 30_000): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => {
+      setNow(Date.now());
+    }, everyMs);
+    return (): void => {
+      clearInterval(id);
+    };
+  }, [everyMs]);
+  return now;
 }
