@@ -34,9 +34,10 @@ const CUSTOM_ROW = 188;
  * value field, vertical hue rail — and the rainbow in its corner swaps back.
  * One row, two modes, rather than a second panel to get lost in.
  *
- * It is absent entirely for a project wearing an emoji, because an emoji is not
- * stroke art: the color would paint nothing anywhere. The stored color is kept,
- * not cleared, so choosing an icon again brings it back.
+ * The row shows with the Icons tab only, and not at all for a subject already
+ * wearing an emoji: an emoji is not stroke art, so in both cases the color
+ * would be a control over nothing. The stored color is kept, not cleared, so
+ * choosing an icon again brings it back.
  */
 export function IdentityPicker({
   identity,
@@ -178,15 +179,22 @@ export function IdentityPicker({
 
   const items = tab === 'icons' ? searchIcons(query) : searchEmoji(query);
   const chosenGlyph = identity.glyph;
-  // Keyed on the CHOSEN glyph, not the open tab: browsing emoji while still
-  // wearing an icon leaves a color control that does something.
-  const tintable = !isEmojiGlyph(chosenGlyph);
+  /**
+   * The color belongs to the icon vocabulary, and only shows with it.
+   *
+   * Two conditions, because there are two ways for a color to be beside the
+   * point. The Emojis tab is one: nothing on it can take a color, so a control
+   * sitting above it is offering something the grid below cannot do. An emoji
+   * already chosen is the other: `Glyph` drops the color, so it paints nothing
+   * anywhere until an icon is chosen again.
+   */
+  const showColor = tab === 'icons' && !isEmojiGlyph(chosenGlyph);
 
   // Clamp to the viewport: the rail sits at the left edge, so only the bottom
   // realistically overflows. Measured on every render rather than captured on
   // open, which is why the listener above re-renders on scroll.
   const rect = anchor.getBoundingClientRect();
-  const height = PANEL_BODY + (tintable ? (custom ? CUSTOM_ROW : PRESET_ROW) : 0);
+  const height = PANEL_BODY + (showColor ? (custom ? CUSTOM_ROW : PRESET_ROW) : 0);
   const top = Math.min(rect.bottom + 6, window.innerHeight - height);
   const left = Math.min(rect.left, window.innerWidth - 404);
 
@@ -216,7 +224,7 @@ export function IdentityPicker({
         ))}
       </div>
 
-      {!tintable ? null : custom ? (
+      {!showColor ? null : custom ? (
         <div className="cust">
           <div className="cust-top">
             <span className="cust-dot" style={{ background: paint }} />
