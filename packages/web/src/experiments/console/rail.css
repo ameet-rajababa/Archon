@@ -774,6 +774,11 @@
 .chat-status.is-awaiting i {
   background: transparent;
   border: 2px solid currentColor;
+  /* Moves like the working dot, on the same 1.9s beat, because a mark that
+     wants something from you should be as hard to overlook as one that is
+     busy. The SHAPE still separates them — open ring against filled dot —
+     so the two never rely on telling amber from blue. */
+  animation: chat-throb 1.9s ease-in-out infinite;
 }
 /* Idle keeps the chat glyph: it is the one state with nothing to announce, so
    the mark goes back to saying what KIND of row this is. */

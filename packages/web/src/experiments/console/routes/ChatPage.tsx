@@ -10,7 +10,7 @@ import { WorkflowDock } from '../components/WorkflowDock';
 import { EmptyState } from '../components/EmptyState';
 import { StreamContextProvider } from '../lib/stream-context';
 import { useConversationSSE } from '../lib/sse';
-import { useLiveChatIds } from '../lib/live-chats';
+import { useLiveChats } from '../lib/live-chats';
 import { useEntity, invalidate } from '../store/cache';
 import { K } from '../store/keys';
 import { awaitingInputIds, chatStatus, type ChatStatus } from '../primitives/chat-status';
@@ -334,7 +334,7 @@ export function ChatPage(): ReactElement {
   // looking at. Pushed on the dashboard stream the moment a chat starts or
   // stops (see lib/sse.ts); the hook's own poll is the backstop for what a push
   // cannot reach, shared with every other reader of the same answer.
-  const liveIds = useLiveChatIds();
+  const { ids: liveIds, tools: liveTools, known: liveKnown } = useLiveChats();
 
   /**
    * Chats whose run is paused on an approval.
@@ -393,6 +393,9 @@ export function ChatPage(): ReactElement {
     if (activeConvId === null || !working || liveIds.has(activeConvId)) return liveIds;
     return new Set([...liveIds, activeConvId]);
   }, [liveIds, activeConvId, working]);
+  const loadedMessages = messages ?? [];
+  const lastSpeaker = loadedMessages[loadedMessages.length - 1]?.role ?? null;
+
   /** The status of the chat being READ. Same three states and same ordering as
    * every row in the rail — `chatStatus` owns the precedence. */
   const status: ChatStatus =
@@ -401,6 +404,13 @@ export function ChatPage(): ReactElement {
       : chatStatus(activeConvId, {
           working: railLiveIds,
           awaiting: awaitingIds,
+          // Read off the transcript, which this one chat has already loaded,
+          // rather than the conversation list. Withheld until the working
+          // answer is known: `working` alone is polled, and an unanswered poll
+          // would read as a finished turn.
+          ...(liveKnown && lastSpeaker === 'assistant'
+            ? { awaitingReply: new Set([activeConvId]) }
+            : {}),
         });
 
   // Belt and braces: an echo must never outlive its turn. If the reply has
@@ -623,6 +633,8 @@ export function ChatPage(): ReactElement {
         key={projectId}
         conversations={conversations ?? []}
         liveIds={railLiveIds}
+        liveTools={liveTools}
+        liveKnown={liveKnown}
         awaitingIds={awaitingIds}
         activeConvId={activeConvId}
         onSelect={selectConversation}

@@ -29,6 +29,22 @@ export interface ChatStatusSets {
   /** Platform conversation ids the server is executing a turn for. */
   working: ReadonlySet<string>;
   /**
+   * Chats whose last word was the agent's — your move, once the turn is over.
+   *
+   * Ranked BELOW working, and that ordering is why it is a third set rather
+   * than more ids in `awaiting`: mid-turn the agent's own streamed text IS the
+   * last message, so merging them would paint every running chat amber the
+   * moment it said anything.
+   *
+   * Ordering alone is not enough, and this is where it was got wrong before.
+   * `working` is a POLLED answer, so before the first poll lands it is empty —
+   * not because nothing is running, but because nobody has asked. Fall through
+   * on that and a chat being actively worked on announces that it needs a
+   * human, which is the one direction this signal must never fail in. Pass
+   * this set only once the working answer is KNOWN; omit it until then.
+   */
+  awaitingReply?: ReadonlySet<string>;
+  /**
    * Chats asking for something specific: a run paused on an approval, or an
    * unanswered question. Outranks working, because a run that has stopped to
    * ask is not running.
@@ -54,6 +70,7 @@ export interface ChatStatusSets {
 export function chatStatus(conversationId: string, sets: ChatStatusSets): ChatStatus {
   if (sets.awaiting.has(conversationId)) return 'awaiting';
   if (sets.working.has(conversationId)) return 'working';
+  if (sets.awaitingReply?.has(conversationId) === true) return 'awaiting';
   return 'idle';
 }
 
@@ -100,6 +117,27 @@ export function askAwaitingIds(
  * set came back empty for exactly the runs it exists to find, and no chat has
  * ever gone amber.
  */
+/**
+ * Chats whose last word was the agent's.
+ *
+ * Every one of them is waiting on a human: a reply that has been read is
+ * indistinguishable from one nobody has seen, so only the person can settle
+ * it. A chat you spoke in last is deliberately not here — there the ball is
+ * with the machine, or the turn was dropped, and neither is something to
+ * prompt you about.
+ *
+ * Only meaningful once the working answer is known. See `awaitingReply`.
+ */
+export function awaitingReplyIds(
+  conversations: readonly { id: string; lastMessageRole: string | null }[]
+): Set<string> {
+  const out = new Set<string>();
+  for (const c of conversations) {
+    if (c.lastMessageRole === 'assistant') out.add(c.id);
+  }
+  return out;
+}
+
 export function awaitingInputIds(
   runs: readonly {
     status: string;

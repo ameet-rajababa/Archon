@@ -17,6 +17,7 @@
 
 import { useEffect, useMemo } from 'react';
 import * as skill from '../skills';
+import type { ActiveChats, ActiveTool } from '../skills/activeChats';
 import { invalidate, useEntity } from '../store/cache';
 import { K } from '../store/keys';
 
@@ -29,8 +30,24 @@ function tick(): void {
   if (document.visibilityState === 'visible') invalidate(K.activeChats);
 }
 
-export function useLiveChatIds(): ReadonlySet<string> {
-  const { data } = useEntity<readonly string[]>(K.activeChats, skill.getActiveChatIds);
+export interface LiveChats {
+  /** Platform conversation ids the server is executing a turn for. */
+  ids: ReadonlySet<string>;
+  /** What each of those is doing, when it is inside a tool. */
+  tools: Readonly<Record<string, ActiveTool>>;
+  /**
+   * Whether the server has answered yet.
+   *
+   * The difference between "not working" and "not asked yet" is not cosmetic:
+   * a caller that treats the second as the first will describe a chat that is
+   * mid-turn as one that has finished. Callers that draw a conclusion from the
+   * ABSENCE of work must check this first.
+   */
+  known: boolean;
+}
+
+export function useLiveChats(): LiveChats {
+  const { data } = useEntity<ActiveChats>(K.activeChats, skill.getActiveChats);
 
   useEffect(() => {
     readers += 1;
@@ -48,5 +65,12 @@ export function useLiveChatIds(): ReadonlySet<string> {
     };
   }, []);
 
-  return useMemo(() => new Set(data ?? []), [data]);
+  return useMemo(
+    () => ({
+      ids: new Set(data?.ids ?? []),
+      tools: data?.tools ?? {},
+      known: data !== undefined,
+    }),
+    [data]
+  );
 }

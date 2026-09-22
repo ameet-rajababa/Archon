@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react';
 import { STATUS_COLOR, STATUS_LABEL } from '../primitives/chat-status';
 import { projectState } from '../primitives/project-state';
-import { useLiveChatIds } from '../lib/live-chats';
+import { useLiveChats } from '../lib/live-chats';
 import * as skill from '../skills';
 import { useEntity } from '../store/cache';
 import { K } from '../store/keys';
@@ -28,7 +28,7 @@ export function ProjectStateChip({ projectId }: { projectId: string }): ReactEle
     skill.getProjectCounts(projectId)
   );
   // Read unconditionally — a hook cannot sit behind the early return below.
-  const liveIds = useLiveChatIds();
+  const { ids: liveIds } = useLiveChats();
   if (data === undefined) return null;
 
   const state = projectState({

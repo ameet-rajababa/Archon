@@ -5317,6 +5317,12 @@ export function registerApiRoutes(
         ...stats,
         active: allActiveIds.length,
         activeConversationIds: allActiveIds,
+        // What each of those chats is doing right now, so the rail can say
+        // "Editing ChatPage.tsx" where it used to say "working". Rides the read
+        // that already tells it WHICH chats are moving, rather than adding a
+        // second poll to answer the other half of the same question. Only
+        // chats with a tool in flight appear; the rest fall back to the word.
+        activeTools: Object.fromEntries(webAdapter.currentActivity()),
       },
       runningWorkflows: runningWorkflowRows.length,
       version: appVersion,

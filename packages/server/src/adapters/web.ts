@@ -19,6 +19,31 @@ function getLog(): ReturnType<typeof createLogger> {
   return cachedLog;
 }
 
+/**
+ * A tool's input, cut down to what a one-line description can use.
+ *
+ * Deliberately generic rather than an allowlist of the keys the console reads:
+ * which keys matter is the console's business (`primitives/activity.ts`), and
+ * naming them here would be the same knowledge in two places. Strings only,
+ * each bounded, and few — a Write carries an entire file in `content`, and
+ * this rides on a health check that is polled.
+ */
+export type ToolInputSnapshot = Record<string, string>;
+
+const TOOL_INPUT_MAX_KEYS = 8;
+const TOOL_INPUT_MAX_CHARS = 160;
+
+function boundToolInput(input: Record<string, unknown> | undefined): ToolInputSnapshot {
+  const out: ToolInputSnapshot = {};
+  if (input === undefined) return out;
+  for (const [key, value] of Object.entries(input)) {
+    if (typeof value !== 'string' || value === '') continue;
+    out[key] = value.slice(0, TOOL_INPUT_MAX_CHARS);
+    if (Object.keys(out).length >= TOOL_INPUT_MAX_KEYS) break;
+  }
+  return out;
+}
+
 export class WebAdapter implements IWebPlatformAdapter {
   /** Per-conversation tool call counter for unique SSE tool IDs */
   private toolCallCounter = new Map<string, number>();
@@ -29,7 +54,7 @@ export class WebAdapter implements IWebPlatformAdapter {
    */
   private runningTools = new Map<
     string,
-    Map<string, { toolCallId: string; name: string; startedAt: number }>
+    Map<string, { toolCallId: string; name: string; startedAt: number; input: ToolInputSnapshot }>
   >();
 
   constructor(
@@ -185,7 +210,12 @@ export class WebAdapter implements IWebPlatformAdapter {
         convTools = new Map();
         this.runningTools.set(conversationId, convTools);
       }
-      convTools.set(toolCallId, { toolCallId, name: chunk.toolName, startedAt: now });
+      convTools.set(toolCallId, {
+        toolCallId,
+        name: chunk.toolName,
+        startedAt: now,
+        input: boundToolInput(chunk.toolInput),
+      });
 
       event = JSON.stringify({
         type: 'tool_call',
@@ -378,6 +408,31 @@ export class WebAdapter implements IWebPlatformAdapter {
     if (this.transport.hasActiveStream(DASHBOARD_STREAM)) {
       this.transport.emitWorkflowEvent(DASHBOARD_STREAM, lockEvent);
     }
+  }
+
+  /**
+   * What each conversation is doing right now: its newest still-running tool.
+   *
+   * Read from the same map that pairs tool_call with tool_result, so it is the
+   * live truth rather than the newest PERSISTED message — which lags, and
+   * during a long tool lags by the whole length of that tool. That is exactly
+   * the stretch a reader most wants named.
+   *
+   * Newest wins when several are in flight: parallel tools share a
+   * conversation, and one line can only say one thing.
+   */
+  currentActivity(): Map<string, { name: string; input: ToolInputSnapshot; startedAt: number }> {
+    const out = new Map<string, { name: string; input: ToolInputSnapshot; startedAt: number }>();
+    for (const [conversationId, tools] of this.runningTools) {
+      let newest: { name: string; input: ToolInputSnapshot; startedAt: number } | undefined;
+      for (const tool of tools.values()) {
+        if (newest === undefined || tool.startedAt >= newest.startedAt) {
+          newest = { name: tool.name, input: tool.input, startedAt: tool.startedAt };
+        }
+      }
+      if (newest !== undefined) out.set(conversationId, newest);
+    }
+    return out;
   }
 
   hasActiveStream(conversationId: string): boolean {
