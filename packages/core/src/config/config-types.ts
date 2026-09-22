@@ -150,23 +150,6 @@ export interface GlobalConfig {
   };
 
   /**
-   * Directory preferences (usually not needed - defaults work well)
-   */
-  paths?: {
-    /**
-     * Override workspaces directory
-     * @default '~/.archon/workspaces'
-     */
-    workspaces?: string;
-
-    /**
-     * Override worktrees directory
-     * @default '~/.archon/worktrees'
-     */
-    worktrees?: string;
-  };
-
-  /**
    * Concurrency limits
    */
   concurrency?: {
@@ -222,16 +205,12 @@ export interface RepoConfig {
    */
   commands?: {
     /**
-     * Custom command folder path (relative to repo root)
-     * @default '.archon/commands'
+     * An ADDITIONAL command folder to search, relative to the repo root.
+     * Searched after `.archon/commands/` and before `.claude/commands/` —
+     * it adds a location, it does not replace the default one.
+     * @default undefined (only the built-in locations are searched)
      */
     folder?: string;
-
-    /**
-     * Auto-load commands on clone
-     * @default true
-     */
-    autoLoad?: boolean;
   };
 
   /**
@@ -272,11 +251,12 @@ export interface RepoConfig {
      * file tree. The user is responsible for adding the directory to their
      * `.gitignore` (no automatic file mutation).
      *
-     * Path resolution precedence (highest to lowest):
+     * Path resolution precedence (highest to lowest), per `getWorktreeBase()`
+     * in `@archon/git`:
      *   1. this `worktree.path` (repo-local)
-     *   2. global `paths.worktrees` (absolute override in `~/.archon/config.yaml`)
-     *   3. auto-detected project-scoped (`~/.archon/workspaces/owner/repo/...`)
-     *   4. default global (`~/.archon/worktrees/`)
+     *   2. project-scoped (`~/.archon/workspaces/<owner>/<repo>/worktrees/`)
+     * There is no third layout and no config key that overrides the root;
+     * relocate the whole tree with `ARCHON_HOME` instead.
      *
      * Must be a safe relative path: no leading `/`, no `..` segments. Absolute
      * or escaping values fail loudly at worktree creation (Fail Fast — no silent
@@ -338,14 +318,6 @@ export interface RepoConfig {
    */
   defaults?: {
     /**
-     * Copy bundled default commands and workflows on clone
-     * Set to false to skip copying defaults
-     * @default true
-     * @deprecated Use loadDefaultCommands/loadDefaultWorkflows instead
-     */
-    copyDefaults?: boolean;
-
-    /**
      * Load app's bundled default commands at runtime
      * Set to false to only use repo-specific commands
      * @default true
@@ -384,10 +356,6 @@ export interface MergedConfig {
     discord: 'stream' | 'batch';
     slack: 'stream' | 'batch';
   };
-  paths: {
-    workspaces: string;
-    worktrees: string;
-  };
   concurrency: {
     maxConversations: number;
   };
@@ -403,10 +371,8 @@ export interface MergedConfig {
      * Searched after .archon/commands/ but before .claude/commands/
      */
     folder?: string;
-    autoLoad: boolean;
   };
   defaults: {
-    copyDefaults: boolean;
     loadDefaultCommands: boolean;
     loadDefaultWorkflows: boolean;
   };
@@ -459,7 +425,6 @@ export interface SafeConfig {
     maxConversations: number;
   };
   defaults: {
-    copyDefaults: boolean;
     loadDefaultCommands: boolean;
     loadDefaultWorkflows: boolean;
   };

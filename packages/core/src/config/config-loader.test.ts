@@ -416,6 +416,30 @@ workflows:
       });
     });
 
+    test('MAX_CONCURRENT_CONVERSATIONS overrides the configured limit', async () => {
+      mockFsReadFile.mockResolvedValue('concurrency:\n  maxConversations: 5\n');
+      process.env.MAX_CONCURRENT_CONVERSATIONS = '25';
+
+      const config = await loadConfig();
+
+      expect(config.concurrency.maxConversations).toBe(25);
+    });
+
+    test.each(['abc', '0', '-3'])(
+      'MAX_CONCURRENT_CONVERSATIONS=%p is refused, leaving the configured limit',
+      async raw => {
+        // The server hands this straight to ConversationLockManager, so an
+        // unusable env value has to fall back to a real number here rather than
+        // reach the limiter as NaN or zero.
+        mockFsReadFile.mockResolvedValue('concurrency:\n  maxConversations: 5\n');
+        process.env.MAX_CONCURRENT_CONVERSATIONS = raw;
+
+        const config = await loadConfig();
+
+        expect(config.concurrency.maxConversations).toBe(5);
+      }
+    );
+
     test('env var DEFAULT_AI_ASSISTANT is a fallback — config file assistant wins', async () => {
       mockFsReadFile.mockResolvedValue(`
 defaultAssistant: claude
@@ -838,17 +862,6 @@ env:
 
       const config = await loadConfig('/test/repo');
       expect(config.envVars).toBeUndefined();
-    });
-
-    test('paths use archon defaults', async () => {
-      const error = new Error('ENOENT') as NodeJS.ErrnoException;
-      error.code = 'ENOENT';
-      mockFsReadFile.mockRejectedValue(error);
-
-      const config = await loadConfig();
-
-      expect(config.paths.workspaces).toBe(join(homedir(), '.archon', 'workspaces'));
-      expect(config.paths.worktrees).toBe(join(homedir(), '.archon', 'worktrees'));
     });
   });
 

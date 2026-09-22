@@ -1313,15 +1313,14 @@ function makeConfig(overrides: Partial<MergedConfig> = {}): MergedConfig {
     assistant: 'claude',
     assistants: { claude: {}, codex: {} },
     streaming: { telegram: 'stream', discord: 'batch', slack: 'batch' },
-    paths: { workspaces: '/tmp', worktrees: '/tmp' },
     concurrency: { maxConversations: 10 },
     workflows: {
       autoResumeOnQuotaReset: false,
       quotaMaxAttempts: 1,
       quotaDeadlineMs: 86_400_000,
     },
-    commands: { autoLoad: true },
-    defaults: { copyDefaults: true, loadDefaultCommands: true, loadDefaultWorkflows: true },
+    commands: {},
+    defaults: { loadDefaultCommands: true, loadDefaultWorkflows: true },
     envVars: {},
     ...overrides,
   };

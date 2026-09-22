@@ -347,8 +347,12 @@ export async function startServer(opts: ServerOptions = {}): Promise<void> {
   // Validate app defaults paths (non-blocking, just logs warnings)
   await validateAppDefaultsPaths();
 
-  // Initialize conversation lock manager
-  const maxConcurrent = parseInt(process.env.MAX_CONCURRENT_CONVERSATIONS ?? '10');
+  // Initialize conversation lock manager.
+  // Reads the merged config rather than the environment directly: `loadConfig`
+  // already layers MAX_CONCURRENT_CONVERSATIONS over the YAML value, so this
+  // keeps env precedence while making `concurrency.maxConversations` in
+  // ~/.archon/config.yaml actually reach the limiter it documents.
+  const maxConcurrent = config.concurrency.maxConversations;
   const lockManager = new ConversationLockManager(maxConcurrent);
   getLog().info({ maxConcurrent }, 'lock_manager_initialized');
 
@@ -525,10 +529,10 @@ export async function startServer(opts: ServerOptions = {}): Promise<void> {
 
     // Initialize Discord adapter (conditional)
     if (process.env.DISCORD_BOT_TOKEN) {
-      const discordStreamingMode = (process.env.DISCORD_STREAMING_MODE ?? 'batch') as
-        | 'stream'
-        | 'batch';
-      discord = new DiscordAdapter(process.env.DISCORD_BOT_TOKEN, discordStreamingMode);
+      // Merged config, not the env var: `loadConfig` already layers
+      // DISCORD_STREAMING_MODE over `streaming.discord`, so env still wins and
+      // the documented YAML key finally reaches the adapter.
+      discord = new DiscordAdapter(process.env.DISCORD_BOT_TOKEN, config.streaming.discord);
       const discordAdapter = discord; // Capture for use in callback
       const discordRequireMention = isDiscordMentionRequired();
 
@@ -611,9 +615,8 @@ export async function startServer(opts: ServerOptions = {}): Promise<void> {
 
     // Initialize Slack adapter (conditional)
     if (process.env.SLACK_BOT_TOKEN && process.env.SLACK_APP_TOKEN) {
-      const slackStreamingMode = (process.env.SLACK_STREAMING_MODE ?? 'batch') as
-        | 'stream'
-        | 'batch';
+      // See the Discord adapter above: env precedence is applied by loadConfig.
+      const slackStreamingMode = config.streaming.slack;
       slack = new SlackAdapter(
         process.env.SLACK_BOT_TOKEN,
         process.env.SLACK_APP_TOKEN,
@@ -935,7 +938,8 @@ export async function startServer(opts: ServerOptions = {}): Promise<void> {
   // Initialize Telegram adapter (conditional, skipped in CLI serve mode)
   let telegram: TelegramAdapter | null = null;
   if (!opts.skipPlatformAdapters && process.env.TELEGRAM_BOT_TOKEN) {
-    const streamingMode = (process.env.TELEGRAM_STREAMING_MODE ?? 'stream') as 'stream' | 'batch';
+    // See the Discord adapter above: env precedence is applied by loadConfig.
+    const streamingMode = config.streaming.telegram;
     telegram = new TelegramAdapter(process.env.TELEGRAM_BOT_TOKEN, streamingMode);
     const telegramAdapter = telegram; // Capture for use in callback
 

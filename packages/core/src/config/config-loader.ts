@@ -10,11 +10,7 @@
 
 import { readFile as fsReadFile, writeFile, mkdir } from 'fs/promises';
 import { join, dirname } from 'path';
-import {
-  getArchonConfigPath,
-  getArchonWorkspacesPath,
-  getArchonWorktreesPath,
-} from '@archon/paths';
+import { getArchonConfigPath } from '@archon/paths';
 
 // Wrapper functions for file I/O - allows mocking without polluting fs/promises globally
 export async function readConfigFile(path: string): Promise<string> {
@@ -414,10 +410,6 @@ function getDefaults(): MergedConfig {
       discord: 'batch',
       slack: 'batch',
     },
-    paths: {
-      workspaces: getArchonWorkspacesPath(),
-      worktrees: getArchonWorktreesPath(),
-    },
     concurrency: {
       maxConversations: 10,
     },
@@ -428,10 +420,8 @@ function getDefaults(): MergedConfig {
     },
     commands: {
       folder: undefined,
-      autoLoad: true,
     },
     defaults: {
-      copyDefaults: true,
       loadDefaultCommands: true,
       loadDefaultWorkflows: true,
     },
@@ -495,9 +485,6 @@ function applyEnvOverrides(
     config.streaming.slack = slackMode as 'stream' | 'batch';
   }
 
-  // Path overrides (these come from archon-paths.ts which already checks env vars)
-  // No need to re-apply here since getDefaults() uses those functions
-
   // Concurrency override
   const maxConcurrent = process.env.MAX_CONCURRENT_CONVERSATIONS;
   if (maxConcurrent) {
@@ -546,12 +533,6 @@ function mergeGlobalConfig(defaults: MergedConfig, global: GlobalConfig): Merged
     if (global.streaming.telegram) result.streaming.telegram = global.streaming.telegram;
     if (global.streaming.discord) result.streaming.discord = global.streaming.discord;
     if (global.streaming.slack) result.streaming.slack = global.streaming.slack;
-  }
-
-  // Path preferences
-  if (global.paths) {
-    if (global.paths.workspaces) result.paths.workspaces = global.paths.workspaces;
-    if (global.paths.worktrees) result.paths.worktrees = global.paths.worktrees;
   }
 
   // Concurrency preferences
@@ -606,7 +587,6 @@ function mergeRepoConfig(merged: MergedConfig, repo: RepoConfig): MergedConfig {
     result.commands = {
       ...result.commands,
       folder: repo.commands.folder ?? result.commands.folder,
-      autoLoad: repo.commands.autoLoad ?? result.commands.autoLoad,
     };
   }
 
@@ -614,7 +594,6 @@ function mergeRepoConfig(merged: MergedConfig, repo: RepoConfig): MergedConfig {
   if (repo.defaults) {
     result.defaults = {
       ...result.defaults,
-      copyDefaults: repo.defaults.copyDefaults ?? result.defaults.copyDefaults,
       loadDefaultCommands: repo.defaults.loadDefaultCommands ?? result.defaults.loadDefaultCommands,
       loadDefaultWorkflows:
         repo.defaults.loadDefaultWorkflows ?? result.defaults.loadDefaultWorkflows,
@@ -851,7 +830,6 @@ export function toSafeConfig(config: MergedConfig): SafeConfig {
     },
     concurrency: { maxConversations: config.concurrency.maxConversations },
     defaults: {
-      copyDefaults: config.defaults.copyDefaults,
       loadDefaultCommands: config.defaults.loadDefaultCommands,
       loadDefaultWorkflows: config.defaults.loadDefaultWorkflows,
     },

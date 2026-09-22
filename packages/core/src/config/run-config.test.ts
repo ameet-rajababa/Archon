@@ -85,7 +85,6 @@ describe('workflow run config', () => {
       'container',
       'botName',
       'streaming',
-      'paths',
       'concurrency',
       'recommendedWorkflows',
     ]) {
@@ -93,6 +92,11 @@ describe('workflow run config', () => {
         parseWorkflowRunConfig({ [key]: {} }, { kind: 'http', label: 'inline' })
       ).toThrow(`Run config key '${key}' cannot apply`);
     }
+
+    // Retired keys are not "unavailable at run scope", they are not keys at all.
+    expect(() => parseWorkflowRunConfig({ paths: {} }, { kind: 'http', label: 'inline' })).toThrow(
+      "Unknown run config key 'paths'."
+    );
   });
 
   it('rejects model settings that cannot execute or survive resume', () => {

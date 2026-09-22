@@ -85,19 +85,15 @@ assistants:
       - /absolute/path/to/other/repo
     # codexBinaryPath: /absolute/path/to/codex  # Optional: Codex CLI path
 
-# Streaming preferences per platform
+# Streaming preferences per platform.
+# Env vars (TELEGRAM_STREAMING_MODE, DISCORD_STREAMING_MODE, SLACK_STREAMING_MODE)
+# override these when set.
 streaming:
   telegram: stream # 'stream' or 'batch'
   discord: batch
   slack: batch
-  github: batch
 
-# Custom paths (usually not needed)
-paths:
-  workspaces: ~/.archon/workspaces
-  worktrees: ~/.archon/worktrees
-
-# Concurrency limits
+# Concurrency limits. MAX_CONCURRENT_CONVERSATIONS overrides this when set.
 concurrency:
   maxConversations: 10
 
@@ -177,10 +173,10 @@ assistants:
     model: gpt-5.6-terra
     webSearchMode: live
 
-# Commands configuration
+# Commands configuration. `folder` is an ADDITIONAL location to search,
+# on top of the built-in ones — it does not replace them.
 commands:
-  folder: .archon/commands
-  autoLoad: true
+  folder: .claude/commands/archon
 
 # Worktree settings
 worktree:
@@ -658,7 +654,6 @@ Example `.archon/config.yaml`:
 ```yaml
 commands:
   folder: .claude/commands/archon  # Additional folder to search
-  autoLoad: true
 ```
 
 ## Examples
@@ -683,8 +678,6 @@ defaultAssistant: codex
 ```yaml
 # .archon/config.yaml in your repo
 assistant: claude  # Workflows inherit this provider unless they specify their own
-commands:
-  autoLoad: true
 ```
 
 ### Docker with Custom Volume

@@ -254,15 +254,14 @@ const mockLoadConfig = mock<typeof ConfigLoader.loadConfig>(() =>
     assistant: 'claude',
     assistants: { claude: {}, codex: {} },
     streaming: { telegram: 'stream', discord: 'batch', slack: 'batch' },
-    paths: { workspaces: '/tmp', worktrees: '/tmp' },
     concurrency: { maxConversations: 10 },
     workflows: {
       autoResumeOnQuotaReset: false,
       quotaMaxAttempts: 1,
       quotaDeadlineMs: 86_400_000,
     },
-    commands: { autoLoad: true },
-    defaults: { copyDefaults: true, loadDefaultCommands: true, loadDefaultWorkflows: true },
+    commands: {},
+    defaults: { loadDefaultCommands: true, loadDefaultWorkflows: true },
   })
 );
 
@@ -997,15 +996,14 @@ describe('orchestrator-agent handleMessage', () => {
           codex: {},
         },
         streaming: { telegram: 'stream', discord: 'batch', slack: 'batch' },
-        paths: { workspaces: '/tmp', worktrees: '/tmp' },
         concurrency: { maxConversations: 10 },
         workflows: {
           autoResumeOnQuotaReset: false,
           quotaMaxAttempts: 1,
           quotaDeadlineMs: 86_400_000,
         },
-        commands: { autoLoad: true },
-        defaults: { copyDefaults: true, loadDefaultCommands: true, loadDefaultWorkflows: true },
+        commands: {},
+        defaults: { loadDefaultCommands: true, loadDefaultWorkflows: true },
       });
 
       mockClient.sendQuery.mockImplementation(async function* () {
@@ -1038,15 +1036,14 @@ describe('orchestrator-agent handleMessage', () => {
           codex: {},
         },
         streaming: { telegram: 'stream', discord: 'batch', slack: 'batch' },
-        paths: { workspaces: '/tmp', worktrees: '/tmp' },
         concurrency: { maxConversations: 10 },
         workflows: {
           autoResumeOnQuotaReset: false,
           quotaMaxAttempts: 1,
           quotaDeadlineMs: 86_400_000,
         },
-        commands: { autoLoad: true },
-        defaults: { copyDefaults: true, loadDefaultCommands: true, loadDefaultWorkflows: true },
+        commands: {},
+        defaults: { loadDefaultCommands: true, loadDefaultWorkflows: true },
       });
 
       const codexSendQuery = mock<IAgentProvider['sendQuery']>(async function* () {
@@ -1082,15 +1079,14 @@ describe('orchestrator-agent handleMessage', () => {
           small: { provider: 'claude', model: 'haiku' },
         },
         streaming: { telegram: 'stream', discord: 'batch', slack: 'batch' },
-        paths: { workspaces: '/tmp', worktrees: '/tmp' },
         concurrency: { maxConversations: 10 },
         workflows: {
           autoResumeOnQuotaReset: false,
           quotaMaxAttempts: 1,
           quotaDeadlineMs: 86_400_000,
         },
-        commands: { autoLoad: true },
-        defaults: { copyDefaults: true, loadDefaultCommands: true, loadDefaultWorkflows: true },
+        commands: {},
+        defaults: { loadDefaultCommands: true, loadDefaultWorkflows: true },
       });
 
       mockClient.sendQuery.mockImplementation(async function* () {
