@@ -1,21 +1,19 @@
-import { describe, expect, test, beforeEach, afterEach } from 'bun:test';
+import { describe, expect, test, beforeEach } from 'bun:test';
 import { mkdtemp, mkdir, writeFile, readdir, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { trackTempRoots } from '@archon/paths/test-utils';
 import { cleanupUploads } from './upload-cleanup';
 
 let root: string;
 let uploadDir: string;
+const trackRoot = trackTempRoots();
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), 'upload-cleanup-'));
+  root = trackRoot(await mkdtemp(join(tmpdir(), 'upload-cleanup-')));
   uploadDir = join(root, 'conversation-1');
   await mkdir(uploadDir, { recursive: true });
 });
-afterEach(async () => {
-  await rm(root, { recursive: true, force: true });
-});
-
 async function write(name: string): Promise<{ path: string }> {
   const path = join(uploadDir, name);
   await writeFile(path, 'x');
