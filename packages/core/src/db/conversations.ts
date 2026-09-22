@@ -2,6 +2,7 @@
  * Database operations for conversations
  */
 import { pool, getDialect } from './connection';
+import { looksLikeRowId } from './codebases';
 import type { Conversation } from '../types';
 import { ConversationNotFoundError } from '../types';
 import { createLogger } from '@archon/paths';
@@ -252,6 +253,12 @@ export async function listConversations(
   }
 
   if (codebaseId) {
+    // A filter value that cannot be a row id matches nothing, and saying so is
+    // the whole answer. Comparing it to a uuid column raises a driver error
+    // instead, which the route above turns into a 500 — the console showed
+    // five of those at once when a URL carried a project name where an id
+    // belonged. See `looksLikeRowId`.
+    if (!looksLikeRowId(codebaseId)) return [];
     params.push(codebaseId);
     sql += ` AND codebase_id = $${String(params.length)}`;
   }

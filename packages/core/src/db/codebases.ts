@@ -43,7 +43,30 @@ export async function createCodebase(data: {
   return result.rows[0];
 }
 
+/**
+ * Whether a string could be a row id at all.
+ *
+ * `remote_agent_codebases.id` is a uuid column on PostgreSQL, so comparing it
+ * to a string that is not a uuid is not a miss — it is a type error, raised by
+ * the driver and caught by whatever generic handler is above it. The console
+ * turned that into a 500 on five endpoints at once when a URL carried a
+ * project NAME where an id belonged, which reads as "the server is broken"
+ * rather than "no such project".
+ *
+ * A value that cannot be a uuid cannot be in a uuid column, so the honest
+ * answer is the empty one. Checked here rather than matched on the driver's
+ * error text, which would be reading prose to make a control-flow decision.
+ * SQLite never raised the error and already returned nothing; this makes both
+ * backends agree.
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function looksLikeRowId(id: string): boolean {
+  return UUID_RE.test(id);
+}
+
 export async function getCodebase(id: string): Promise<Codebase | null> {
+  if (!looksLikeRowId(id)) return null;
   const result = await pool.query<Codebase>('SELECT * FROM remote_agent_codebases WHERE id = $1', [
     id,
   ]);
