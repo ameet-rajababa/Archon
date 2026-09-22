@@ -10,18 +10,26 @@
  * state from the API. The list+detail surfaces don't need to interpret event
  * payloads — they just need to know "data changed, ask again." This stays
  * loosely coupled to event schemas and avoids partial in-memory mutation.
+ *
+ * Two events carry their answer instead, and both are here because a refetch
+ * CANNOT produce it: streamed assistant text (`onLive`, whose rows are written
+ * late — see primitives/live-text), and tool activity, whose authority is a Map
+ * in the server's memory rather than a row. See primitives/live-activity.
  */
 
 import { useEffect } from 'react';
-import { invalidate } from '../store/cache';
+import { invalidate, patch } from '../store/cache';
 import { K } from './../store/keys';
 import { SSE_BASE_URL } from './http';
 import type { LiveEvent } from '../primitives/live-text';
+import { applyActivity, clearActivity, toActivityEvent } from '../primitives/live-activity';
+import type { ActiveChats } from '../skills/activeChats';
 
 interface ParsedEvent {
   type?: string;
   runId?: string;
   codebaseId?: string | null;
+  conversationId?: string;
   locked?: boolean;
   content?: string;
   category?: string;
@@ -84,11 +92,27 @@ export function useDashboardSSE(): void {
     es.onmessage = (e: MessageEvent<string>): void => {
       const ev = parse(e.data);
       if (ev?.type === undefined || ev.type === 'heartbeat') return;
+      if (ev.type === 'conversation_activity') {
+        // The one event applied rather than refetched — see live-activity.
+        const activity = toActivityEvent(ev);
+        if (activity !== null) {
+          patch(K.activeChats, prev => applyActivity(prev as ActiveChats | undefined, activity));
+        }
+        return;
+      }
       if (ev.type === 'conversation_lock') {
         // Read as a trigger, never as state: /api/health is the authority on
         // which chats are working, and it merges in background workflows that
         // never touch the conversation lock at all.
         invalidate(K.activeChats);
+        // The turn is over, so whatever it was doing is over with it. Dropped
+        // here as well as refetched because the refetch is a round trip, and
+        // for its duration the row would go on naming a tool that has stopped.
+        // Only the tool — the id stays for /api/health to rule on.
+        if (ev.locked === false && typeof ev.conversationId === 'string') {
+          const id = ev.conversationId;
+          patch(K.activeChats, prev => clearActivity(prev as ActiveChats | undefined, id));
+        }
         // A turn beginning or ending also moves the chat's last-activity stamp
         // and its position in the rail. On Postgres `conversation_changed`
         // says so as well; on SQLite there are no triggers, so this is the

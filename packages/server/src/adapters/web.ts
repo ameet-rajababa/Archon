@@ -239,6 +239,7 @@ export class WebAdapter implements IWebPlatformAdapter {
         input: boundedInput,
         startedAt: now,
       });
+      this.announceActivity(conversationId, chunk.toolName, boundedInput, now);
 
       event = JSON.stringify({
         type: 'tool_call',
@@ -434,6 +435,42 @@ export class WebAdapter implements IWebPlatformAdapter {
     if (this.transport.hasActiveStream(DASHBOARD_STREAM)) {
       this.transport.emitWorkflowEvent(DASHBOARD_STREAM, lockEvent);
     }
+  }
+
+  /**
+   * Tell the dashboard what a conversation just started doing.
+   *
+   * The one event on this stream that CARRIES its answer instead of triggering
+   * a refetch. Every other one is a trigger because the authority is a database
+   * the client can re-read; this one's authority is a Map in this process, and
+   * at one event per tool call a refetch each would be the busiest request the
+   * console makes — to be told the thing the event already said.
+   *
+   * There is no matching "stopped" event, because a tool finishing does not
+   * mean the conversation stopped doing anything: `lastTool` deliberately
+   * survives a tool_result, so the row can say what it is between tools rather
+   * than falling back to the word "working". What ends the activity is the turn
+   * ending, and `emitLockEvent` already announces that.
+   */
+  private announceActivity(
+    conversationId: string,
+    name: string,
+    input: ToolInputSnapshot,
+    startedAt: number
+  ): void {
+    if (!this.transport.hasActiveStream(DASHBOARD_STREAM)) return;
+    this.transport.emitWorkflowEvent(
+      DASHBOARD_STREAM,
+      JSON.stringify({
+        type: 'conversation_activity',
+        conversationId,
+        name,
+        // Already bounded to short strings by the caller — this is a line in a
+        // rail, not a tool payload, and the console drops anything else.
+        input,
+        startedAt,
+      })
+    );
   }
 
   /**

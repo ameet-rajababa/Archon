@@ -209,6 +209,84 @@ describe('WebAdapter.emitLockEvent — dashboard mirror', () => {
   });
 });
 
+describe('WebAdapter.sendStructuredEvent — activity on the dashboard feed', () => {
+  test('a tool starting is announced, carrying what it is', async () => {
+    const { adapter, dashboard } = makeAdapter();
+
+    await adapter.sendStructuredEvent('conv-1', {
+      type: 'tool',
+      toolName: 'Edit',
+      toolCallId: 't1',
+      toolInput: { file_path: 'rail.css' },
+    });
+
+    // Carries its payload rather than triggering a refetch: at one event per
+    // tool call, a refetch each would be the busiest request the console makes
+    // — to be told what the event already said.
+    expect(dashboard.map(e => JSON.parse(e) as unknown)).toEqual([
+      {
+        type: 'conversation_activity',
+        conversationId: 'conv-1',
+        name: 'Edit',
+        input: { file_path: 'rail.css' },
+        startedAt: expect.any(Number),
+      },
+    ]);
+  });
+
+  test('the input it carries is bounded, not the whole tool payload', async () => {
+    const { adapter, dashboard } = makeAdapter();
+
+    await adapter.sendStructuredEvent('conv-1', {
+      type: 'tool',
+      toolName: 'Bash',
+      toolCallId: 't1',
+      toolInput: { command: 'x'.repeat(5_000) },
+    });
+
+    const { input } = JSON.parse(dashboard[0]!) as { input: Record<string, string> };
+    expect(input.command!.length).toBeLessThan(5_000);
+  });
+
+  test('a tool finishing announces nothing — the gap between tools is not idleness', async () => {
+    const { adapter, dashboard } = makeAdapter();
+
+    await adapter.sendStructuredEvent('conv-1', {
+      type: 'tool',
+      toolName: 'Read',
+      toolCallId: 't1',
+      toolInput: { file_path: 'a.ts' },
+    });
+    await adapter.sendStructuredEvent('conv-1', {
+      type: 'tool_result',
+      toolName: 'Read',
+      toolCallId: 't1',
+      toolOutput: 'ok',
+    });
+
+    // currentActivity still answers 'Read' here (see below), so an event
+    // clearing it would put the pushed state and the polled state in
+    // disagreement — and the next snapshot would flick the name back on.
+    expect(dashboard.length).toBe(1);
+  });
+
+  test('nothing is buffered for a dashboard nobody is watching', async () => {
+    const { adapter, dashboard, emitted } = makeAdapter({ dashboardConnected: false });
+
+    await adapter.sendStructuredEvent('conv-1', {
+      type: 'tool',
+      toolName: 'Read',
+      toolCallId: 't1',
+      toolInput: {},
+    });
+
+    expect(dashboard).toEqual([]);
+    // The conversation's own stream still gets its tool_call — that one
+    // buffers on purpose, so a reconnecting tab does not lose the card.
+    expect(emitted.some(e => e.includes('tool_call'))).toBe(true);
+  });
+});
+
 describe('WebAdapter.currentActivity — what each chat is doing', () => {
   test('a finished tool still answers, because the gap between tools is not idleness', async () => {
     const { adapter } = makeAdapter();

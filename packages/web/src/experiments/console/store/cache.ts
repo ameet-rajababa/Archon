@@ -114,8 +114,23 @@ export function set(key: string, value: unknown): void {
   notify(key);
 }
 
+/**
+ * Write a value derived from the one already held, for the rare event that
+ * carries its own answer (see primitives/live-activity). Everything else
+ * invalidates and refetches.
+ *
+ * An updater that returns what it was given changes NOTHING: no entry, no
+ * notify. That is not an optimisation — a key with no value yet is a key whose
+ * loader has not run, and `ensureLoad` skips any key the cache already holds.
+ * Installing `undefined` under it would mean the load never happens and the key
+ * stays empty until something invalidates it. So an updater that declines to
+ * act (because there is nothing to patch yet) leaves the cache untouched and
+ * the load on its way.
+ */
 export function patch(key: string, updater: (prev: unknown) => unknown): void {
-  const next = updater(cache.get(key));
+  const prev = cache.get(key);
+  const next = updater(prev);
+  if (next === prev) return;
   cache.set(key, next);
   notify(key);
 }

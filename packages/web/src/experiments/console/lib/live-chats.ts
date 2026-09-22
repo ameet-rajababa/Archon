@@ -1,11 +1,20 @@
 /**
  * Which chats the server is executing a turn for, right now.
  *
- * The poll is a backstop, not the mechanism — the conversation lock lives in
- * the server's memory and is pushed on the dashboard stream — but it covers
- * what a push cannot: the stream being down, an event arriving while the tab
- * was hidden, a run that bypasses the lock manager. Skipped entirely while the
- * tab is hidden.
+ * The poll is a backstop, not the mechanism. Both halves of this answer are
+ * now pushed on the dashboard stream — the conversation lock as a trigger to
+ * ask again, and the running tool as the thing itself (see
+ * primitives/live-activity) — so the interval no longer carries the news; it
+ * repairs. What it repairs is what a push cannot: the stream being down, an
+ * event that landed while the tab was hidden, a run that never takes the
+ * conversation lock at all, and a pushed value that has drifted from what
+ * /api/health would say. Skipped entirely while the tab is hidden.
+ *
+ * It is deliberately still here rather than reduced to a reconnect snapshot.
+ * A stream that reconnects re-asks (`onopen` in lib/sse), but a stream that
+ * stays up while the server's answer changes underneath it — a background
+ * workflow starting, an optimistic patch that was wrong — has no other way to
+ * be corrected. One request every 30s is the price of that.
  *
  * ONE poll, however many readers. Two surfaces need this — the rail's per-row
  * mark and the project chip's roll-up — and both are on screen together on the
@@ -21,7 +30,7 @@ import type { ActiveChats, ActiveTool } from '../skills/activeChats';
 import { invalidate, useEntity } from '../store/cache';
 import { K } from '../store/keys';
 
-const POLL_MS = 4000;
+const POLL_MS = 30_000;
 
 let readers = 0;
 let timer: ReturnType<typeof setInterval> | null = null;

@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { subscribeKey, versionOf, get, set, invalidate } from './cache';
+import { subscribeKey, versionOf, get, patch, set, invalidate } from './cache';
 
 // The store's Maps are module-level, so every test uses its own unique key —
 // no cross-test state to reset.
@@ -253,5 +253,68 @@ describe('subscribeKey — resubscribe during an abandoned in-flight load (#2101
     expect(versionOf(key)).toBe(1); // no extra notify — A's error was not surfaced
 
     unsubB();
+  });
+});
+
+describe('patch — a value derived from the one already held', () => {
+  test('updates the entry and wakes its subscribers', async () => {
+    const key = 'test:patch-updates';
+    const seen: unknown[] = [];
+    const unsubscribe = subscribeKey(
+      key,
+      () => {
+        seen.push(get(key));
+      },
+      () => Promise.resolve({ n: 1 })
+    );
+    await flush();
+
+    patch(key, prev => ({ n: (prev as { n: number }).n + 1 }));
+    expect(get(key)).toEqual({ n: 2 });
+    expect(seen.at(-1)).toEqual({ n: 2 });
+    unsubscribe();
+  });
+
+  test('an updater that declines to act leaves the load on its way', async () => {
+    // A patch on a key that has not loaded must not install `undefined` under
+    // it: `ensureLoad` skips any key the cache already holds, so that entry
+    // would mean the loader never runs and the key stays empty.
+    const key = 'test:patch-declines';
+    let loads = 0;
+
+    patch(key, prev => prev);
+
+    const unsubscribe = subscribeKey(
+      key,
+      () => {},
+      () => {
+        loads += 1;
+        return Promise.resolve('loaded');
+      }
+    );
+    await flush();
+
+    expect(loads).toBe(1);
+    expect(get(key)).toBe('loaded');
+    unsubscribe();
+  });
+
+  test('a patch that changes nothing does not wake subscribers', async () => {
+    const key = 'test:patch-noop';
+    const held = { n: 1 };
+    let notifications = 0;
+    const unsubscribe = subscribeKey(
+      key,
+      () => {
+        notifications += 1;
+      },
+      () => Promise.resolve(held)
+    );
+    await flush();
+    const before = notifications;
+
+    patch(key, prev => prev);
+    expect(notifications).toBe(before);
+    unsubscribe();
   });
 });
