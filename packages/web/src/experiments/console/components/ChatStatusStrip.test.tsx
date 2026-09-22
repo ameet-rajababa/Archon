@@ -29,6 +29,69 @@ describe('ChatStatusStrip', () => {
 
   // The failure this component exists to prevent: an idle-looking screen that
   // cannot be told apart from a broken indicator.
+  // The defect this prop exists for: tool calls are buffered in the adapter and
+  // written to the database when the TURN ENDS, so mid-turn the trace holds
+  // nothing from the turn being watched — and the line read "Thinking" for the
+  // entire time the agent was working, or named a tool from the turn before.
+  test('a live tool beats the trace, which cannot see the turn in flight', () => {
+    const html = renderToStaticMarkup(
+      <ChatStatusStrip
+        status="working"
+        trace={TRACE}
+        live={{ name: 'Bash', input: { command: 'bun run lint' } }}
+        expanded={false}
+        onToggle={noop}
+      />
+    );
+    // `describeActivity` says what the command DOES — the sentence, not the
+    // command line. Same rule the trace entries above follow.
+    expect(html).toContain('Checking style');
+    expect(html).not.toContain('Editing activity-log.ts');
+  });
+
+  test('a live tool is what a turn with nothing persisted yet can say', () => {
+    const html = renderToStaticMarkup(
+      <ChatStatusStrip
+        status="working"
+        trace={[]}
+        live={{ name: 'Read', input: { file_path: 'src/rail.css' } }}
+        expanded={false}
+        onToggle={noop}
+      />
+    );
+    expect(html).toContain('rail.css');
+    expect(html).not.toContain('Thinking');
+  });
+
+  test('no live answer falls back to the trace rather than to nothing', () => {
+    const html = renderToStaticMarkup(
+      <ChatStatusStrip
+        status="working"
+        trace={TRACE}
+        live={null}
+        expanded={false}
+        onToggle={noop}
+      />
+    );
+    expect(html).toContain('Editing activity-log.ts');
+  });
+
+  test('a live tool never speaks for a chat that is not working', () => {
+    // Between tools the server still names the last one; the STATE is what
+    // decides whether the label is an activity at all.
+    const html = renderToStaticMarkup(
+      <ChatStatusStrip
+        status="idle"
+        trace={TRACE}
+        live={{ name: 'Bash', input: { command: 'bun run lint' } }}
+        expanded={false}
+        onToggle={noop}
+      />
+    );
+    expect(html).toContain('Idle');
+    expect(html).not.toContain('Checking style');
+  });
+
   test('an idle chat still renders, and says when it last spoke', () => {
     const iso = new Date(Date.now() - 4 * 60_000).toISOString();
     const html = renderToStaticMarkup(

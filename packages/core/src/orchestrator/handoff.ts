@@ -173,3 +173,51 @@ export function findSecrets(document: string): { line: number; text: string }[] 
   });
   return found;
 }
+
+/**
+ * Where a relayed chat came from, carried on the message that seeded it.
+ *
+ * A conversation-level fact kept on a message because there is nowhere else to
+ * put it: `remote_agent_conversations` has no parent column, and the successor
+ * has to be able to name its predecessor to undo the handoff. The seed row's
+ * metadata is already a JSON column, so this needs no schema change and no
+ * second writer to keep in agreement.
+ */
+export interface HandoffLineage {
+  /** DB id — not the platform id — of the chat this one replaced. */
+  from: string;
+  /** The document the handoff wrote, so the undo can name it. */
+  document: string;
+}
+
+/** The metadata key the seed row carries. One name, read and written here. */
+const LINEAGE_KEY = 'handoff';
+
+/** The metadata a relay attaches to the message it seeds a successor with. */
+export function lineageMetadata(lineage: HandoffLineage): Record<string, unknown> {
+  return { [LINEAGE_KEY]: lineage };
+}
+
+/**
+ * The lineage on a stored message, or null when there is none to read.
+ *
+ * Total rather than throwing, and deliberately strict about both fields. The
+ * caller's next move is to archive one chat and reopen another, so a partial
+ * or malformed record must read as "no lineage" — acting on half of one would
+ * archive a chat with nothing restored in its place.
+ */
+export function readLineage(metadata: string): HandoffLineage | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(metadata);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null) return null;
+  const raw: unknown = (parsed as Record<string, unknown>)[LINEAGE_KEY];
+  if (typeof raw !== 'object' || raw === null) return null;
+  const { from, document } = raw as Record<string, unknown>;
+  if (typeof from !== 'string' || from === '') return null;
+  if (typeof document !== 'string' || document === '') return null;
+  return { from, document };
+}

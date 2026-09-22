@@ -15,6 +15,22 @@ interface ChatStatusStripProps {
   lastActivityAt?: string | null;
   /** Every tool the current (or, when idle, the most recent) turn invoked. */
   trace: readonly InlineToolCall[];
+  /**
+   * What the server says this chat is running RIGHT NOW, when it says anything.
+   *
+   * The trace cannot answer this, and not by a small margin: tool calls are
+   * buffered in the adapter and written to the database when the turn ENDS, so
+   * for the whole length of a turn the trace holds nothing from it and the line
+   * below read "Thinking" no matter what the agent was doing. This comes off
+   * the conversation lock's own map, pushed on the dashboard stream, so it is
+   * current within a tool call rather than within a turn.
+   *
+   * Names the label only. The trace beneath the pill stays the persisted
+   * record — it carries durations and it is a history, and injecting a live
+   * entry into it would either duplicate the row when it lands or show one
+   * that never finishes.
+   */
+  live?: { name: string; input: Record<string, string> } | null;
   /** Whether the trace below the strip is revealed. */
   expanded: boolean;
   onToggle: () => void;
@@ -82,6 +98,7 @@ export function ChatStatusStrip({
   since,
   lastActivityAt,
   trace,
+  live,
   expanded,
   onToggle,
   trailing,
@@ -92,12 +109,18 @@ export function ChatStatusStrip({
 
   // Working is the one state that can say something more specific than its own
   // name, because a tool call is a fact about what it is doing right now.
+  //
+  // The LIVE answer wins over the trace. They disagree for the length of a
+  // turn — the trace only gains this turn's tools once the turn ends — and
+  // during that stretch the trace's newest entry belongs to the PREVIOUS turn,
+  // which is a worse answer than the one the server is holding.
+  const running = live ?? latest;
   const label =
     status !== 'working'
       ? STATUS_LABEL[status]
-      : latest === undefined
+      : running === undefined || running === null
         ? 'Thinking'
-        : describeActivity(latest.name, latest.input);
+        : describeActivity(running.name, running.input);
 
   // Colour carries the state before the words do. Read from the same map the
   // rail and the project chip read, so there is one vocabulary and not three.

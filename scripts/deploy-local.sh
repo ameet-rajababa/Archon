@@ -76,7 +76,7 @@ fi
 # The push is the step that has silently not happened. `git push` succeeding is
 # not evidence; the remote's own answer is.
 step "2/6  Push to $REMOTE/$REMOTE_BRANCH"
-in_container "cd '$SOURCE_DIR' && git push \"https://x-access-token:\${GH_TOKEN}@github.com/ameet-rajababa/Archon.git\" '$SOURCE_BRANCH:$REMOTE_BRANCH' 2>&1 | tail -2" \
+in_container "cd '$SOURCE_DIR' && git push '$REMOTE' '$SOURCE_BRANCH:$REMOTE_BRANCH' 2>&1 | tail -2" \
   || die "push failed"
 
 REMOTE_SHA=$(in_container "cd '$SOURCE_DIR' && git ls-remote '$REMOTE' 'refs/heads/$REMOTE_BRANCH' | cut -f1" | tr -d '\r\n')

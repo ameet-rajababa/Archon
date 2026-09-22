@@ -6903,6 +6903,13 @@ describe('handoff relay', () => {
     expect(seeded).toHaveLength(1);
     expect(seeded[0]?.[2]).toContain('Continue: ');
     expect(seeded[0]?.[2]).toContain('handoff relay');
+    // The offer the reader acts on, at the top of the chat they land in.
+    expect(seeded[0]?.[2]).toContain('undo the handoff');
+    // And the lineage `undo_handoff` reads. There is no parent column on a
+    // conversation, so this row is the only record of what was replaced.
+    expect(seeded[0]?.[3]).toEqual({
+      handoff: { from: 'conv-1-db', document: expect.stringContaining('context-bar') },
+    });
     // The predecessor's own transcript is untouched — the seed belongs to the
     // chat that has to act on it, not the one being closed.
     expect(

@@ -19,10 +19,17 @@ export type { MessageRow } from '../schemas/message';
  * metadata should contain toolCalls array and/or error object if applicable.
  * userId is the Archon user UUID; pass undefined for assistant messages or
  * when the originating user is unknown.
+ *
+ * `system` is a notice the conversation itself produced — why it handed off,
+ * not what the agent said. It is never replayed to a model (nothing reads this
+ * table to build a prompt; provider sessions carry their own context) and the
+ * console already renders it under a `System` label. Use it only for durable
+ * facts: transient status belongs on `sendStructuredEvent`, which writes
+ * nothing down on purpose.
  */
 export async function addMessage(
   conversationId: string,
-  role: 'user' | 'assistant',
+  role: 'user' | 'assistant' | 'system',
   content: string,
   metadata?: Record<string, unknown>,
   userId?: string
@@ -64,6 +71,28 @@ export async function listMessages(
     [conversationId, limit]
   );
   return [...result.rows].reverse();
+}
+
+/**
+ * The conversation's opening user message, or null when it has none.
+ *
+ * Exists for handoff lineage: a relayed chat carries where it came from in the
+ * metadata of the message that seeded it, and that seed is by construction the
+ * first user row — the relay creates the conversation and writes it before the
+ * successor has said anything. Asked as its own query rather than read out of
+ * `listMessages`, whose window holds the NEWEST 200: a successor that ran all
+ * night would have pushed its own origin out of view, and the undo would
+ * disappear at exactly the point the night made it worth having.
+ */
+export async function getFirstUserMessage(conversationId: string): Promise<MessageRow | null> {
+  const result = await pool.query<MessageRow>(
+    `SELECT * FROM remote_agent_messages
+     WHERE conversation_id = $1 AND role = 'user'
+     ORDER BY created_at ASC, id ASC
+     LIMIT 1`,
+    [conversationId]
+  );
+  return result.rows[0] ?? null;
 }
 
 /**

@@ -1,0 +1,850 @@
+<!doctype html>
+<html lang="en" data-theme="linear" data-mode="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Archon Settings — IA mockups</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   Tokens lifted VERBATIM from packages/web/src/theme/tokens.css.
+   Not re-picked by eye — if a colour looks wrong here it is wrong there too.
+   ───────────────────────────────────────────────────────────────────────── */
+:root{
+  --ln-0:oklch(1 0 0);--ln-1:oklch(.98 .002 265);--ln-2:oklch(.965 .003 265);
+  --ln-3:oklch(.94 .004 265);--ln-4:oklch(.915 .004 265);--ln-5:oklch(.78 .006 265);
+  --ln-6:oklch(.62 .008 265);--ln-7:oklch(.48 .008 265);--ln-8:oklch(.32 .007 265);
+  --ln-9:oklch(.255 .006 265);--ln-10:oklch(.19 .005 265);--ln-11:oklch(.145 .004 265);
+  --ln-12:oklch(.12 .004 265);
+  --ln-accent:oklch(.58 .145 278);--ln-accent-lt:oklch(.52 .155 278);
+  --ar-magenta:oklch(.64 .22 330);--ar-magenta-lt:oklch(.52 .21 330);
+  --ar-violet:oklch(.56 .19 305);--ar-teal:oklch(.755 .15 168);
+  --radius-control:6px;--radius-card:8px;--radius-panel:10px;--radius-pill:999px;
+}
+[data-theme=linear][data-mode=dark]{
+  --surface:var(--ln-11);--surface-inset:var(--ln-12);--surface-elevated:var(--ln-10);
+  --surface-hover:var(--ln-9);--surface-variant:var(--ln-10);--surface-bright:var(--ln-8);
+  --border:var(--ln-9);--border-bright:var(--ln-8);--outline-variant:var(--ln-7);
+  --text-primary:oklch(.97 .002 265);--text-secondary:var(--ln-5);
+  --text-tertiary:oklch(.636 .008 265);
+  --accent:var(--ln-accent);--accent-bright:oklch(.644 .145 278);
+  --accent-hover:oklch(.64 .15 278);--accent-soft:oklch(.58 .145 278/.16);
+  --accent-ring:oklch(.58 .145 278/.4);--background:var(--ln-11);
+  --running:oklch(.72 .155 245);--running-soft:oklch(.72 .155 245/.14);
+  --success:oklch(.72 .15 168);--success-soft:oklch(.72 .15 168/.14);
+  --warning:oklch(.8 .14 85);--warning-soft:oklch(.8 .14 85/.14);
+  --error:oklch(.68 .2 18);--error-soft:oklch(.68 .2 18/.14);
+}
+[data-theme=linear][data-mode=light]{
+  --surface:var(--ln-0);--surface-inset:oklch(.958 .004 265);
+  --surface-elevated:oklch(.995 .001 265);--surface-hover:oklch(.945 .005 265);
+  --surface-variant:var(--ln-2);--surface-bright:oklch(.9 .005 265);
+  --border:var(--ln-4);--border-bright:var(--ln-5);--outline-variant:var(--ln-6);
+  --text-primary:oklch(.22 .006 265);--text-secondary:var(--ln-7);
+  --text-tertiary:oklch(.529 .008 265);
+  --accent:var(--ln-accent-lt);--accent-bright:var(--ln-accent-lt);
+  --accent-hover:oklch(.46 .16 278);--accent-soft:oklch(.52 .155 278/.1);
+  --accent-ring:oklch(.52 .155 278/.32);--background:var(--ln-0);
+  --running:oklch(.518 .13 245);--running-soft:oklch(.518 .13 245/.1);
+  --success:oklch(.495 .13 168);--success-soft:oklch(.495 .13 168/.1);
+  --warning:oklch(.525 .11 75);--warning-soft:oklch(.525 .11 75/.12);
+  --error:oklch(.52 .21 18);--error-soft:oklch(.52 .21 18/.1);
+}
+[data-theme=archon][data-mode=dark]{
+  --surface:oklch(.175 .007 265);--surface-inset:oklch(.13 .006 265);
+  --surface-elevated:oklch(.205 .009 265);--surface-hover:oklch(.235 .01 265);
+  --surface-variant:oklch(.21 .009 265);--surface-bright:oklch(.275 .012 265);
+  --border:oklch(.275 .012 265);--border-bright:oklch(.355 .016 265);
+  --outline-variant:oklch(.4 .018 265);
+  --text-primary:oklch(.975 .004 265);--text-secondary:oklch(.745 .014 265);
+  --text-tertiary:oklch(.622 .017 265);
+  --accent:var(--ar-magenta);--accent-bright:oklch(.65 .22 330);
+  --accent-hover:oklch(.7 .21 330);--accent-soft:oklch(.64 .22 330/.14);
+  --accent-ring:oklch(.64 .22 330/.4);--background:oklch(.145 .006 265);
+  --running:oklch(.72 .155 245);--running-soft:oklch(.72 .155 245/.14);
+  --success:oklch(.72 .15 168);--success-soft:oklch(.72 .15 168/.14);
+  --warning:oklch(.8 .14 85);--warning-soft:oklch(.8 .14 85/.14);
+  --error:oklch(.68 .2 18);--error-soft:oklch(.68 .2 18/.14);
+}
+[data-theme=archon][data-mode=light]{
+  --surface:oklch(.998 .001 320);--surface-inset:oklch(.955 .006 320);
+  --surface-elevated:oklch(1 0 0);--surface-hover:oklch(.94 .008 320);
+  --surface-variant:oklch(.975 .004 320);--surface-bright:oklch(.9 .008 320);
+  --border:oklch(.91 .006 320);--border-bright:oklch(.8 .01 320);
+  --outline-variant:oklch(.7 .012 320);
+  --text-primary:oklch(.225 .01 320);--text-secondary:oklch(.48 .012 320);
+  --text-tertiary:oklch(.526 .012 320);
+  --accent:var(--ar-magenta-lt);--accent-bright:var(--ar-magenta-lt);
+  --accent-hover:oklch(.46 .22 330);--accent-soft:oklch(.52 .21 330/.1);
+  --accent-ring:oklch(.52 .21 330/.3);--background:oklch(.998 .001 320);
+  --running:oklch(.518 .13 245);--running-soft:oklch(.518 .13 245/.1);
+  --success:oklch(.495 .13 168);--success-soft:oklch(.495 .13 168/.1);
+  --warning:oklch(.525 .11 75);--warning-soft:oklch(.525 .11 75/.12);
+  --error:oklch(.52 .21 18);--error-soft:oklch(.52 .21 18/.1);
+}
+/* Archon family primitives + the Inter/JetBrains pairing is Linear-only:
+   theme.css uses Geist for the archon family. Kept as-is here since the
+   mockup is about layout, not the font decision. */
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  background:var(--surface-inset);color:var(--text-primary);
+  font-family:Inter,ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;
+  letter-spacing:-.005em;-webkit-font-smoothing:antialiased;
+}
+.mono{font-family:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,monospace}
+
+/* ── page chrome for the mockup itself (not part of the design) ── */
+.docwrap{max-width:1240px;margin:0 auto;padding:40px 28px 120px}
+.doctitle{font-size:26px;font-weight:700;letter-spacing:-.6px}
+.docsub{color:var(--text-secondary);font-size:13.5px;line-height:1.65;margin-top:10px;max-width:760px}
+.toolbar{position:sticky;top:0;z-index:50;display:flex;gap:8px;align-items:center;
+  padding:12px 28px;background:color-mix(in oklch,var(--surface-inset),transparent 12%);
+  backdrop-filter:blur(12px);border-bottom:1px solid var(--border)}
+.tbtn{font:600 11.5px/1 'JetBrains Mono',monospace;color:var(--text-secondary);
+  background:var(--surface-elevated);border:1px solid var(--border);
+  border-radius:7px;padding:7px 11px;cursor:pointer}
+.tbtn[aria-pressed=true]{color:var(--text-primary);border-color:var(--accent);background:var(--accent-soft)}
+.mocklabel{margin:56px 0 16px;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.mocklabel h2{font-size:18px;font-weight:700;letter-spacing:-.3px}
+.mocklabel .tag{font:600 10.5px/1 'JetBrains Mono',monospace;text-transform:uppercase;
+  letter-spacing:.08em;color:var(--accent-bright);background:var(--accent-soft);
+  border-radius:5px;padding:5px 8px}
+.mocknote{color:var(--text-secondary);font-size:13px;line-height:1.7;max-width:820px;margin-bottom:18px}
+.mocknote code{font-family:'JetBrains Mono',monospace;font-size:12px;
+  background:var(--surface-elevated);border:1px solid var(--border);border-radius:4px;padding:1px 5px}
+.frame{border:1px solid var(--border);border-radius:14px;overflow:hidden;
+  background:var(--surface);box-shadow:0 12px 40px -14px oklch(0 0 0/.45)}
+
+/* ═════════════════════════════════════════════════════════════════════════
+   THE DESIGN
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* ── app shell ── */
+.app{display:grid;grid-template-columns:232px 1fr;min-height:640px;background:var(--surface)}
+
+/* ── settings nav (Linear's left settings rail) ── */
+.nav{background:var(--surface-inset);border-right:1px solid var(--border);
+  padding:14px 8px;display:flex;flex-direction:column;gap:2px}
+.navback{display:flex;align-items:center;gap:8px;padding:7px 9px;margin-bottom:12px;
+  color:var(--text-secondary);font-size:12.5px;font-weight:500;border-radius:6px;cursor:pointer}
+.navback:hover{background:var(--surface-hover);color:var(--text-primary)}
+.navgroup{font:600 10.5px/1 'JetBrains Mono',monospace;text-transform:uppercase;
+  letter-spacing:.09em;color:var(--text-tertiary);padding:14px 9px 6px}
+.navitem{display:flex;align-items:center;gap:9px;padding:6px 9px;border-radius:6px;
+  font-size:13px;font-weight:500;color:var(--text-secondary);cursor:pointer;
+  text-decoration:none;line-height:1.5}
+.navitem:hover{background:var(--surface-hover);color:var(--text-primary)}
+.navitem[aria-current=page]{background:var(--surface-hover);color:var(--text-primary);font-weight:600}
+.navitem svg{width:15px;height:15px;flex:0 0 15px;opacity:.85}
+.navitem .cnt{margin-left:auto;font:500 10.5px/1 'JetBrains Mono',monospace;color:var(--text-tertiary)}
+
+/* ── content column ── */
+.main{min-width:0;display:flex;flex-direction:column}
+.mainhdr{display:flex;align-items:center;gap:12px;padding:20px 40px 0;flex-wrap:wrap;max-width:780px;margin-inline:auto;width:100%}
+.mainhdr h1{font-size:21px;font-weight:700;letter-spacing:-.4px}
+.crumb{font:500 11.5px/1 'JetBrains Mono',monospace;color:var(--text-tertiary)}
+.body{flex:1;overflow:auto;padding:22px 40px 64px}
+.col{max-width:700px;margin-inline:auto;display:flex;flex-direction:column;gap:38px}
+
+/* ── a section: heading + description + hairline row list ── */
+.sect{display:flex;flex-direction:column}
+.secthd{display:flex;align-items:center;gap:10px;margin-bottom:5px;flex-wrap:wrap}
+.secthd h2{font-size:15px;font-weight:600;letter-spacing:-.15px}
+.sectdesc{color:var(--text-tertiary);font-size:12.5px;line-height:1.6;margin-bottom:14px;max-width:560px}
+.rows{border:1px solid var(--border);border-radius:10px;background:var(--surface-elevated);overflow:hidden}
+
+/* ── the row: label block left, control right ── */
+.row{display:flex;align-items:center;gap:20px;padding:13px 15px;border-top:1px solid var(--border)}
+.row:first-child{border-top:none}
+.row.stack{align-items:flex-start}
+.rowl{min-width:0;flex:1}
+.rowt{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.rowt .t{font-size:13.5px;font-weight:500;color:var(--text-primary);line-height:1.5}
+.rowd{color:var(--text-tertiary);font-size:12px;line-height:1.55;margin-top:3px;max-width:400px}
+.rowd code{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-secondary)}
+.rowc{flex:0 0 auto;display:flex;align-items:center;gap:8px}
+.row.inert{opacity:.45}
+.row.inert .rowc{pointer-events:none}
+
+/* ── THE SCOPE CHIP — the load-bearing invention ──
+   Reads "where the value in force came from". Click opens the stack. */
+.chip{display:inline-flex;align-items:center;gap:5px;border-radius:5px;padding:2px 6px;
+  font:600 10px/1.4 'JetBrains Mono',monospace;letter-spacing:.02em;cursor:pointer;
+  border:1px solid transparent;text-transform:lowercase;white-space:nowrap}
+.chip .dot{width:5px;height:5px;border-radius:50%;background:currentColor;flex:0 0 5px}
+.chip:hover{border-color:var(--border-bright)}
+.chip.c-default{color:var(--text-tertiary);background:var(--surface-hover)}
+.chip.c-install{color:var(--text-secondary);background:var(--surface-hover);border-color:var(--border)}
+.chip.c-project{color:var(--accent-bright);background:var(--accent-soft)}
+.chip.c-user{color:var(--success);background:var(--success-soft)}
+.chip.c-env{color:var(--warning);background:var(--warning-soft)}
+.chip.c-file{color:var(--text-tertiary);background:transparent;border-color:var(--border);cursor:default}
+
+/* ── controls ── */
+.seg{display:inline-flex;align-items:center;gap:2px;background:var(--surface-inset);
+  border:1px solid var(--border);border-radius:9px;padding:2px}
+.seg button{font:600 11.5px/1 'JetBrains Mono',monospace;color:var(--text-tertiary);
+  background:none;border:none;border-radius:7px;padding:6px 10px;cursor:pointer}
+.seg button[aria-pressed=true]{background:var(--surface-elevated);color:var(--text-primary);
+  box-shadow:0 1px 2px oklch(0 0 0/.18)}
+.inp{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:9px;
+  padding:8px 11px;font:400 12.5px/1.4 'JetBrains Mono',monospace;color:var(--text-primary)}
+.inp::placeholder{color:var(--text-tertiary)}
+.inp:focus{outline:none;border-color:color-mix(in oklch,var(--accent-bright),transparent 50%);
+  box-shadow:0 0 0 3px color-mix(in oklch,var(--accent),transparent 92%)}
+.inp.focused{border-color:color-mix(in oklch,var(--accent-bright),transparent 50%);
+  box-shadow:0 0 0 3px color-mix(in oklch,var(--accent),transparent 92%)}
+.sel{position:relative;display:inline-flex;align-items:center}
+.sel select{appearance:none;background:var(--surface-elevated);border:1px solid var(--border);
+  border-radius:9px;padding:8px 30px 8px 11px;font:600 12.5px/1.4 'JetBrains Mono',monospace;
+  color:var(--text-primary);cursor:pointer}
+.sel svg{position:absolute;right:10px;width:13px;height:13px;color:var(--text-tertiary);pointer-events:none}
+.num{width:78px;text-align:right}
+.pct{display:inline-flex;align-items:center;gap:7px}
+.pct .u{font:500 11.5px/1 'JetBrains Mono',monospace;color:var(--text-tertiary)}
+.sw{width:38px;height:22px;border-radius:999px;background:var(--surface-bright);
+  border:1px solid var(--border-bright);position:relative;cursor:pointer;flex:0 0 38px}
+.sw::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;
+  background:var(--text-secondary);transition:.16s}
+.sw[aria-checked=true]{background:var(--accent);border-color:var(--accent)}
+.sw[aria-checked=true]::after{left:18px;background:oklch(.99 0 0)}
+.btn{font:600 12px/1 Inter,sans-serif;border-radius:8px;padding:8px 13px;cursor:pointer;
+  border:1px solid var(--border);background:var(--surface-elevated);color:var(--text-primary)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:oklch(.99 0 0)}
+.btn.ghost{background:none;border-color:transparent;color:var(--text-secondary)}
+.btn.ghost:hover{background:var(--surface-hover);color:var(--text-primary)}
+.btn.sm{padding:5px 9px;font-size:11.5px}
+.link{color:var(--accent-bright);font-size:12px;font-weight:500;text-decoration:none;cursor:pointer}
+.link:hover{text-decoration:underline}
+
+/* ── save bar (Linear: appears only when dirty) ── */
+.savebar{position:sticky;bottom:0;margin-top:-1px;display:flex;align-items:center;gap:12px;
+  padding:12px 15px;border:1px solid var(--accent);border-radius:10px;
+  background:color-mix(in oklch,var(--surface-elevated),var(--accent) 6%)}
+.savebar .msg{flex:1;font-size:12.5px;color:var(--text-secondary)}
+
+/* ── the scope popover (chip clicked) ── */
+.pophost{overflow:visible}
+.pop{position:absolute;z-index:30;width:318px;background:var(--surface-elevated);
+  border:1px solid var(--border-bright);border-radius:11px;overflow:hidden;
+  box-shadow:0 18px 44px -12px oklch(0 0 0/.6)}
+.pophd{padding:10px 13px;border-bottom:1px solid var(--border);
+  font:600 10.5px/1 'JetBrains Mono',monospace;text-transform:uppercase;
+  letter-spacing:.08em;color:var(--text-tertiary)}
+.poprow{display:flex;align-items:center;gap:10px;padding:9px 13px;border-top:1px solid var(--border)}
+.poprow:first-of-type{border-top:none}
+.poprow .band{flex:0 0 74px;font:600 10.5px/1.4 'JetBrains Mono',monospace;color:var(--text-tertiary)}
+.poprow .val{flex:1;min-width:0;font:400 11.5px/1.4 'JetBrains Mono',monospace;
+  color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.poprow.wins{background:var(--accent-soft)}
+.poprow.wins .val{color:var(--text-primary);font-weight:600}
+.poprow.wins .band{color:var(--accent-bright)}
+.poprow .mark{font:600 9.5px/1 'JetBrains Mono',monospace;color:var(--accent-bright)}
+.poprow.unset .val{color:var(--text-tertiary);font-style:italic}
+.popft{padding:9px 13px;border-top:1px solid var(--border);background:var(--surface-inset);
+  font-size:11.5px;color:var(--text-tertiary);line-height:1.55}
+
+/* ── inline warning strip (used for the dead-setting notes) ── */
+.warn{display:flex;gap:9px;padding:10px 13px;border-radius:9px;
+  background:var(--warning-soft);border:1px solid color-mix(in oklch,var(--warning),transparent 70%);
+  font-size:12px;line-height:1.6;color:var(--text-secondary)}
+.warn b{color:var(--text-primary);font-weight:600}
+.warn.err{background:var(--error-soft);border-color:color-mix(in oklch,var(--error),transparent 70%)}
+
+/* ── advanced: read-only file view ── */
+.filecard{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface-elevated)}
+.filehd{display:flex;align-items:center;gap:10px;padding:10px 13px;border-bottom:1px solid var(--border)}
+.filehd .p{flex:1;font:500 11.5px/1 'JetBrains Mono',monospace;color:var(--text-secondary)}
+.filebody{margin:0;padding:13px;background:var(--surface-inset);overflow:auto;
+  font:400 11.5px/1.75 'JetBrains Mono',monospace;color:var(--text-secondary);max-height:250px}
+.filebody .c{color:var(--text-tertiary)}
+.filebody .k{color:var(--accent-bright)}
+.filebody .v{color:var(--success)}
+.keylist{display:flex;flex-direction:column;gap:1px}
+.keyrow{display:flex;align-items:baseline;gap:12px;padding:9px 13px;border-top:1px solid var(--border)}
+.keyrow:first-child{border-top:none}
+.keyrow .kn{flex:0 0 235px;font:500 11.5px/1.5 'JetBrains Mono',monospace;color:var(--text-primary)}
+.keyrow .kw{flex:1;font-size:12px;line-height:1.55;color:var(--text-tertiary)}
+@media(max-width:920px){.app{grid-template-columns:1fr}.nav{display:none}.body,.mainhdr{padding-left:22px;padding-right:22px}}
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <span class="mono" style="font-size:11px;color:var(--text-tertiary);margin-right:6px">THEME</span>
+  <button class="tbtn" data-t="linear" aria-pressed="true">linear</button>
+  <button class="tbtn" data-t="archon" aria-pressed="false">archon</button>
+  <span class="mono" style="font-size:11px;color:var(--text-tertiary);margin:0 6px 0 14px">MODE</span>
+  <button class="tbtn" data-m="dark" aria-pressed="true">dark</button>
+  <button class="tbtn" data-m="light" aria-pressed="false">light</button>
+  <span style="flex:1"></span>
+  <span class="mono" style="font-size:11px;color:var(--text-tertiary)">tokens from theme/tokens.css</span>
+</div>
+
+<div class="docwrap">
+  <h1 class="doctitle">Archon Settings — information-architecture mockups</h1>
+  <p class="docsub">
+    Seven mockups for the IA in <code class="mono">.archon/settings-ia-proposal.md</code>. Linear's settings
+    page is the reference: a left settings rail, a narrow content column, sections of hairline-separated
+    rows rather than a stack of cards, and a save bar that only exists when something is dirty.
+    Every colour, radius and type size below is read from <code class="mono">packages/web/src/theme/tokens.css</code> —
+    so this is a preview of the theme you have, not a picture of a different one. Switch theme and mode
+    above; the mockups are live.
+  </p>
+
+<!-- ═══════════════════════════ MOCK 1 ═══════════════════════════ -->
+<div class="mocklabel"><h2>1 · The whole page</h2><span class="tag">primary layout</span></div>
+<p class="mocknote">
+  Left rail groups by <b>whose decision it is</b>, which is the axis the engine already enforces.
+  The content column is 700px — Linear's restraint; a settings row is unreadable at 1100px.
+  Note what is <em>absent</em>: no Streaming, no Concurrency, no Paths rows. Those six keys have no
+  consumer, so under the invariant they get no control.
+</p>
+<div class="frame">
+<div class="app">
+  <nav class="nav">
+    <div class="navback">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>
+      Back to console
+    </div>
+    <div class="navgroup">This install</div>
+    <a class="navitem" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 2v4M12 18v4M4.9 4.9l2.9 2.9M16.2 16.2l2.9 2.9M2 12h4M18 12h4M4.9 19.1l2.9-2.9M16.2 7.8l2.9-2.9"/></svg>Models</a>
+    <a class="navitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>Chats</a>
+    <a class="navitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 3v4M3 5h4M6 17v4M4 19h4M13 3l2.5 6.5L22 12l-6.5 2.5L13 21l-2.5-6.5L4 12l6.5-2.5z"/></svg>Workflow runs</a>
+    <a class="navitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>System</a>
+    <div class="navgroup">This project</div>
+    <a class="navitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>archon-core<span class="cnt">7</span></a>
+    <div class="navgroup">Just me</div>
+    <a class="navitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7z"/></svg>Agents &amp; access</a>
+    <a class="navitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 3a4 4 0 100 8 4 4 0 000-8z"/></svg>Account</a>
+    <div class="navgroup">This browser</div>
+    <a class="navitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 3a9 9 0 000 18 9 9 0 000-18zM12 3v18"/></svg>Appearance</a>
+    <div class="navgroup">Files</div>
+    <a class="navitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6"/></svg>Advanced</a>
+  </nav>
+
+  <div class="main">
+    <div class="mainhdr"><h1>Models</h1><span class="crumb">this install · ~/.archon/config.yaml</span></div>
+    <div class="body"><div class="col">
+
+      <div class="sect">
+        <div class="secthd"><h2>Default agent</h2></div>
+        <p class="sectdesc">Which provider answers when nothing more specific says otherwise.</p>
+        <div class="rows">
+          <div class="row">
+            <div class="rowl">
+              <div class="rowt"><span class="t">Agent</span><span class="chip c-install"><span class="dot"></span>install</span></div>
+              <div class="rowd">Set per project and per person too. Click the chip to see the stack.</div>
+            </div>
+            <div class="rowc"><span class="sel"><select><option>claude</option><option>codex</option><option>copilot</option><option>pi</option></select><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sect">
+        <div class="secthd"><h2>Model per agent</h2></div>
+        <p class="sectdesc">Free text — Archon does not validate model strings. The SDK is the source of truth and ships models faster than we can enumerate them.</p>
+        <div class="rows">
+          <div class="row">
+            <div class="rowl"><div class="rowt"><span class="t mono">claude</span><span class="chip c-install"><span class="dot"></span>install</span></div></div>
+            <div class="rowc"><input class="inp mono" style="width:236px" value="sonnet"></div>
+          </div>
+          <div class="row">
+            <div class="rowl"><div class="rowt"><span class="t mono">codex</span><span class="chip c-project"><span class="dot"></span>project</span></div>
+              <div class="rowd">archon-core sets this; the install value is <code>gpt-5.6-sol</code>.</div></div>
+            <div class="rowc"><input class="inp mono" style="width:236px" value="gpt-5.6-terra"></div>
+          </div>
+          <div class="row" style="padding-left:30px">
+            <div class="rowl"><div class="rowt"><span class="t" style="font-size:12.5px;color:var(--text-secondary)">Reasoning effort</span><span class="chip c-default"><span class="dot"></span>inherit</span></div>
+              <div class="rowd">Codex only. Blank inherits the SDK's own default.</div></div>
+            <div class="rowc"><span class="sel"><select><option>inherit</option><option>low</option><option>medium</option><option>high</option></select><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></span></div>
+          </div>
+          <div class="row" style="padding-left:30px">
+            <div class="rowl"><div class="rowt"><span class="t" style="font-size:12.5px;color:var(--text-secondary)">Web search</span><span class="chip c-install"><span class="dot"></span>install</span></div>
+              <div class="rowd">Codex only.</div></div>
+            <div class="rowc"><span class="sel"><select><option>disabled</option><option>cached</option><option>live</option></select><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></span></div>
+          </div>
+          <div class="row">
+            <div class="rowl"><div class="rowt"><span class="t mono">pi</span><span class="chip c-default"><span class="dot"></span>default</span></div></div>
+            <div class="rowc"><input class="inp mono" style="width:236px" placeholder="SDK decides"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sect">
+        <div class="secthd"><h2>Tiers</h2><span class="chip c-file">reserved names</span></div>
+        <p class="sectdesc">Usable as <code>model: small | medium | large</code> in any workflow. Unset falls through to the built-in preset for the default provider.</p>
+        <div class="rows">
+          <div class="row">
+            <div class="rowl"><div class="rowt"><span class="t mono">large</span><span class="chip c-install"><span class="dot"></span>install</span></div></div>
+            <div class="rowc">
+              <span class="sel"><select><option>claude</option><option>codex</option></select><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></span>
+              <input class="inp mono" style="width:150px" value="opus">
+            </div>
+          </div>
+          <div class="row">
+            <div class="rowl"><div class="rowt"><span class="t mono">medium</span><span class="chip c-user"><span class="dot"></span>just me</span></div>
+              <div class="rowd">Your row overrides install and project.</div></div>
+            <div class="rowc">
+              <span class="sel"><select><option>codex</option></select><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></span>
+              <input class="inp mono" style="width:126px" value="gpt-5.6-terra">
+              <span class="sel"><select><option>high</option><option>effort —</option></select><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></span>
+            </div>
+          </div>
+          <div class="row">
+            <div class="rowl"><div class="rowt"><span class="t mono">small</span><span class="chip c-default"><span class="dot"></span>default</span></div>
+              <div class="rowd">Resolves to <code>claude / haiku</code> from tier-defaults.json.</div></div>
+            <div class="rowc">
+              <span class="sel"><select><option>—</option></select><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></span>
+              <input class="inp mono" style="width:150px" placeholder="claude / haiku">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sect">
+        <div class="secthd"><h2>Aliases</h2></div>
+        <p class="sectdesc">Your own names, reachable as <code>model: @name</code>. The <code>@</code> is required; <code>small</code>, <code>medium</code> and <code>large</code> are reserved.</p>
+        <div class="rows">
+          <div class="row">
+            <div class="rowl"><div class="rowt"><span class="t mono">@cheap</span><span class="chip c-user"><span class="dot"></span>just me</span></div></div>
+            <div class="rowc">
+              <span class="sel"><select><option>pi</option></select><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></span>
+              <input class="inp mono" style="width:126px" value="minimax-m3">
+              <span class="sel"><select><option>effort —</option><option>low</option><option>medium</option><option>high</option></select><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></span>
+              <button class="btn ghost sm">Remove</button>
+            </div>
+          </div>
+          <div class="row"><div class="rowl"><a class="link">+ Add alias</a></div><div class="rowc"></div></div>
+        </div>
+      </div>
+
+      <div class="savebar">
+        <span class="msg"><b style="color:var(--text-primary)">2 changes</b> — writing to <span class="mono" style="font-size:11.5px">~/.archon/config.yaml</span></span>
+        <button class="btn ghost">Discard</button><button class="btn pri">Save</button>
+      </div>
+
+    </div></div>
+  </div>
+</div>
+</div>
+
+<!-- ═══════════════════════════ MOCK 2 ═══════════════════════════ -->
+<div class="mocklabel"><h2>2 · The scope chip, opened</h2><span class="tag">the one new idea</span></div>
+<p class="mocknote">
+  This is the whole design in one control. The chip states <b>where the value in force came from</b>;
+  clicking it shows the precedence stack with the winner highlighted and every band you could set
+  instead. That is what "express per-project override rather than flatten it" looks like as a pixel —
+  and the stack is rendered from <code>buildAiProfile</code>'s real layering, so it cannot drift from
+  what the engine does.
+</p>
+<div class="frame"><div class="app" style="grid-template-columns:1fr;min-height:0">
+  <div class="main"><div class="body" style="padding-top:34px;padding-bottom:34px"><div class="col">
+    <div class="sect">
+      <div class="rows pophost" style="position:relative">
+        <div class="row">
+          <div class="rowl"><div class="rowt"><span class="t mono">medium</span>
+            <span class="chip c-user" style="border-color:var(--border-bright)"><span class="dot"></span>just me</span></div>
+            <div class="rowd">Tier preset, resolved across four bands.</div></div>
+          <div class="rowc">
+            <span class="sel"><select><option>codex</option></select><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></span>
+            <input class="inp mono" style="width:150px" value="gpt-5.6-terra">
+          </div>
+        </div>
+        <div class="pop" style="top:calc(100% + 8px);left:76px">
+          <div class="pophd">tiers.medium · precedence</div>
+          <div class="poprow"><span class="band">default</span><span class="val">claude / sonnet</span></div>
+          <div class="poprow"><span class="band">install</span><span class="val">claude / opus</span></div>
+          <div class="poprow"><span class="band">project</span><span class="val">codex / gpt-5.6-sol</span></div>
+          <div class="poprow wins"><span class="band">just me</span><span class="val">codex / gpt-5.6-terra</span><span class="mark">IN FORCE</span></div>
+          <div class="poprow unset"><span class="band">this run</span><span class="val">not set · --config only</span></div>
+          <div class="popft">Higher bands win. A run may override any of these for one invocation; that is set at launch, not here.</div>
+        </div>
+      </div>
+    </div>
+    <div class="sect" style="margin-top:256px">
+      <div class="secthd"><h2>Chip vocabulary</h2></div>
+      <p class="sectdesc">Five states. Colour is not decoration — it separates "someone chose this" from "nobody has".</p>
+      <div class="rows">
+        <div class="row"><div class="rowl"><div class="rowt"><span class="chip c-default"><span class="dot"></span>default</span></div>
+          <div class="rowd">Nobody set it. The value shown is Archon's built-in.</div></div><div class="rowc"></div></div>
+        <div class="row"><div class="rowl"><div class="rowt"><span class="chip c-install"><span class="dot"></span>install</span></div>
+          <div class="rowd">From <code>~/.archon/config.yaml</code>. Applies to everyone on this box.</div></div><div class="rowc"></div></div>
+        <div class="row"><div class="rowl"><div class="rowt"><span class="chip c-project"><span class="dot"></span>project</span></div>
+          <div class="rowd">From the repo's <code>.archon/config.yaml</code> — a maintainer's statement, committed.</div></div><div class="rowc"></div></div>
+        <div class="row"><div class="rowl"><div class="rowt"><span class="chip c-user"><span class="dot"></span>just me</span></div>
+          <div class="rowd">Your database row. Hidden entirely on a solo install with auth off.</div></div><div class="rowc"></div></div>
+        <div class="row"><div class="rowl"><div class="rowt"><span class="chip c-env"><span class="dot"></span>env</span></div>
+          <div class="rowd">An environment variable is winning. Read-only here — restart the process to change it.</div></div><div class="rowc"></div></div>
+      </div>
+    </div>
+  </div></div></div>
+</div></div>
+
+<!-- ═══════════════════════════ MOCK 3 ═══════════════════════════ -->
+<div class="mocklabel"><h2>3 · Chats</h2><span class="tag">the block that forced this</span></div>
+<p class="mocknote">
+  <b>Two</b> controls, not three. <code>chats.autoHandoff</code> is documented as "hand off automatically"
+  and read by nothing — <code>resolveChatsConfig</code> returns it and the single call site destructures
+  <code>{nudgeAt, handoffAt}</code> only. It is drawn here as the thing it would need to become, greyed
+  and labelled, rather than shipped as a switch with no wire.
+  The live pair gets a preview strip, because "40" and "50" mean nothing without knowing which one speaks.
+</p>
+<div class="frame"><div class="app" style="grid-template-columns:1fr;min-height:0">
+  <div class="main">
+    <div class="mainhdr"><h1>Chats</h1><span class="crumb">this install · overridable per project</span></div>
+    <div class="body"><div class="col">
+      <div class="sect">
+        <div class="secthd"><h2>When a chat is getting full</h2></div>
+        <p class="sectdesc">
+          Percentages of the answering model's context window, not token counts — the same conversation is
+          half full on one model and a tenth full on another. A chat whose model has no known window is
+          never acted on.
+        </p>
+        <div class="rows">
+          <div class="row">
+            <div class="rowl"><div class="rowt"><span class="t">Suggest wrapping up</span><span class="chip c-install"><span class="dot"></span>install</span></div>
+              <div class="rowd">One message, once. "Worth wrapping up soon; say the word and I'll hand off."</div></div>
+            <div class="rowc"><span class="pct"><input class="inp mono num" value="40"><span class="u">%</span></span></div>
+          </div>
+          <div class="row">
+            <div class="rowl"><div class="rowt"><span class="t">Say it is time to hand off</span><span class="chip c-project"><span class="dot"></span>project</span></div>
+              <div class="rowd">Stronger wording, and offers to write the handoff document. Must be above the first number.</div></div>
+            <div class="rowc"><span class="pct"><input class="inp mono num focused" value="55"><span class="u">%</span></span></div>
+          </div>
+          <div class="row inert">
+            <div class="rowl"><div class="rowt"><span class="t">Hand off automatically</span><span class="chip c-file">not implemented</span></div>
+              <div class="rowd">Would act at the threshold instead of asking. No consumer today — see §2 of the proposal.</div></div>
+            <div class="rowc"><span class="sw" aria-checked="false"></span></div>
+          </div>
+        </div>
+      </div>
+      <div class="sect">
+        <div class="secthd"><h2>What that looks like</h2></div>
+        <div class="rows">
+          <div class="row" style="gap:14px">
+            <div class="rowl">
+              <div style="display:flex;height:9px;border-radius:999px;overflow:hidden;background:var(--surface-inset);border:1px solid var(--border)">
+                <span style="flex:0 0 40%;background:var(--success-soft)"></span>
+                <span style="flex:0 0 15%;background:var(--warning-soft)"></span>
+                <span style="flex:1;background:var(--error-soft)"></span>
+              </div>
+              <div style="display:flex;justify-content:space-between;margin-top:7px;font:500 10.5px/1 'JetBrains Mono',monospace;color:var(--text-tertiary)">
+                <span>0% — quiet</span><span style="color:var(--warning)">40% — nudge</span><span style="color:var(--error)">55% — hand off</span><span>100%</span>
+              </div>
+              <div class="rowd" style="margin-top:11px;max-width:100%">
+                Each band speaks <b style="color:var(--text-primary)">once</b>. A fall — the provider compacted —
+                re-arms it, so the next genuine crossing is heard. The defaults sit far below the window's ceiling
+                on purpose: attention dilutes long before context fills.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+</div></div>
+
+<!-- ═══════════════════════════ MOCK 4 ═══════════════════════════ -->
+<div class="mocklabel"><h2>4 · Workflow runs — dependent controls</h2><span class="tag">inert, honestly</span></div>
+<p class="mocknote">
+  <code>autoResumeOnQuotaReset</code> defaults to <b>off</b>, and while it is off the other three values are
+  read by nothing in <code>dag-executor.ts</code>. Drawing them live would be the same defect as a dead
+  setting, one level down. They render disabled, with the reason said out loud.
+</p>
+<div class="frame"><div class="app" style="grid-template-columns:1fr;min-height:0">
+  <div class="main">
+    <div class="mainhdr"><h1>Workflow runs</h1><span class="crumb">this install · overridable per project</span></div>
+    <div class="body"><div class="col">
+      <div class="sect">
+        <div class="secthd"><h2>Quota failures</h2></div>
+        <p class="sectdesc">A run that dies on a provider quota limit is terminal. This policy decides whether time passing is allowed to change that.</p>
+        <div class="rows">
+          <div class="row">
+            <div class="rowl"><div class="rowt"><span class="t">Resume after a quota reset</span><span class="chip c-default"><span class="dot"></span>default</span></div>
+              <div class="rowd">Off. Nothing below applies until this is on.</div></div>
+            <div class="rowc"><span class="sw" aria-checked="false"></span></div>
+          </div>
+          <div class="row inert">
+            <div class="rowl"><div class="rowt"><span class="t">Attempts</span></div>
+              <div class="rowd">How many times one run may be resumed this way.</div></div>
+            <div class="rowc"><input class="inp mono num" value="1"></div>
+          </div>
+          <div class="row inert">
+            <div class="rowl"><div class="rowt"><span class="t">Give up after</span></div>
+              <div class="rowd">Wall-clock deadline from the first quota failure.</div></div>
+            <div class="rowc"><span class="pct"><input class="inp mono num" value="24"><span class="u">hours</span></span></div>
+          </div>
+          <div class="row inert">
+            <div class="rowl"><div class="rowt"><span class="t">Fallback delay</span><span class="chip c-file">optional</span></div>
+              <div class="rowd">Used only when the provider gives no reset time.</div></div>
+            <div class="rowc"><input class="inp mono" style="width:150px" placeholder="unset"></div>
+          </div>
+        </div>
+        <div class="warn" style="margin-top:12px">
+          <span>These three are disabled because <b>Resume after a quota reset</b> is off — the executor never reads them in that state. Turn it on to edit.</span>
+        </div>
+      </div>
+    </div></div>
+  </div>
+</div></div>
+
+<!-- ═══════════════════════════ MOCK 5 ═══════════════════════════ -->
+<div class="mocklabel"><h2>5 · This project</h2><span class="tag">needs a writer that does not exist</span></div>
+<p class="mocknote">
+  Every row here writes the repo's <code>.archon/config.yaml</code>. There is no
+  <code>updateRepoConfig</code> in the codebase and no project-scoped config route — so this whole panel
+  is the one that costs real work, and the banner says so rather than pretending. The project picker is in
+  the header, because "which project" is a different question from "which setting".
+</p>
+<div class="frame"><div class="app" style="grid-template-columns:1fr;min-height:0">
+  <div class="main">
+    <div class="mainhdr">
+      <h1>archon-core</h1>
+      <span class="sel"><select><option>archon-core</option><option>atlas</option><option>vault</option></select><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></span>
+      <span class="crumb">.archon/config.yaml · committed</span>
+    </div>
+    <div class="body"><div class="col">
+      <div class="warn">
+        <span><b>Committed file.</b> These values ship to everyone who clones the repo and override the install
+        for this project. Secrets belong in Environment variables below, which are stored in the database, not the file.</span>
+      </div>
+      <div class="sect">
+        <div class="secthd"><h2>Git</h2></div>
+        <div class="rows">
+          <div class="row">
+            <div class="rowl"><div class="rowt"><span class="t">Base branch</span><span class="chip c-project"><span class="dot"></span>project</span></div>
+              <div class="rowd">Fills <code>$BASE_BRANCH</code> and is the PR base. A workflow referencing it fails when unset.</div></div>
+            <div class="rowc"><input class="inp mono" style="width:180px" value="dev"></div>
+          </div>
+          <div class="row">
+            <div class="rowl"><div class="rowt"><span class="t">Remote</span><span class="chip c-default"><span class="dot"></span>auto</span></div>
+              <div class="rowd">Auto-detected: <code>origin</code> if present, else the only remote configured.</div></div>
+            <div class="rowc"><input class="inp mono" style="width:180px" placeholder="origin"></div>
+          </div>
+        </div>
+      </div>
+      <div class="sect">
+        <div class="secthd"><h2>Discovery</h2></div>
+        <div class="rows">
+          <div class="row">
+            <div class="rowl"><div class="rowt"><span class="t">Docs directory</span><span class="chip c-default"><span class="dot"></span>default</span></div>
+              <div class="rowd">Fills <code>$DOCS_DIR</code>.</div></div>
+            <div class="rowc"><input class="inp mono" style="width:180px" placeholder="docs/"></div>
+          </div>
+          <div class="row">
+            <div class="rowl"><div class="rowt"><span class="t">Load bundled workflows</span><span class="chip c-default"><span class="dot"></span>default</span></div>
+              <div class="rowd">Off means only this repo's workflows are discovered.</div></div>
+            <div class="rowc"><span class="sw" aria-checked="true"></span></div>
+          </div>
+          <div class="row">
+            <div class="rowl"><div class="rowt"><span class="t">Load bundled commands</span><span class="chip c-default"><span class="dot"></span>default</span></div></div>
+            <div class="rowc"><span class="sw" aria-checked="true"></span></div>
+          </div>
+          <div class="row stack">
+            <div class="rowl"><div class="rowt"><span class="t">Recommended workflows</span><span class="chip c-project"><span class="dot"></span>project</span></div>
+              <div class="rowd">Pinned above the Workflows page and the run dropdown, in this order. Names that match nothing are ignored.</div>
+              <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
+                <span class="chip c-install" style="cursor:default;font-size:11px;padding:4px 8px">archon-ship ×</span>
+                <span class="chip c-install" style="cursor:default;font-size:11px;padding:4px 8px">archon-review ×</span>
+                <span class="chip c-install" style="cursor:default;font-size:11px;padding:4px 8px">archon-plan ×</span>
+                <a class="link" style="align-self:center;margin-left:4px">+ Add</a>
+              </div></div>
+            <div class="rowc"></div>
+          </div>
+        </div>
+      </div>
+      <div class="sect">
+        <div class="secthd"><h2>Environment variables</h2><span class="chip c-file">database</span></div>
+        <p class="sectdesc">
+          Injected into workflow node subprocesses. Stored per codebase in the database — <b>these win</b> over
+          the file's <code>env:</code> block, which stays file-only for exactly that reason.
+        </p>
+        <div class="rows">
+          <div class="row">
+            <div class="rowl"><div class="rowt"><span class="t mono">GH_TOKEN</span></div><div class="rowd">Set · value hidden</div></div>
+            <div class="rowc"><button class="btn ghost sm">Replace</button><button class="btn ghost sm">Remove</button></div>
+          </div>
+          <div class="row"><div class="rowl"><a class="link">+ Add variable</a></div><div class="rowc"></div></div>
+        </div>
+      </div>
+      <div class="warn err" style="margin-top:4px">
+        <span><b>Not buildable yet.</b> No <code>updateRepoConfig</code> writer and no project-scoped config
+        route exist. Item 3 of §6 in the proposal.</span>
+      </div>
+    </div></div>
+  </div>
+</div></div>
+
+<!-- ═══════════════════════════ MOCK 6 ═══════════════════════════ -->
+<div class="mocklabel"><h2>6 · Advanced</h2><span class="tag">the honest answer</span></div>
+<p class="mocknote">
+  The half that makes "stays in the file" defensible. Every file-only key is <em>listed</em> here with its
+  one-line reason and the file it lives in — so "where is that setting" always has an answer, even when the
+  answer is "a text editor". Both config files render read-only with a copy-path button. Nothing here is editable;
+  that is the point.
+</p>
+<div class="frame"><div class="app" style="grid-template-columns:1fr;min-height:0">
+  <div class="main">
+    <div class="mainhdr"><h1>Advanced</h1><span class="crumb">read-only</span></div>
+    <div class="body"><div class="col">
+      <div class="sect">
+        <div class="secthd"><h2>File-only settings</h2></div>
+        <p class="sectdesc">Real, consumed, and deliberately without a control. Each reason is its own — they are not interchangeable.</p>
+        <div class="rows keylist">
+          <div class="keyrow"><span class="kn">assistants.*.settingSources</span><span class="kw">Changes which CLAUDE.md, skills and hooks the agent loads. Failure is invisible — output quality drifts with no error.</span></div>
+          <div class="keyrow"><span class="kn">assistants.*.<em>binaryPath</em></span><span class="kw">Absolute paths to executables. An installation repair, not a preference.</span></div>
+          <div class="keyrow"><span class="kn">codex.additionalDirectories</span><span class="kw">Widens the filesystem sandbox. A web text field is the wrong affordance for granting read access.</span></div>
+          <div class="keyrow"><span class="kn">container.*</span><span class="kw">Consumed only by the CLI folder-project branch. A control here would do nothing for most runs.</span></div>
+          <div class="keyrow"><span class="kn">worktree.copyFiles</span><span class="kw">Copies git-ignored files, typically <code>.env</code>. Belongs next to <code>.gitignore</code>, where what is ignored is visible.</span></div>
+          <div class="keyrow"><span class="kn">worktree.initSubmodules</span><span class="kw">Correct as <code>true</code> everywhere; free when there are no submodules. The error that prompts turning it off already names the key.</span></div>
+          <div class="keyrow"><span class="kn">worktree.path</span><span class="kw">Requires you to add the directory to <code>.gitignore</code> yourself. A toggle would succeed and leave the repo dirty.</span></div>
+          <div class="keyrow"><span class="kn">commands.folder</span><span class="kw">An <em>additional</em> search path with load-bearing ordering. Getting it wrong silently resolves the wrong command.</span></div>
+          <div class="keyrow"><span class="kn">env (repo file)</span><span class="kw">Superseded by the database env vars above, which win the merge. Two UIs where one silently overrides the other is unanswerable.</span></div>
+        </div>
+      </div>
+      <div class="sect">
+        <div class="secthd"><h2>Config files</h2></div>
+        <div class="filecard">
+          <div class="filehd"><span class="p">~/.archon/config.yaml</span><button class="btn sm">Copy path</button><button class="btn sm">Reveal</button></div>
+          <pre class="filebody"><span class="c"># Archon Global Configuration</span>
+<span class="k">defaultAssistant</span>: <span class="v">claude</span>
+<span class="k">assistants</span>:
+  <span class="k">claude</span>:
+    <span class="k">model</span>: <span class="v">sonnet</span>
+    <span class="k">settingSources</span>: [<span class="v">project</span>, <span class="v">user</span>]
+<span class="k">tiers</span>:
+  <span class="k">large</span>: { <span class="k">provider</span>: <span class="v">claude</span>, <span class="k">model</span>: <span class="v">opus</span> }
+<span class="k">chats</span>:
+  <span class="k">nudgeAtPercent</span>: <span class="v">40</span>
+  <span class="k">handoffAtPercent</span>: <span class="v">50</span></pre>
+        </div>
+      </div>
+      <div class="sect">
+        <div class="secthd"><h2>Environment</h2><span class="chip c-env"><span class="dot"></span>process</span></div>
+        <p class="sectdesc">Set outside Archon and readable only. Changing one needs a restart, which is why they are not controls.</p>
+        <div class="rows keylist">
+          <div class="keyrow"><span class="kn">ARCHON_HOME</span><span class="kw">The only real lever on where workspaces and worktrees live. <code>paths.*</code> in the YAML is read by nothing.</span></div>
+          <div class="keyrow"><span class="kn">MAX_CONCURRENT_CONVERSATIONS</span><span class="kw">The actual conversation limit. <code>concurrency.maxConversations</code> in the YAML is read by nothing.</span></div>
+          <div class="keyrow"><span class="kn">*_STREAMING_MODE</span><span class="kw">Read directly by each chat adapter at construction. <code>streaming.*</code> in the YAML is read by nothing.</span></div>
+        </div>
+        <div class="warn" style="margin-top:12px">
+          <span><b>Three YAML keys shadow these and do nothing.</b> Two of them ship in the default
+          <code>config.yaml</code> as commented examples, so every install is invited to set them.
+          Removing them is item 1 of §6 — until then this page is the only place that says so.</span>
+        </div>
+      </div>
+    </div></div>
+  </div>
+</div></div>
+
+<!-- ═══════════════════════════ MOCK 7 ═══════════════════════════ -->
+<div class="mocklabel"><h2>7 · Appearance and System, in full</h2><span class="tag">coverage audit</span></div>
+<p class="mocknote">
+  Added after an audit of what is exposed <em>today</em> caught the first draft dropping four working
+  controls. Appearance ships <b>five</b> controls, not three — Text size and Density were missing from
+  my inventory. And System's <code>concurrency</code> row reads <code>health.concurrency</code> from
+  <code>lockManager.getStats()</code>, the live limiter — not the dead YAML key. It is truthful and it stays.
+  Both panels carry over unchanged.
+</p>
+<div class="frame"><div class="app" style="grid-template-columns:1fr;min-height:0">
+  <div class="main">
+    <div class="mainhdr"><h1>Appearance</h1><span class="crumb">this browser · localStorage</span></div>
+    <div class="body"><div class="col">
+      <div class="sect">
+        <p class="sectdesc">How the console renders things, as opposed to what it does. Nothing here leaves this browser.</p>
+        <div class="rows">
+          <div class="row">
+            <div class="rowl"><div class="rowt"><span class="t">Theme</span></div>
+              <div class="rowd">Linear is a restrained neutral palette. Archon carries the brand magenta and its gradient.</div></div>
+            <div class="rowc"><span class="seg"><button aria-pressed="true">Linear</button><button aria-pressed="false">Archon</button></span></div>
+          </div>
+          <div class="row">
+            <div class="rowl"><div class="rowt"><span class="t">Text size</span></div>
+              <div class="rowd">Scales the whole interface, not just the text. Five steps, 6% apart.</div></div>
+            <div class="rowc"><span class="seg"><button aria-pressed="false">XS</button><button aria-pressed="false">S</button><button aria-pressed="true">M</button><button aria-pressed="false">L</button><button aria-pressed="false">XL</button></span></div>
+          </div>
+          <div class="row">
+            <div class="rowl"><div class="rowt"><span class="t">Density</span></div>
+              <div class="rowd">How much air a row gets. Compact fits about a third more in the same height.</div></div>
+            <div class="rowc"><span class="seg"><button aria-pressed="true">Cozy</button><button aria-pressed="false">Compact</button></span></div>
+          </div>
+          <div class="row">
+            <div class="rowl"><div class="rowt"><span class="t">Mode</span></div>
+              <div class="rowd">System follows your operating system, and changes with it.</div></div>
+            <div class="rowc"><span class="seg"><button aria-pressed="false">Light</button><button aria-pressed="true">Dark</button><button aria-pressed="false">System</button></span></div>
+          </div>
+          <div class="row">
+            <div class="rowl"><div class="rowt"><span class="t">Time format</span></div>
+              <div class="rowd">How timestamps on messages and runs are shown. Defaults to your browser's locale.</div></div>
+            <div class="rowc"><span class="seg"><button aria-pressed="true">12-hour</button><button aria-pressed="false">24-hour</button></span></div>
+          </div>
+          <div class="row">
+            <div class="rowl"><div class="rowt"><span class="t" style="color:var(--text-tertiary);font-size:12.5px">Preview</span></div></div>
+            <div class="rowc"><span class="mono" style="font-size:12.5px;color:var(--text-secondary)">8:06:24 PM</span></div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+
+    <div class="mainhdr" style="padding-top:34px"><h1>System</h1><span class="crumb">read-only</span></div>
+    <div class="body"><div class="col">
+      <div class="sect">
+        <div class="rows">
+          <div class="row"><div class="rowl"><span class="t" style="color:var(--text-tertiary);font-size:13px">status</span></div>
+            <div class="rowc"><span class="mono" style="font-size:12.5px;color:var(--success)">ok</span></div></div>
+          <div class="row"><div class="rowl"><span class="t" style="color:var(--text-tertiary);font-size:13px">adapter</span></div>
+            <div class="rowc"><span class="mono" style="font-size:12.5px">web</span></div></div>
+          <div class="row"><div class="rowl"><span class="t" style="color:var(--text-tertiary);font-size:13px">database</span></div>
+            <div class="rowc"><span class="mono" style="font-size:12.5px">postgres</span></div></div>
+          <div class="row"><div class="rowl"><span class="t" style="color:var(--text-tertiary);font-size:13px">version</span></div>
+            <div class="rowc"><span class="mono" style="font-size:12.5px">0.4.2</span></div></div>
+          <div class="row">
+            <div class="rowl"><div class="rowt"><span class="t" style="color:var(--text-tertiary);font-size:13px">concurrency</span><span class="chip c-env"><span class="dot"></span>live</span></div>
+              <div class="rowd">From the lock manager, not from config. <code>MAX_CONCURRENT_CONVERSATIONS</code> sets the ceiling.</div></div>
+            <div class="rowc"><span class="mono" style="font-size:12.5px">2 / 10 active</span></div></div>
+          <div class="row"><div class="rowl"><span class="t" style="color:var(--text-tertiary);font-size:13px">running workflows</span></div>
+            <div class="rowc"><span class="mono" style="font-size:12.5px">1</span></div></div>
+          <div class="row"><div class="rowl"><span class="t" style="color:var(--text-tertiary);font-size:13px">platforms</span></div>
+            <div class="rowc"><span class="chip c-install" style="cursor:default"><span class="dot"></span>web</span><span class="chip c-install" style="cursor:default"><span class="dot"></span>github</span></div></div>
+          <div class="row"><div class="rowl"><span class="t" style="color:var(--text-tertiary);font-size:13px">update</span></div>
+            <div class="rowc"><span class="mono" style="font-size:12.5px;color:var(--text-tertiary)">up to date</span></div></div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+</div></div>
+
+<div class="mocklabel"><h2>What is deliberately not here</h2></div>
+<p class="mocknote" style="max-width:900px">
+  <b>No per-run panel.</b> <code>--config</code> overrides one invocation, validated fail-fast and sealed
+  encrypted per run. A run's parameters belong on the run launcher, which is a different design question.<br><br>
+  <b>No Streaming, Paths or Concurrency sections.</b> Six keys have no consumer
+  (<code>streaming.*</code>, <code>paths.*</code>, <code>concurrency.maxConversations</code>,
+  <code>defaults.copyDefaults</code>, <code>commands.autoLoad</code>, <code>chats.autoHandoff</code>).
+  A control that changes nothing is worse than no control, so they appear only in Advanced, as a warning.<br><br>
+  <b>No concurrency row in System.</b> The current <code>SystemPanel</code> shows
+  <code>config.concurrency</code> as though it were the limit in force. It is not, unless it came from the
+  env var. That row either becomes the process value or goes.
+</p>
+
+</div>
+
+<script>
+const root=document.documentElement;
+document.querySelectorAll('.tbtn').forEach(b=>b.addEventListener('click',()=>{
+  const attr=b.dataset.t?'data-theme':'data-mode', val=b.dataset.t||b.dataset.m;
+  root.setAttribute(attr,val);
+  document.querySelectorAll(`.tbtn[${b.dataset.t?'data-t':'data-m'}]`)
+    .forEach(o=>o.setAttribute('aria-pressed',String(o===b)));
+}));
+document.querySelectorAll('.sw').forEach(s=>s.addEventListener('click',()=>
+  s.setAttribute('aria-checked',s.getAttribute('aria-checked')==='true'?'false':'true')));
+document.querySelectorAll('.seg button').forEach(b=>b.addEventListener('click',()=>{
+  b.parentElement.querySelectorAll('button').forEach(o=>o.setAttribute('aria-pressed',String(o===b)));
+}));
+</script>
+</body>
+</html>
