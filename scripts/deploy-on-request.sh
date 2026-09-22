@@ -27,7 +27,8 @@ VOLUME="${VOLUME:-/var/lib/docker/volumes/archon_archon_data/_data}"
 REQUEST="${REQUEST:-$VOLUME/deploy-request}"
 LOG="${LOG:-$VOLUME/deploy-last.log}"
 HISTORY="${HISTORY:-$VOLUME/deploy-history}"
-DEPLOY="${DEPLOY:-/opt/archon/scripts/deploy-local.sh}"
+DEPLOY_DIR="${DEPLOY_DIR:-/opt/archon}"
+DEPLOY="${DEPLOY:-$DEPLOY_DIR/scripts/deploy-local.sh}"
 SOURCE_DIR="${SOURCE_DIR:-/home/appuser/archon-upstream}"
 SERVICE="${SERVICE:-app}"
 # Seconds between the request landing and the rebuild starting. The rebuild
@@ -71,7 +72,14 @@ fi
 # than of anything cached, for the same reason deploy-local.sh asks GitHub and
 # the running image their own questions: a step that cannot be confirmed is a
 # step that has silently not happened.
-HEAD=$(docker compose -f /opt/archon/docker-compose.yml exec -T -u root "$SERVICE" \
+# `cd` rather than `-f`. An explicit -f makes compose IGNORE
+# docker-compose.override.yml, and this install keeps the /opt/archon bind
+# mount in the override — so a command spelled that way silently addresses a
+# different desired state than the one the deploy itself uses. It cost an
+# afternoon: a compose invocation with -f recreated the app container without
+# the mount, and the next deploy's `git -C /opt/archon` ran in a container
+# where that path no longer existed.
+HEAD=$(cd "$DEPLOY_DIR" && docker compose exec -T -u root "$SERVICE" \
   sh -lc "git config --global --add safe.directory '*' >/dev/null 2>&1; git -C '$SOURCE_DIR' rev-parse HEAD" \
   2>/dev/null | tr -d ' \r\n')
 
