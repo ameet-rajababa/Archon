@@ -86,6 +86,18 @@ describe('persistedSegmentCount', () => {
     expect(persistedSegmentCount(messages)).toBe(1);
   });
 
+  test('a system notice is not a segment', () => {
+    // A handoff writes a durable `system` row explaining itself, and it lands
+    // in the same span as the reply. Counting it would report more segments
+    // persisted than exist and swallow the last live one.
+    const messages = [
+      user('go'),
+      assistant('real text'),
+      { role: 'system', content: 'Handing off automatically — 55% of the window.' },
+    ];
+    expect(persistedSegmentCount(messages)).toBe(1);
+  });
+
   test('ignores tool-only rows, which persist with empty content', () => {
     const messages = [user('go'), assistant(''), assistant('real text'), assistant('')];
     expect(persistedSegmentCount(messages)).toBe(1);

@@ -203,6 +203,26 @@ export interface IPlatformAdapter {
    */
   sendStructuredEvent?(conversationId: string, event: MessageChunk): Promise<void>;
 
+  /**
+   * Optional: say something that has to survive a reload.
+   *
+   * `sendStructuredEvent` is a live wire — the web adapter turns a `system`
+   * chunk into an SSE frame and nothing writes it down. That is right for the
+   * traffic it carries (compaction notices, task lists, transient warnings,
+   * and at least one deliberately empty string): a status that outlived its
+   * moment would be clutter in every transcript.
+   *
+   * It is wrong for the handful of notices that explain something permanent.
+   * A chat that handed itself off at 3am leaves an archived conversation and a
+   * document; without a durable line saying why, the reader finds the result
+   * and never the reason — and the unattended case is exactly the one where
+   * nobody saw the live frame.
+   *
+   * So durability is the CALLER's decision, because only the caller knows
+   * whether the thing it is saying is a status or a fact.
+   */
+  sendDurableNotice?(conversationId: string, content: string): Promise<void>;
+
   /** Retract previously streamed text (used when workflow routing intercepts) */
   emitRetract?(conversationId: string): Promise<void>;
 

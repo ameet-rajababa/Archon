@@ -4,7 +4,7 @@
  */
 import type { IWebPlatformAdapter, MessageMetadata } from '@archon/core';
 import type { MessageChunk, TokenUsage } from '@archon/providers/types';
-import { attachUsageToLatestAssistantMessage } from '@archon/core/db/messages';
+import { addMessage, attachUsageToLatestAssistantMessage } from '@archon/core/db/messages';
 import { contextWindowFor } from '@archon/core/orchestrator/context-window';
 import { createLogger } from '@archon/paths';
 import { MessagePersistence } from './web/persistence';
@@ -195,6 +195,37 @@ export class WebAdapter implements IWebPlatformAdapter {
     } catch (error) {
       getLog().warn({ conversationId, err: error }, 'result_footer_persist_failed');
     }
+  }
+
+  /**
+   * Say something that outlives the socket.
+   *
+   * Flushes the assistant buffer FIRST. The buffer is what holds this turn's
+   * reply, and it is written on its own schedule — so a notice inserted
+   * without flushing races the reply it is about and lands above it, leaving
+   * the reader an explanation that precedes the thing it explains.
+   *
+   * Then the same SSE frame `sendStructuredEvent` would have sent, so a
+   * console watching live sees it immediately and a console opened later
+   * reads it out of the history. One notice, both paths.
+   */
+  async sendDurableNotice(conversationId: string, content: string): Promise<void> {
+    try {
+      await this.persistence.flush(conversationId);
+      const dbId = this.persistence.conversationDbId(conversationId);
+      if (dbId !== undefined) {
+        await addMessage(dbId, 'system', content);
+      } else {
+        // No mapping means nothing has persisted for this conversation yet, so
+        // there is no row to attach to. Live delivery below still happens.
+        getLog().warn({ conversationId }, 'durable_notice_no_db_id');
+      }
+    } catch (error) {
+      // The notice is worth less than the turn it follows. Losing the written
+      // copy is survivable; failing the caller is not.
+      getLog().warn({ conversationId, err: error }, 'durable_notice_persist_failed');
+    }
+    await this.sendStructuredEvent(conversationId, { type: 'system', content });
   }
 
   async sendStructuredEvent(conversationId: string, chunk: MessageChunk): Promise<void> {

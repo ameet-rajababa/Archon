@@ -19,10 +19,17 @@ export type { MessageRow } from '../schemas/message';
  * metadata should contain toolCalls array and/or error object if applicable.
  * userId is the Archon user UUID; pass undefined for assistant messages or
  * when the originating user is unknown.
+ *
+ * `system` is a notice the conversation itself produced — why it handed off,
+ * not what the agent said. It is never replayed to a model (nothing reads this
+ * table to build a prompt; provider sessions carry their own context) and the
+ * console already renders it under a `System` label. Use it only for durable
+ * facts: transient status belongs on `sendStructuredEvent`, which writes
+ * nothing down on purpose.
  */
 export async function addMessage(
   conversationId: string,
-  role: 'user' | 'assistant',
+  role: 'user' | 'assistant' | 'system',
   content: string,
   metadata?: Record<string, unknown>,
   userId?: string

@@ -3442,10 +3442,7 @@ async function maybeNudgeHandoff(
     });
     if (action.kind === 'silent') return;
     if (action.kind === 'announce') {
-      await platform.sendStructuredEvent(conversationId, {
-        type: 'system',
-        content: action.message,
-      });
+      await notice(platform, conversationId, action.message);
       return;
     }
 
@@ -3454,10 +3451,11 @@ async function maybeNudgeHandoff(
     // are locked, which approaches died — and only the session that did the
     // work holds that. A system-composed document would carry the mechanics
     // and none of the reason, which is the failure the tool exists to prevent.
-    await platform.sendStructuredEvent(conversationId, {
-      type: 'system',
-      content: `This chat is ${String(Math.round(fraction * 100))}% of the model's context window. Handing off automatically — writing the document and carrying the work into a fresh chat.`,
-    });
+    await notice(
+      platform,
+      conversationId,
+      `This chat is ${String(Math.round(fraction * 100))}% of the model's context window. Handing off automatically — writing the document and carrying the work into a fresh chat.`
+    );
     // Dispatched, not awaited: this turn holds the conversation lock, so the
     // handoff turn queues behind it rather than deadlocking against it.
     void handleMessage(platform, conversationId, AUTO_HANDOFF_TRIGGER, { userId }).catch(
@@ -3468,6 +3466,26 @@ async function maybeNudgeHandoff(
   } catch (error) {
     getLog().warn({ err: toError(error), conversationId }, 'handoff_nudge_failed');
   }
+}
+
+/**
+ * Say something about the chat's own state, durably where the platform can.
+ *
+ * These lines explain a permanent outcome — why a chat nudged, why it handed
+ * itself off, why it declined to. The unattended case is the one that needs
+ * them, and it is exactly the case where nobody saw the live frame, so a
+ * platform that can write them down should. One that cannot still says it.
+ */
+async function notice(
+  platform: IPlatformAdapter,
+  conversationId: string,
+  content: string
+): Promise<void> {
+  if (platform.sendDurableNotice) {
+    await platform.sendDurableNotice(conversationId, content);
+    return;
+  }
+  await platform.sendStructuredEvent?.(conversationId, { type: 'system', content });
 }
 
 /**

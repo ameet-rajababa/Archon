@@ -3445,6 +3445,7 @@ export interface components {
       color: string | null;
       hidden: boolean;
       sort_order: number | null;
+      title_pinned: boolean | null;
       /** Format: date-time */
       deleted_at: string | null;
       /** Format: date-time */
@@ -3481,7 +3482,7 @@ export interface components {
       id: string;
       conversation_id: string;
       /** @enum {string} */
-      role: 'user' | 'assistant';
+      role: 'user' | 'assistant' | 'system';
       content: string;
       metadata: string;
       user_id: string | null;

@@ -20,6 +20,18 @@ mock.module('@archon/paths', () => ({
   createLogger: mock(() => mockLogger),
 }));
 
+// Records every durable-write call in order, so the test can assert that the
+// buffer was flushed BEFORE the notice was written rather than merely that both
+// happened. Declared before the import of ./web so the module mock is in place.
+const dbCalls: string[] = [];
+mock.module('@archon/core/db/messages', () => ({
+  addMessage: mock(async (conversationId: string, role: string, content: string) => {
+    dbCalls.push(`addMessage:${role}:${content}`);
+    return { id: 'm1', conversation_id: conversationId, role, content };
+  }),
+  attachUsageToLatestAssistantMessage: mock(async () => {}),
+}));
+
 import { WebAdapter } from './web';
 import { MAX_TOOL_OUTPUT_CHARS } from './web/truncate';
 import { DASHBOARD_STREAM, type SSETransport } from './web/transport';
@@ -58,7 +70,10 @@ function makeAdapter(options?: { dashboardConnected?: boolean }): {
     }),
     appendToolCall: mock(() => {}),
     appendText: mock(() => {}),
-    flush: mock(async () => {}),
+    flush: mock(async () => {
+      dbCalls.push('flush');
+    }),
+    conversationDbId: mock(() => 'conv-db-1'),
     finalizeRunningTools: mock(() => {}),
   } as unknown as MessagePersistence;
 
@@ -360,5 +375,28 @@ describe('WebAdapter.currentActivity — what each chat is doing', () => {
     const input = adapter.currentActivity().get('conv-1')?.input ?? {};
     expect(input.content?.length).toBe(160);
     expect(input.lines).toBeUndefined(); // non-strings are dropped, not stringified
+  });
+});
+
+describe('WebAdapter.sendDurableNotice', () => {
+  test('flushes the reply BEFORE writing the notice, so it lands after it', async () => {
+    dbCalls.length = 0;
+    const { adapter } = makeAdapter();
+
+    await adapter.sendDurableNotice('conv-1', 'Handing off automatically — 55%.');
+
+    // Order is the whole point: written without flushing first, the notice
+    // races the reply it explains and renders above it.
+    expect(dbCalls).toEqual(['flush', 'addMessage:system:Handing off automatically — 55%.']);
+  });
+
+  test('also sends it live, so a watching console sees it immediately', async () => {
+    const { adapter, emitted } = makeAdapter();
+
+    await adapter.sendDurableNotice('conv-1', 'Worth wrapping up soon.');
+
+    const frames = emitted.map(e => JSON.parse(e) as { type: string; content?: string });
+    const notice = frames.find(f => f.type === 'system_status');
+    expect(notice?.content).toBe('Worth wrapping up soon.');
   });
 });
