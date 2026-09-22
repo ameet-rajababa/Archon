@@ -130,6 +130,39 @@ export function registerGitHubAppAuthProvider(provider: IGitHubAppAuthProvider |
   registeredGitHubAppAuthProvider = provider;
 }
 
+/** Whether App mode is active — a provider was registered at bootstrap. */
+export function isGitHubAppModeActive(): boolean {
+  return registeredGitHubAppAuthProvider !== null;
+}
+
+/**
+ * A fresh GitHub App installation token for one repository, or `undefined`.
+ *
+ * Contract: NEVER THROWS. `undefined` covers all three "no token" cases —
+ * PAT mode (no provider registered), the App not installed on that repository,
+ * and a failed call — because every caller's next move is the same: fall back
+ * to whatever ambient credential it already had.
+ *
+ * Exported so the callers that are not the workflow engine (the console's
+ * issues route) ask the same question the same way. A second implementation
+ * would be a second opinion about which token speaks for a repository.
+ */
+export async function resolveBotGitHubToken(
+  owner: string,
+  repo: string
+): Promise<string | undefined> {
+  const provider = registeredGitHubAppAuthProvider;
+  if (provider === null) return undefined;
+  try {
+    return await provider.getInstallationToken(owner, repo);
+  } catch (err) {
+    // Log key unchanged from when this lived inline in createWorkflowDeps:
+    // continuity of an existing signal beats a tidier name.
+    getLog().warn({ err: err as Error, owner, repo }, 'workflow_deps.bot_token_resolve_failed');
+    return undefined;
+  }
+}
+
 /**
  * Create the canonical WorkflowDeps for the workflow engine.
  * Single construction point — avoids duplicating the wiring across callers.
@@ -145,19 +178,7 @@ export function createWorkflowDeps(): WorkflowDeps {
     // App mode: resolve fresh installation tokens for subprocess env. PAT mode:
     // undefined → engine falls back to env inheritance, preserving legacy
     // behaviour for solo installs.
-    resolveBotGitHubToken: provider
-      ? async (owner: string, repo: string): Promise<string | undefined> => {
-          try {
-            return await provider.getInstallationToken(owner, repo);
-          } catch (err) {
-            getLog().warn(
-              { err: err as Error, owner, repo },
-              'workflow_deps.bot_token_resolve_failed'
-            );
-            return undefined;
-          }
-        }
-      : undefined,
+    resolveBotGitHubToken: provider ? resolveBotGitHubToken : undefined,
     // Per-user token policy (PR-C): when per-user mode is on, route a run's
     // gh/git through the originating user's personal token (decrypted, refreshed
     // on read), or scrub the org/bot token when they haven't connected.

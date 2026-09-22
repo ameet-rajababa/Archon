@@ -11,6 +11,11 @@ describe('issueReasonText', () => {
     expect(issueReasonText('unreachable')).toBe('GitHub could not be reached.');
   });
 
+  test('App mode and PAT mode blame different things for a missing token', () => {
+    expect(issueReasonText('no-token')).toContain('No GitHub token is configured');
+    expect(issueReasonText('app-not-installed')).toContain('GitHub App is not installed');
+  });
+
   test('a rejected token names the token, not the number', () => {
     const text = issueReasonText('github-401');
     expect(text).not.toBe('github-401');
