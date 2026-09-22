@@ -14,7 +14,7 @@ interface ProjectRowProps {
   project: Project;
   selected: boolean;
   onClick: () => void;
-  onRemove?: () => void;
+  onRemove?: () => Promise<void>;
   onEditEnv?: () => void;
   /** Drag to arrange. Absent on surfaces that do not reorder. */
   dragging?: boolean;
@@ -58,6 +58,8 @@ export function ProjectRow({
 }: ProjectRowProps): ReactElement {
   /** Bumped when the identity changes, to re-read it from localStorage. */
   const [identityTick, setIdentityTick] = useState(0);
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
   // localStorage is invisible to React, so the tick is what makes this re-read
   // after the picker writes. Referenced inside the factory rather than only in
   // the dependency list, so it is a real input and not a lint exception.
@@ -113,12 +115,27 @@ export function ProjectRow({
     setEditing(false);
   };
 
+  const requestRemoval = async (): Promise<void> => {
+    if (onRemove === undefined || removing) return;
+    setRemoving(true);
+    setRemoveError(null);
+    try {
+      await onRemove();
+    } catch (removeFailure: unknown) {
+      setRemoveError(
+        removeFailure instanceof Error ? removeFailure.message : 'Could not remove project.'
+      );
+    } finally {
+      setRemoving(false);
+    }
+  };
+
   return (
     <>
       <div
         onClick={editing || menuOpen ? undefined : onClick}
         onContextMenu={e => {
-          if (onRemove === undefined || editing) return;
+          if (onRemove === undefined || editing || removing) return;
           e.preventDefault();
           setMenuOpen(true);
         }}
@@ -131,6 +148,7 @@ export function ProjectRow({
             onClick();
           }
         }}
+        aria-busy={removing}
         aria-pressed={selected}
         title={`${displayName}\n${formatProjectLocator(project)}\n\nDouble-click to rename`}
         ref={el => {
@@ -165,6 +183,11 @@ export function ProjectRow({
           The glyph is the project's identity and stays put — swapping it for a
           handle meant the one thing telling the rows apart disappeared exactly
           when you pointed at one. */}
+        {removing ? (
+          <span className="shrink-0 font-mono text-[10px] font-semibold uppercase tracking-[0.05em] text-text-tertiary">
+            removing…
+          </span>
+        ) : null}
         {onDragBegin !== undefined ? (
           <span
             aria-hidden
@@ -331,7 +354,7 @@ export function ProjectRow({
                     const confirmed = window.confirm(
                       `Remove project "${displayName}"?\n\nLocal files and worktrees are not deleted.`
                     );
-                    if (confirmed) onRemove?.();
+                    if (confirmed) void requestRemoval();
                   }}
                   className="flex w-full items-center gap-2.5 rounded-lg px-[11px] py-[9px] text-left text-[13px] font-semibold text-error transition-colors hover:bg-error/10"
                 >
@@ -342,6 +365,28 @@ export function ProjectRow({
           ) : null}
         </div>
       </div>
+      {removeError !== null ? (
+        <div
+          role="alert"
+          onClick={event => {
+            event.stopPropagation();
+          }}
+          onKeyDown={event => {
+            event.stopPropagation();
+          }}
+          className="mx-2.5 mb-1 rounded border border-error/40 bg-error/10 px-2 py-1.5 font-mono text-[10px] text-error [overflow-wrap:anywhere]"
+        >
+          <p>{removeError}</p>
+          <button
+            type="button"
+            onClick={() => void requestRemoval()}
+            disabled={removing}
+            className="mt-1 font-semibold underline underline-offset-2 disabled:cursor-wait disabled:opacity-50"
+          >
+            Retry removal
+          </button>
+        </div>
+      ) : null}
       {pickerOpen && rowEl !== null ? (
         <IdentityPicker
           identity={identity}

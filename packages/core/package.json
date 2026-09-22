@@ -82,6 +82,7 @@
       "src/db/isolation-environments.test.ts",
       "src/db/messages.test.ts",
       "src/db/sessions.test.ts",
+      "src/db/timestamps.test.ts",
       "src/db/users.test.ts",
       "src/db/workflow-node-sessions.test.ts",
       "src/db/workflows.test.ts",
@@ -92,6 +93,7 @@
       "src/utils/error.test.ts",
       "src/utils/error-formatter.test.ts",
       "src/utils/github-graphql.test.ts",
+      "src/types/message-metadata.test.ts",
       "src/config/config-loader.test.ts",
       "src/config/resolve-assistant.test.ts",
       "src/state/"
@@ -151,7 +153,11 @@
       "src/services/run-attention-watch.test.ts"
     ],
     [
-      "src/workflows/"
+      "src/workflows/store-adapter.test.ts",
+      "src/workflows/child-isolation-resolver.test.ts"
+    ],
+    [
+      "src/workflows/resolve-run-workflow.test.ts"
     ],
     [
       "src/operations/workflow-operations.test.ts"

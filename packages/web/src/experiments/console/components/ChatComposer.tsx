@@ -51,8 +51,8 @@ const MAX_HEIGHT = 200;
  * dropping them anywhere on the composer, or by pasting a copied image (the
  * send skill builds the multipart upload).
  *
- * Reimplemented (not imported) from the old chat's MessageInput because the
- * console may not import production `@/components/**` (ESLint isolation rule).
+ * Written for the console rather than shared with the old chat's MessageInput,
+ * which no longer exists — #3402 retired the classic UI and deleted it.
  *
  * Direction-B `cbox` shell: rounded card with `:focus-within` magenta ring,
  * paperclip attach + decorative `/` lead buttons, gradient `.brand-bar` Send

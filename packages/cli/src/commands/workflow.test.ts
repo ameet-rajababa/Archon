@@ -24,10 +24,11 @@ import {
   truncateSync,
   writeFileSync,
 } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { getArchonHome, isDocker } from '@archon/paths';
-import { removeTempTree } from '@archon/paths/test-utils';
+import { removeTempTree, trackTempRoots } from '@archon/paths/test-utils';
 import {
   getProjectStoragePaths as getProjectStoragePathsReal,
   getRunArtifactsDirForRoot as getRunArtifactsDirForRootReal,
@@ -463,7 +464,13 @@ mock.module('@archon/core/db/conversations', () => ({
   getOrCreateConversation: mock(() =>
     Promise.resolve({ id: 'conv-123', platform_type: 'cli', platform_conversation_id: 'cli-123' })
   ),
-  getConversationById: mock(() => Promise.resolve(null)),
+  getConversationById: mock(() =>
+    Promise.resolve({
+      id: 'conv-123',
+      platform_type: 'cli',
+      platform_conversation_id: 'cli-123',
+    })
+  ),
   updateConversation: mock(() => Promise.resolve()),
 }));
 
@@ -2299,12 +2306,15 @@ describe('workflowRunCommand — continuation and capture ownership (#2646)', ()
       workflows: [makeTestWorkflowWithSource({ name: 'review-block', description: 'edited' })],
       errors: [],
     });
-    mockResolveContinuationWorkflow.mockResolvedValueOnce({
+    const frozenContinuation = {
       workflow: frozen,
       roots: CAPTURED_SOURCE_ROOTS,
-      workflows: [{ workflow: frozen, source: 'project' }],
+      workflows: [{ workflow: frozen, source: 'project' as const }],
       errors: [],
-    });
+    };
+    mockResolveContinuationWorkflow
+      .mockResolvedValueOnce(frozenContinuation)
+      .mockResolvedValueOnce(frozenContinuation);
     (workflowDb.findResumableRun as ReturnType<typeof mock>).mockResolvedValueOnce({
       id: 'run-prior',
       working_path: null,
@@ -2335,8 +2345,8 @@ describe('workflowRunCommand — continuation and capture ownership (#2646)', ()
 
     // Live discovery never even runs: the continuation carries the discovery it paid for.
     expect(discoverMock).not.toHaveBeenCalled();
-    // The row is resolved before discovery and handed to the shared entry point...
-    expect(mockResolveContinuationWorkflow).toHaveBeenCalledTimes(1);
+    // Host preparation and engine admission both resolve this run's recorded source.
+    expect(mockResolveContinuationWorkflow).toHaveBeenCalledTimes(2);
     const continuedRun = mockResolveContinuationWorkflow.mock.calls[0]?.[1] as unknown as {
       id: string;
     };
@@ -10585,6 +10595,27 @@ describe('workflowRunCommand — progress rendering', () => {
     );
   });
 
+  it('should render a prior-success replay as a prior_success skip', async () => {
+    setupWorkflowMocks();
+
+    const { executeWorkflow } = require('@archon/workflows/executor');
+    (executeWorkflow as ReturnType<typeof mock>).mockImplementationOnce(async () => {
+      if (capturedSubscribeHandler) {
+        capturedSubscribeHandler({
+          type: 'node_skipped_prior_success',
+          runId: 'run-1',
+          nodeId: 'plan',
+          nodeName: 'plan',
+        });
+      }
+      return { success: true, workflowRunId: 'run-1' };
+    });
+
+    await workflowRunCommand('/test/path', 'plan', 'hello', {});
+
+    expect(stderrSpy).toHaveBeenCalledWith('[plan] Skipped (prior_success)\n');
+  });
+
   it('should render a timeout node_skipped event to stderr', async () => {
     setupWorkflowMocks();
 
@@ -11613,6 +11644,7 @@ describe('workflowTestCommand', () => {
 
 describe('workflowRunCommand — adopt lane source recapture (#2660/#2747)', () => {
   let consoleSpy: ReturnType<typeof spyOn>;
+  const trackTempRoot = trackTempRoots();
 
   beforeEach(() => {
     consoleSpy = spyOn(console, 'log').mockImplementation(() => {});
@@ -11677,6 +11709,46 @@ describe('workflowRunCommand — adopt lane source recapture (#2660/#2747)', () 
       adoptedRun: { id: 'run-old' },
       lane,
     });
+  }
+
+  // Keep source-capture I/O real: equal run IDs replace one physical directory.
+  // This exposes cleanup deleting the replacement even with the executor mocked.
+  async function stageRealCapture(
+    tempRoot: string,
+    opts: { sourceRoot: string; runId?: string }
+  ): Promise<WorkflowExecutor.PreparedWorkflowSource> {
+    const runId = opts.runId ?? randomUUID();
+    const captureRoot = join(tempRoot, 'staged-source', runId);
+    await removeTempTree(captureRoot);
+    mkdirSync(captureRoot, { recursive: true });
+    const anchor = {
+      root: captureRoot,
+      digest: `digest-${opts.sourceRoot}`,
+      config: { load_default_workflows: true, load_default_commands: true },
+    };
+    const manifest = {
+      version: 1 as const,
+      engine_version: 'test',
+      origin: opts.sourceRoot,
+      captured_at: new Date().toISOString(),
+      digest: anchor.digest,
+      file_count: 0,
+      byte_count: 0,
+      scopes: [],
+      source_config: anchor.config,
+    };
+    writeFileSync(join(captureRoot, 'manifest.json'), JSON.stringify(manifest));
+    const roots: WorkflowExecutor.WorkflowSourceRoots = {
+      project: join(captureRoot, 'project'),
+      globalWorkflows: join(captureRoot, 'global', 'workflows'),
+      globalCommands: join(captureRoot, 'global', 'commands'),
+      globalScripts: join(captureRoot, 'global', 'scripts'),
+      bundledWorkflows: join(captureRoot, 'bundled', 'workflows'),
+      bundledCommands: join(captureRoot, 'bundled', 'commands', 'defaults'),
+      kind: 'captured',
+      anchor,
+    };
+    return { runId, origin: opts.sourceRoot, manifest, anchor, roots };
   }
 
   it('adopts a normal run from a unique short run id prefix', async () => {
@@ -11803,6 +11875,44 @@ describe('workflowRunCommand — adopt lane source recapture (#2660/#2747)', () 
     expect(opts.adoptedFromRunId).toBe('run-old');
   });
 
+  it('preserves an explicit source when adoption recreates the prior branch checkout', async () => {
+    setupAdoptMocks({
+      kind: 'checkout-branch',
+      taskBranch: { kind: 'existing', branch: 'feature/live-pr' },
+    });
+    const isolation = await import('@archon/isolation');
+    const { executeWorkflow, prepareWorkflowSource } = await import('@archon/workflows/executor');
+    (isolation.getIsolationProvider as ReturnType<typeof mock>).mockReturnValueOnce({
+      create: mock(() =>
+        Promise.resolve({
+          provider: 'worktree' as const,
+          id: '/wt/recreated',
+          workingPath: '/wt/recreated',
+          branchName: 'feature/live-pr',
+          status: 'active' as const,
+          createdAt: new Date(),
+          metadata: { adopted: true },
+        })
+      ),
+      healthCheck: mock(() => Promise.resolve(true)),
+    });
+
+    // Explicit selection matters even when it names the invoking checkout.
+    await workflowRunCommand('/test/path', 'assist', 'hello', {
+      adoptRunId: 'run-old',
+      discoveryCwd: '/test/path',
+    });
+
+    expect(prepareWorkflowSource).toHaveBeenCalledTimes(1);
+    expect(prepareWorkflowSource).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ sourceRoot: '/test/path' })
+    );
+    const executed = (executeWorkflow as ReturnType<typeof mock>).mock.calls.at(-1) as unknown[];
+    expect(executed[3]).toBe('/wt/recreated');
+    expect((executed[4] as { description: string }).description).toBe('Parent vintage');
+  });
+
   it('re-judges the declared-input gate against the branch vintage after recapture', async () => {
     // The parent checkout's YAML declares no inputs, so the invocation gate on entry
     // passes an input-less call; only the adopted branch's YAML requires one.
@@ -11832,6 +11942,95 @@ describe('workflowRunCommand — adopt lane source recapture (#2660/#2747)', () 
       workflowRunCommand('/test/path', 'assist', 'hello', { adoptRunId: 'run-old' })
     ).rejects.toThrow(/requires input/);
     expect(executeWorkflow).not.toHaveBeenCalled();
+  });
+
+  it(
+    'preserves the replacement capture when a detached child recaptures onto its own ' +
+      'pre-created run id (real files, #3217)',
+    async () => {
+      // Both capture calls use the detached child's pre-created run ID.
+      setupAdoptMocks();
+      const workflowDb = await import('@archon/core/db/workflows');
+      (workflowDb.getWorkflowRun as ReturnType<typeof mock>).mockResolvedValueOnce({
+        id: 'run-detached-child',
+        workflow_name: 'assist',
+        status: 'pending',
+      });
+      const { prepareWorkflowSource } = await import('@archon/workflows/executor');
+      const prepareMock = prepareWorkflowSource as ReturnType<typeof mock>;
+
+      const tempRoot = trackTempRoot(mkdtempSync(join(tmpdir(), 'archon-recapture-same-root-')));
+      // Matches the mocked DETACHED_RUN_OWNER_ENV value the SUT reads from
+      // '../utils/detached-run-control' (mocked at the top of this file).
+      const ownerEnvVar = 'ARCHON_DETACHED_RUN_OWNER';
+      const previousOwnerEnv = process.env[ownerEnvVar];
+      process.env[ownerEnvVar] = '1';
+      try {
+        prepareMock
+          .mockImplementationOnce((_deps: unknown, opts: { sourceRoot: string; runId?: string }) =>
+            stageRealCapture(tempRoot, opts)
+          )
+          .mockImplementationOnce((_deps: unknown, opts: { sourceRoot: string; runId?: string }) =>
+            stageRealCapture(tempRoot, opts)
+          );
+
+        await workflowRunCommand('/test/path', 'assist', 'hello', {
+          adoptRunId: 'run-old',
+          detachedRunId: 'run-detached-child',
+        });
+
+        const calls = prepareMock.mock.calls;
+        expect(calls).toHaveLength(2);
+        expect((calls[0][1] as { runId?: string }).runId).toBe('run-detached-child');
+        expect((calls[1][1] as { runId?: string }).runId).toBe('run-detached-child');
+
+        const replacementRoot = join(tempRoot, 'staged-source', 'run-detached-child');
+        const manifestPath = join(replacementRoot, 'manifest.json');
+        // The assertion the old code fails: the recapture's own cleanup deleted this
+        // file right after writing it, because stale.anchor.root === replacement's.
+        expect(existsSync(manifestPath)).toBe(true);
+        const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8')) as { origin: string };
+        expect(manifest.origin).toBe('/wt/adopted');
+      } finally {
+        if (previousOwnerEnv === undefined) delete process.env[ownerEnvVar];
+        else process.env[ownerEnvVar] = previousOwnerEnv;
+      }
+    }
+  );
+
+  it('still cleans up the superseded staged capture when the replacement lands at a different root', async () => {
+    // Ordinary adoption uses separate roots and must reclaim the first capture.
+    setupAdoptMocks();
+    const { prepareWorkflowSource } = await import('@archon/workflows/executor');
+    const prepareMock = prepareWorkflowSource as ReturnType<typeof mock>;
+
+    const tempRoot = trackTempRoot(mkdtempSync(join(tmpdir(), 'archon-recapture-distinctroot-')));
+    const capturedRoots: string[] = [];
+    prepareMock
+      .mockImplementationOnce(
+        async (_deps: unknown, opts: { sourceRoot: string; runId?: string }) => {
+          const prepared = await stageRealCapture(tempRoot, opts);
+          capturedRoots.push(prepared.anchor.root);
+          return prepared;
+        }
+      )
+      .mockImplementationOnce(
+        async (_deps: unknown, opts: { sourceRoot: string; runId?: string }) => {
+          const prepared = await stageRealCapture(tempRoot, opts);
+          capturedRoots.push(prepared.anchor.root);
+          return prepared;
+        }
+      );
+
+    await workflowRunCommand('/test/path', 'assist', 'hello', { adoptRunId: 'run-old' });
+
+    expect(capturedRoots).toHaveLength(2);
+    const [originalRoot, replacementRoot] = capturedRoots;
+    expect(originalRoot).not.toBe(replacementRoot);
+    // The superseded original is reclaimed...
+    expect(existsSync(originalRoot as string)).toBe(false);
+    // ...and the replacement it was superseded BY survives.
+    expect(existsSync(join(replacementRoot as string, 'manifest.json'))).toBe(true);
   });
 });
 
@@ -12417,5 +12616,48 @@ describe('workflowWaitCommand', () => {
     await expect(workflowWaitCommand(FULL_ID, undefined, '/repo')).rejects.toThrow(
       'Failed to wait for workflow run: database unreachable'
     );
+  });
+});
+
+describe('workflowRunCommand — continuation conversation lookup', () => {
+  it('refuses before opening a new conversation when the lookup fails', async () => {
+    const { hydrateResumableRun } = await import('@archon/workflows/executor');
+    const conversationDb = await import('@archon/core/db/conversations');
+    const codebaseDb = await import('@archon/core/db/codebases');
+    const workflowDb = await import('@archon/core/db/workflows');
+    const workflowDiscovery = await import('@archon/workflows/workflow-discovery');
+
+    (
+      workflowDiscovery.discoverWorkflowsWithConfig as ReturnType<typeof mock>
+    ).mockResolvedValueOnce({
+      workflows: [makeTestWorkflowWithSource({ name: 'resume-thread' })],
+      errors: [],
+    });
+    (workflowDb.findResumableRun as ReturnType<typeof mock>).mockResolvedValueOnce({
+      id: 'run-prior',
+      working_path: null,
+      workflow_name: 'resume-thread',
+      conversation_id: 'conv-prior',
+    });
+    (hydrateResumableRun as ReturnType<typeof mock>).mockResolvedValueOnce({
+      preCreatedRun: { id: 'run-prior', workflow_name: 'resume-thread' },
+      priorCompletedNodes: new Map([['node-a', 'done']]),
+    });
+    (codebaseDb.findCodebaseByDefaultCwd as ReturnType<typeof mock>).mockResolvedValueOnce({
+      id: 'cb-resume',
+      default_cwd: '/repo/root',
+      default_branch: 'develop',
+    });
+    (conversationDb.getConversationById as ReturnType<typeof mock>).mockRejectedValueOnce(
+      new Error('database busy')
+    );
+    (conversationDb.getOrCreateConversation as ReturnType<typeof mock>).mockClear();
+
+    await expect(
+      workflowRunCommand('/repo/root', 'resume-thread', 'go', { resume: true })
+    ).rejects.toThrow(
+      "Failed to load conversation 'conv-prior' for workflow run 'run-prior': database busy"
+    );
+    expect(conversationDb.getOrCreateConversation).not.toHaveBeenCalled();
   });
 });

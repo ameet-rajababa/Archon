@@ -31,6 +31,10 @@ import { ProjectRow } from './ProjectRow';
 import { ProjectCountHeader } from './ProjectCountCells';
 import type { RunCounts } from '../skills';
 import { EnvVarsDialog } from './EnvVarsDialog';
+// Sign-out lives here because the console is the only UI — there is no other
+// surface left to log out from. Renders null when web auth is off (the solo
+// default), so the rail is unchanged for a single-operator install.
+import { SessionMenu } from '@/components/auth/SessionMenu';
 import { useEntity, invalidate } from '../store/cache';
 import { K } from '../store/keys';
 import * as skill from '../skills';
@@ -47,9 +51,20 @@ interface ProjectRailProps {
   onSearch: () => void;
 }
 
-async function handleRemove(projectId: string): Promise<void> {
-  await skill.removeProject(projectId);
-  invalidate(K.projects);
+interface ProjectRemovalActions {
+  remove: (projectId: string) => Promise<void>;
+  invalidateProjects: () => void;
+  navigateToOverview: () => void;
+}
+
+export async function removeProjectFromRail(
+  projectId: string,
+  selectedProjectId: string | null,
+  actions: ProjectRemovalActions
+): Promise<void> {
+  await actions.remove(projectId);
+  actions.invalidateProjects();
+  if (selectedProjectId === projectId) actions.navigateToOverview();
 }
 
 /** Extract the project id from /console/p/:id (and /console/p/:id/r/:runId). */
@@ -527,10 +542,17 @@ export function ProjectRail({ onAddProject, onSearch }: ProjectRailProps): React
                     onClick={() => {
                       navigate(`/console/p/${p.id}`);
                     }}
-                    onRemove={() => {
-                      void handleRemove(p.id);
-                      if (scope === p.id) navigate('/console');
-                    }}
+                    onRemove={() =>
+                      removeProjectFromRail(p.id, scope, {
+                        remove: skill.removeProject,
+                        invalidateProjects: () => {
+                          invalidate(K.projects);
+                        },
+                        navigateToOverview: () => {
+                          navigate('/console');
+                        },
+                      })
+                    }
                     onEditEnv={() => {
                       setEnvProject(p);
                     }}
@@ -578,6 +600,8 @@ export function ProjectRail({ onAddProject, onSearch }: ProjectRailProps): React
             title="Settings ( , )"
           />
         </div>
+
+        <SessionMenu />
 
         {/* Resize handle */}
         <div

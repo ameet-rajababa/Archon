@@ -11,7 +11,7 @@ import { K, type Scope } from '../store/keys';
 import { readProjectView } from '../lib/project-view';
 import { useKeymap, type Binding } from '../lib/keymap';
 import * as skill from '../skills';
-import type { Run } from '../primitives/run';
+import { runDetailPath, type Run } from '../primitives/run';
 import type { RunCounts } from '../skills/runs';
 import type { Project } from '../primitives/project';
 import { useNow } from '../lib/clock';
@@ -427,11 +427,6 @@ export function RunsPage(): ReactElement {
     if (el !== null) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [selectedRunId]);
 
-  const open = (id: string, projId: string | null): void => {
-    if (projId === null) return;
-    navigate(`/console/p/${projId}/r/${id}`);
-  };
-
   const bindings = useMemo<readonly Binding[]>(
     () => [
       {
@@ -469,7 +464,9 @@ export function RunsPage(): ReactElement {
         label: 'Open selected',
         when: (): boolean => selectedRun !== null,
         run: (): void => {
-          if (selectedRun !== null) open(selectedRun.id, selectedRun.projectId);
+          if (selectedRun !== null && !selectedRun.id.startsWith('demo-')) {
+            navigate(runDetailPath(selectedRun));
+          }
         },
       },
       {
@@ -529,7 +526,7 @@ export function RunsPage(): ReactElement {
         },
       },
     ],
-    [runs, selectedIndex, selectedRun]
+    [navigate, runs, selectedIndex, selectedRun]
   );
   useKeymap({ bindings });
 
@@ -570,6 +567,7 @@ export function RunsPage(): ReactElement {
                   setQuery('');
                 }
               }}
+              aria-label="Search runs"
               placeholder="Search workflow, project, run id…"
               spellCheck={false}
               className="min-w-0 flex-1 bg-transparent font-mono text-[12.5px] text-text-primary outline-none placeholder:text-text-tertiary"

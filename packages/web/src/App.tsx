@@ -3,6 +3,7 @@ import type { ReactNode, ErrorInfo } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from '@/lib/query-client';
+import { LegacyRedirect } from '@/routes/LegacyRedirect';
 import { LoginPage } from '@/routes/LoginPage';
 import { ConsoleApp } from '@/experiments/console/ConsoleApp';
 import { SessionGate } from '@/components/auth/SessionGate';
@@ -80,12 +81,14 @@ export function App(): React.ReactElement {
               }
             />
             {/*
-              The classic UI is retired. Its source still sits in routes/ and
-              components/ so upstream commits to those files keep merging
-              cleanly, but nothing imports it, so Rollup drops it from the
-              bundle. Old /legacy bookmarks land on the console.
+              The classic UI is retired. LegacyRedirect maps each old path to the
+              console page that replaced it, so a bookmark keeps its meaning
+              instead of all of them landing on the console root.
             */}
-            <Route path="/legacy/*" element={<Navigate to="/console" replace />} />
+            <Route path="/legacy/*" element={<LegacyRedirect />} />
+            <Route path="/workflows/*" element={<LegacyRedirect />} />
+            <Route path="/settings" element={<Navigate to="/console/settings" replace />} />
+            <Route path="*" element={<Navigate to="/console" replace />} />
           </Routes>
         </BrowserRouter>
       </QueryClientProvider>

@@ -110,7 +110,7 @@ function writeNodeFilter(v: string): void {
 }
 
 export function RunDetailPage(): ReactElement {
-  const { projectId, runId } = useParams<{ projectId: string; runId: string }>();
+  const { runId } = useParams<{ projectId: string; runId: string }>();
   const navigate = useNavigate();
   const scrollRef = useRef<HTMLDivElement | null>(null);
   // Not persisted, unlike the other two: narrowing to errors answers "what
@@ -153,14 +153,14 @@ export function RunDetailPage(): ReactElement {
   // casts the original sentinel used — keeps the null path honest for
   // downstream readers (they can guard explicitly instead of meeting a
   // mis-typed value).
-  const { data: project } = useEntity<Project | null>(
-    projectId !== undefined ? K.project(projectId) : 'noop:no-project-id',
-    () => (projectId !== undefined ? skill.getProject(projectId) : Promise.resolve(null))
-  );
-
   const { data: detail, error: detailError } = useEntity<RunDetailView | null>(
     runId !== undefined ? K.run(runId) : 'noop:no-run-id',
     () => (runId !== undefined ? skill.getRun(runId) : Promise.resolve(null))
+  );
+  const projectId = detail?.run.projectId ?? undefined;
+  const { data: project, error: projectError } = useEntity<Project | null>(
+    projectId !== undefined ? K.project(projectId) : 'noop:no-project-id',
+    () => (projectId !== undefined ? skill.getProject(projectId) : Promise.resolve(null))
   );
 
   // Messages are tied to the run's conversation — and the /messages endpoint
@@ -366,7 +366,7 @@ export function RunDetailPage(): ReactElement {
   );
   useKeymap({ bindings });
 
-  if (projectId === undefined || runId === undefined) {
+  if (runId === undefined) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-text-tertiary">
         Invalid run URL.
@@ -442,7 +442,11 @@ export function RunDetailPage(): ReactElement {
   return (
     <StreamContextProvider value={{ runStartedAt: run.startedAt, assistant: null }}>
       <section className="flex h-full flex-col">
-        <RunDetailHeader run={run} projectId={projectId} projectName={project?.name ?? projectId} />
+        <RunDetailHeader
+          run={run}
+          projectId={projectId}
+          projectName={project?.name ?? detail.run.projectName ?? 'All runs'}
+        />
 
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {view === 'log' ? (
@@ -521,7 +525,13 @@ export function RunDetailPage(): ReactElement {
                   }}
                 />
               ) : (
-                <div className="p-6 text-[12px] text-text-tertiary">Loading project…</div>
+                <div className="p-6 text-[12px] text-text-tertiary">
+                  {projectId === undefined
+                    ? 'This run has no project. Its logs and artifacts are available in the other views.'
+                    : projectError
+                      ? `Could not load project: ${projectError.message}`
+                      : 'Loading project…'}
+                </div>
               )}
             </>
           ) : (
@@ -543,11 +553,20 @@ export function RunDetailPage(): ReactElement {
  * `RunDetailHeader`: there is no run to describe, and inventing a status for
  * one is worse than saying plainly that it did not load.
  */
-function RunErrorBar({ projectId, runId }: { projectId: string; runId: string }): ReactElement {
+// The project is read off the run detail, which on this path is the thing that
+// failed to load — so it is frequently absent here, and the back link falls
+// back to the console root rather than pointing at /console/p/undefined.
+function RunErrorBar({
+  projectId,
+  runId,
+}: {
+  projectId: string | undefined;
+  runId: string;
+}): ReactElement {
   return (
     <header className="flex shrink-0 items-center gap-3 border-b border-border bg-surface-elevated px-6 py-2.5">
       <Link
-        to={`/console/p/${projectId}`}
+        to={projectId === undefined ? '/console' : `/console/p/${projectId}`}
         className="rounded-[7px] border px-2 py-[3px] font-mono text-[11px] font-semibold text-text-secondary transition-colors hover:text-text-primary"
         style={{ borderColor: 'var(--border-bright)' }}
       >

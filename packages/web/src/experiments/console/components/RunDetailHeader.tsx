@@ -11,7 +11,7 @@ import { RunOutcomeBadge } from './RunOutcomeBadge';
 interface RunDetailHeaderProps {
   run: Run;
   projectName: string;
-  projectId: string;
+  projectId: string | undefined;
 }
 
 function useLiveElapsed(run: Run): string {
@@ -62,7 +62,7 @@ export function RunDetailHeader({
           this is the step back out to the run list. */}
       <div className="flex items-center gap-2 font-mono text-[12px]">
         <Link
-          to={`/console/p/${projectId}`}
+          to={projectId === undefined ? '/console' : `/console/p/${projectId}`}
           title={`Back to ${projectName} runs`}
           className="rounded-[7px] border px-2 py-[3px] text-[11px] font-semibold text-text-secondary transition-colors hover:text-text-primary"
           style={{ borderColor: 'var(--border-bright)' }}

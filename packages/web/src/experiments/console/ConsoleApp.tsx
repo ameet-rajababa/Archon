@@ -1,5 +1,5 @@
-import { useMemo, useState, type ReactElement } from 'react';
-import { Routes, Route, useNavigate } from 'react-router';
+import { useEffect, useMemo, useState, type ReactElement } from 'react';
+import { Navigate, Routes, Route, useLocation, useNavigate } from 'react-router';
 import { ProjectRail } from './components/ProjectRail';
 import { AddProjectDialog } from './components/AddProjectDialog';
 import { ProjectPalette } from './components/ProjectPalette';
@@ -21,13 +21,6 @@ import { SHORTCUTS } from './lib/shortcuts';
 import './theme.css';
 import './rail.css';
 
-/**
- * Console experiment shell.
- *
- * Mounted at `/console/*` outside the production <Layout /> so the existing
- * TopNav does not render over us. Internal <Routes> handle console-specific
- * paths relative to /console.
- */
 export function ConsoleApp(): ReactElement {
   // Mounted at the ROOT, not per route. The rail renders on every screen and
   // carries live run counts and the chat list, so a subscription that only
@@ -39,6 +32,11 @@ export function ConsoleApp(): ReactElement {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const [railOpen, setRailOpen] = useState(false);
+  useEffect(() => {
+    setRailOpen(false);
+  }, [pathname]);
 
   // `n` (new run) is owned by DraftRunCard's own window listener — only
   // mounted when a project is scoped — and stays there.
@@ -75,15 +73,46 @@ export function ConsoleApp(): ReactElement {
 
   return (
     <div className="console-root flex h-screen w-screen flex-col bg-surface text-text-primary">
+      <header className="flex items-center gap-3 border-b border-border px-3 py-2 md:hidden">
+        <button
+          type="button"
+          aria-controls="project-navigation"
+          aria-expanded={railOpen}
+          onClick={() => {
+            setRailOpen(open => !open);
+          }}
+          className="rounded border border-border px-3 py-2"
+        >
+          {railOpen ? 'Close navigation' : 'Projects and settings'}
+        </button>
+        <span className="font-semibold">Archon</span>
+      </header>
       <div className="rail-shell flex min-h-0 flex-1">
-        <ProjectRail
-          onAddProject={() => {
-            setAddOpen(true);
-          }}
-          onSearch={() => {
-            setPaletteOpen(true);
-          }}
-        />
+        {railOpen ? (
+          <button
+            type="button"
+            aria-label="Close navigation"
+            onClick={() => {
+              setRailOpen(false);
+            }}
+            className="fixed inset-0 z-20 bg-black/60 md:hidden"
+          />
+        ) : null}
+        <div
+          id="project-navigation"
+          className={`${railOpen ? 'fixed inset-y-0 left-0 z-30 flex max-w-[calc(100vw-3rem)] shadow-xl' : 'hidden'} md:static md:z-auto md:flex md:max-w-none md:shadow-none`}
+        >
+          <ProjectRail
+            onAddProject={() => {
+              setAddOpen(true);
+              setRailOpen(false);
+            }}
+            onSearch={() => {
+              setPaletteOpen(true);
+              setRailOpen(false);
+            }}
+          />
+        </div>
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <Routes>
             <Route path="settings" element={<SettingsPage />} />
@@ -100,6 +129,12 @@ export function ConsoleApp(): ReactElement {
               <Route path="p/:projectId/overview" element={<OverviewPage />} />
               <Route path="p/:projectId/r/:runId" element={<RunDetailPage />} />
             </Route>
+            {/* Project-less run detail: LegacyRedirect resolves an old
+                /workflows/runs/:runId bookmark here, where the project is not
+                known from the path. It mounts outside ProjectLayout for that
+                reason — RunDetailHeader handles the undefined project. */}
+            <Route path="r/:runId" element={<RunDetailPage />} />
+            <Route path="*" element={<Navigate to="/console" replace />} />
           </Routes>
         </main>
       </div>

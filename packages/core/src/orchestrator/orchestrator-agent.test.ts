@@ -13,6 +13,9 @@
  */
 
 import { mock, describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { mkdir, mkdtemp, writeFile } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { createMockLogger } from '../test/mocks/logger';
 import {
   makeTestResolvedWorkflow,
@@ -46,6 +49,10 @@ import type * as TitleGenerator from '../services/title-generator';
 import type * as UserProviderKeyStore from '../db/user-provider-key-store';
 import type * as Paths from '@archon/paths';
 import type * as RunLiveOwnerModule from '../services/run-live-owner';
+import { captureWorkflowSource } from '../../../workflows/src/workflow-source';
+import { trackTempRoots } from '@archon/paths/test-utils';
+
+const trackTempRoot = trackTempRoots();
 
 // ─── Mock setup (ALL mocks must come before the module under test import) ────
 
@@ -238,6 +245,8 @@ mock.module('@archon/workflows/utils/tool-formatter', () => ({
 const mockDiscoverWorkflowsWithConfig = mock<typeof WorkflowDiscovery.discoverWorkflowsWithConfig>(
   () => Promise.resolve({ workflows: [], errors: [] })
 );
+const { discoverWorkflowsWithConfig: realDiscoverWorkflowsWithConfig } =
+  await import('@archon/workflows/workflow-discovery');
 mock.module('@archon/workflows/workflow-discovery', () => ({
   discoverWorkflowsWithConfig: mockDiscoverWorkflowsWithConfig,
 }));
@@ -299,6 +308,8 @@ const mockPrepareWorkflowSource = mock<typeof WorkflowExecutor.prepareWorkflowSo
     roots: CAPTURED_SOURCE_ROOTS,
   })
 );
+const { resolveContinuationWorkflow: realResolveContinuationWorkflow } =
+  await import('@archon/workflows/executor');
 const mockResolveContinuationWorkflow = mock<typeof WorkflowExecutor.resolveContinuationWorkflow>(
   () => Promise.resolve(undefined)
 );
@@ -335,12 +346,14 @@ const DEFAULT_PROVIDER_CAPS: ProviderCapabilities = {
   structuredOutput: false,
   envInjection: true,
   costControl: false,
+  costReporting: false,
   effortControl: true,
   fallbackModel: false,
   sandbox: false,
   settingSources: false,
   nativeTools: false,
   containerExec: false,
+  requiresAllPropertiesRequired: false,
 };
 
 mock.module('@archon/providers', () => ({
@@ -2175,7 +2188,6 @@ describe('workflow dispatch routing — interactive flag', () => {
     interactive?: boolean,
     options: {
       force?: boolean;
-      resumeRunId?: string;
       resumeRun?: WorkflowRun;
       args?: string;
       /** Declared `inputs:` on the resolved workflow (#2554). */
@@ -2185,17 +2197,18 @@ describe('workflow dispatch routing — interactive flag', () => {
     return {
       success: true,
       message: 'ok',
-      workflow: {
-        definition: makeTestResolvedWorkflow({
-          name: 'test-workflow',
-          interactive,
-          ...(options.inputs ? { inputs: options.inputs } : {}),
-        }),
-        args: options.args ?? 'test message',
-        force: options.force,
-        resumeRunId: options.resumeRunId,
-        resumeRun: options.resumeRun,
-      },
+      workflow: options.resumeRun
+        ? { kind: 'resume' as const, run: options.resumeRun }
+        : {
+            kind: 'start' as const,
+            definition: makeTestResolvedWorkflow({
+              name: 'test-workflow',
+              interactive,
+              ...(options.inputs ? { inputs: options.inputs } : {}),
+            }),
+            args: options.args ?? 'test message',
+            force: options.force,
+          },
     };
   }
 
@@ -2240,6 +2253,11 @@ describe('workflow dispatch routing — interactive flag', () => {
     mockUpdateConversation.mockClear();
     mockResolveWorkflowSourceRoot.mockClear();
     mockResolveWorkflowSourceRoot.mockResolvedValue(undefined);
+    mockDiscoverWorkflowsWithConfig.mockReset();
+    mockDiscoverWorkflowsWithConfig.mockResolvedValue({
+      workflows: [makeTestWorkflowWithSource({ name: 'test-workflow', interactive: true })],
+      errors: [],
+    });
     mockStartRunLiveOwner.mockClear();
     mockWithRunLiveOwner.mockClear();
     mockCloseRunLiveOwner.mockClear();
@@ -2588,6 +2606,7 @@ describe('workflow dispatch routing — interactive flag', () => {
     mockGetOrCreateConversation.mockReturnValueOnce(Promise.resolve(makeDispatchConversation()));
     mockGetCodebase.mockReturnValueOnce(Promise.resolve(makeCodebase()));
     const noWorktreeResult = makeWorkflowResult(true, { args: 'test message' });
+    if (noWorktreeResult.workflow.kind !== 'start') throw new Error('expected start request');
     noWorktreeResult.workflow.definition.worktree = { enabled: false };
     mockHandleCommand.mockReturnValueOnce(Promise.resolve(noWorktreeResult));
     mockResolveWorkflowAdoption.mockImplementationOnce(() =>
@@ -2749,28 +2768,7 @@ describe('workflow dispatch routing — interactive flag', () => {
     expect(callArgs[3]).toBe('/test/cwd');
   });
 
-  test('resumeRunId option: failed run resumes when resumeRunId matches', async () => {
-    mockGetOrCreateConversation.mockReturnValueOnce(Promise.resolve(makeDispatchConversation()));
-    mockGetCodebase.mockReturnValueOnce(Promise.resolve(makeCodebase()));
-    mockHandleCommand.mockReturnValueOnce(
-      Promise.resolve(makeWorkflowResult(true, { resumeRunId: 'resumable-run-1' }))
-    );
-    mockFindResumableRunByParentConversation.mockReturnValueOnce(
-      Promise.resolve(makeResumableRun())
-    );
-
-    const platform = makePlatform();
-    await handleMessage(platform, 'conv-1', '/workflow resume resumable-run-1');
-
-    expect(mockHydrateResumableRun).toHaveBeenCalled();
-    expect(mockExecuteWorkflow).toHaveBeenCalled();
-    expect(platform.sendMessage).not.toHaveBeenCalledWith(
-      'conv-1',
-      expect.stringContaining('Found a prior failed run')
-    );
-  });
-
-  test('resumeRun option: hydrates the requested run without latest-run lookup', async () => {
+  test('resume request hydrates the requested run without latest-run lookup', async () => {
     const requestedRun = makeResumableRun({
       id: 'old-run',
       user_message: 'requested prompt',
@@ -2779,9 +2777,7 @@ describe('workflow dispatch routing — interactive flag', () => {
     mockGetOrCreateConversation.mockReturnValueOnce(Promise.resolve(makeDispatchConversation()));
     mockGetCodebase.mockReturnValueOnce(Promise.resolve(makeCodebase()));
     mockHandleCommand.mockReturnValueOnce(
-      Promise.resolve(
-        makeWorkflowResult(true, { resumeRunId: requestedRun.id, resumeRun: requestedRun })
-      )
+      Promise.resolve(makeWorkflowResult(true, { resumeRun: requestedRun }))
     );
 
     const platform = makePlatform();
@@ -2790,7 +2786,8 @@ describe('workflow dispatch routing — interactive flag', () => {
     expect(mockFindResumableRunByParentConversation).not.toHaveBeenCalled();
     expect(mockHydrateResumableRun).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ id: 'old-run' })
+      expect.objectContaining({ id: 'old-run' }),
+      undefined
     );
     expect(mockExecuteWorkflow).toHaveBeenCalled();
     const callArgs = mockExecuteWorkflow.mock.calls[0] as unknown[];
@@ -2801,7 +2798,7 @@ describe('workflow dispatch routing — interactive flag', () => {
     );
   });
 
-  test('resumeRun option: reports requested run with missing working path', async () => {
+  test('resume request reports requested run with missing working path', async () => {
     const requestedRun = makeResumableRun({
       id: 'old-run-missing-path',
       user_message: 'requested prompt',
@@ -2810,9 +2807,7 @@ describe('workflow dispatch routing — interactive flag', () => {
     mockGetOrCreateConversation.mockReturnValueOnce(Promise.resolve(makeDispatchConversation()));
     mockGetCodebase.mockReturnValueOnce(Promise.resolve(makeCodebase()));
     mockHandleCommand.mockReturnValueOnce(
-      Promise.resolve(
-        makeWorkflowResult(true, { resumeRunId: requestedRun.id, resumeRun: requestedRun })
-      )
+      Promise.resolve(makeWorkflowResult(true, { resumeRun: requestedRun }))
     );
 
     const platform = makePlatform();
@@ -2912,9 +2907,7 @@ describe('workflow dispatch routing — interactive flag', () => {
     mockGetOrCreateConversation.mockReturnValueOnce(Promise.resolve(makeDispatchConversation()));
     mockGetCodebase.mockReturnValueOnce(Promise.resolve(makeCodebase()));
     mockHandleCommand.mockReturnValueOnce(
-      Promise.resolve(
-        makeWorkflowResult(true, { resumeRunId: requestedRun.id, resumeRun: requestedRun })
-      )
+      Promise.resolve(makeWorkflowResult(true, { resumeRun: requestedRun }))
     );
 
     await handleMessage(makePlatform(), 'conv-1', `/workflow resume ${requestedRun.id}`);
@@ -2922,7 +2915,8 @@ describe('workflow dispatch routing — interactive flag', () => {
     expect(mockFindResumableRunByParentConversation).not.toHaveBeenCalled();
     expect(mockHydrateResumableRun).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ id: requestedRun.id })
+      expect.objectContaining({ id: requestedRun.id }),
+      undefined
     );
   });
 
@@ -3099,6 +3093,12 @@ describe('workflow dispatch routing — interactive flag', () => {
     // Discovery off the FRESH capture returns a workflow distinct from the one the
     // resume-input would otherwise feed executeWorkflow. If the orchestrator handed
     // `executeWorkflow` the wrong graph, the description below would mismatch.
+    mockDiscoverWorkflowsWithConfig.mockReturnValueOnce(
+      Promise.resolve({
+        workflows: [makeTestWorkflowWithSource({ name: 'test-workflow' })],
+        errors: [],
+      })
+    );
     mockDiscoverWorkflowsWithConfig.mockReturnValueOnce(
       Promise.resolve({
         workflows: [{ workflow: freshWorkflow, source: 'project' }],
@@ -3322,7 +3322,7 @@ describe('workflow dispatch routing — interactive flag', () => {
   });
 
   test('an IMPLICIT auto-resume of a required-input workflow is not re-gated', async () => {
-    // The dangerous case: a plain `/workflow run <name>` (no resumeRunId/resumeRun) on a
+    // The dangerous case: a plain `/workflow run <name>` (a start request) on a
     // workflow with a paused run. `dispatchOrchestratorWorkflow` auto-detects that run
     // for every platform, so gating only against an EXPLICIT resume refused a legitimate
     // continuation — the run row already holds its validated inputs, and a user saying
@@ -3454,10 +3454,11 @@ describe('workflow dispatch routing — interactive flag', () => {
     mockGetOrCreateConversation.mockReturnValueOnce(Promise.resolve(makeDispatchConversation()));
     mockGetCodebase.mockReturnValueOnce(Promise.resolve(makeCodebase()));
     mockHandleCommand.mockReturnValueOnce(
-      Promise.resolve(makeWorkflowResult(true, { resumeRunId: 'failed-model-resume' }))
-    );
-    mockFindResumableRunByParentConversation.mockReturnValueOnce(
-      Promise.resolve(makeResumableRun({ id: 'failed-model-resume', status: 'failed' }))
+      Promise.resolve(
+        makeWorkflowResult(true, {
+          resumeRun: makeResumableRun({ id: 'failed-model-resume', status: 'failed' }),
+        })
+      )
     );
 
     const platform = makePlatform();
@@ -3493,6 +3494,16 @@ describe('workflow dispatch routing — interactive flag', () => {
     );
     // Nothing worth resuming → the fresh-run fallthrough.
     mockHydrateResumableRun.mockReturnValueOnce(Promise.resolve(null));
+    const capturedWorkflow = makeTestResolvedWorkflow({
+      name: 'test-workflow',
+      inputs: { diff: { required: true } },
+    });
+    mockResolveContinuationWorkflow.mockResolvedValueOnce({
+      workflow: capturedWorkflow,
+      roots: CAPTURED_SOURCE_ROOTS,
+      workflows: [{ workflow: capturedWorkflow, source: 'project' }],
+      errors: [],
+    });
 
     const platform = makePlatform();
     await handleMessage(platform, 'conv-1', '/workflow run test-workflow');
@@ -3607,7 +3618,6 @@ describe('workflow dispatch routing — interactive flag', () => {
       Promise.resolve(
         makeWorkflowResult(true, {
           inputs: { diff: { required: true } },
-          resumeRunId: 'resumable-run-1',
           resumeRun: makeResumableRun({ status: 'paused' }),
         })
       )
@@ -4034,14 +4044,14 @@ describe('paused approval gate routing', () => {
     // Continuation: resolution without it would leave the run stranded (#2565).
     expect(platform.sendMessage).toHaveBeenCalledWith(
       'conv-1',
-      expect.stringContaining('Resuming')
+      expect.stringContaining('Continuation requested')
     );
     expect(mockHydrateResumableRun).toHaveBeenCalled();
     const hydrated = mockHydrateResumableRun.mock.calls[0] as unknown[];
     expect((hydrated[1] as { id: string }).id).toBe(run.id);
     expect(mockExecuteWorkflow).toHaveBeenCalled();
-    // The tool must tell the agent the run moves on, not that it stays parked.
-    expect(toolReplies[0]).toContain('continues from here');
+    // The tool acknowledges the continuation request before the host prepares it.
+    expect(toolReplies[0]).toContain('Continuation requested');
   });
 
   test('the agent rejecting a gate with on_reject rework resumes the run', async () => {
@@ -4066,7 +4076,7 @@ describe('paused approval gate routing', () => {
     expect(mockCaptureApprovalResolved).toHaveBeenCalledWith({ resolution: 'rejected' });
     expect(mockResolveAndCancelApprovalGate).not.toHaveBeenCalled();
     expect(mockExecuteWorkflow).toHaveBeenCalled();
-    expect(toolReplies[0]).toContain('continues from here');
+    expect(toolReplies[0]).toContain('Continuation requested');
   });
 
   test('a reject that cancels the run does not try to resume it', async () => {
@@ -4134,7 +4144,7 @@ describe('paused approval gate routing', () => {
     expect(mockExecuteWorkflow).toHaveBeenCalled();
     expect(platform.sendMessage).toHaveBeenCalledWith(
       'conv-1',
-      expect.stringContaining('Resuming')
+      expect.stringContaining('Continuation requested')
     );
   });
 
@@ -4217,6 +4227,8 @@ describe('handleWorkflowRunCommand — E2 single codebase auto-select', () => {
     mockDiscoverWorkflowsWithConfig.mockReset();
     mockUpdateConversation.mockClear();
     mockDispatchBackgroundWorkflow.mockClear();
+    mockExecuteWorkflow.mockClear();
+    mockFindResumableRunByParentConversation.mockClear();
     mockLogger.error.mockClear();
 
     // Default: return empty conversation without codebase
@@ -4226,6 +4238,41 @@ describe('handleWorkflowRunCommand — E2 single codebase auto-select', () => {
     mockDiscoverWorkflowsWithConfig.mockImplementation(() =>
       Promise.resolve({ workflows: [], errors: [] })
     );
+  });
+
+  test('a single project resumes a captured workflow missing from live discovery', async () => {
+    const codebase = makeCodebaseForSync();
+    const run = makeRun({
+      id: 'captured-old-run',
+      workflow_name: 'assist',
+      user_message: 'original request',
+      working_path: '/repos/test-repo/worktrees/old',
+      status: 'paused',
+    });
+    const captured = makeTestResolvedWorkflow({ name: 'assist', description: 'captured graph' });
+    mockGetOrCreateConversation.mockResolvedValueOnce(makeConversation({ codebase_id: null }));
+    mockParseCommand.mockReturnValueOnce({ command: 'workflow', args: ['resume', run.id] });
+    mockHandleCommand.mockResolvedValueOnce({
+      success: true,
+      message: 'Resume requested.',
+      workflow: { kind: 'resume', run },
+    });
+    mockListCodebases.mockResolvedValueOnce([codebase]);
+    mockResolveContinuationWorkflow.mockResolvedValueOnce({
+      workflow: captured,
+      roots: CAPTURED_SOURCE_ROOTS,
+      workflows: [{ workflow: captured, source: 'project' }],
+      errors: [],
+    });
+
+    await handleMessage(makePlatform(), 'conv-1', `/workflow resume ${run.id}`);
+
+    expect(mockUpdateConversation).toHaveBeenCalledWith('conv-1-db', {
+      codebase_id: codebase.id,
+    });
+    expect(mockFindResumableRunByParentConversation).not.toHaveBeenCalled();
+    expect(mockExecuteWorkflow).toHaveBeenCalled();
+    expect((mockExecuteWorkflow.mock.calls[0] as unknown[])[4]).toBe(captured);
   });
 
   test('resolves workflow from WorkflowWithSource[] by exact name match', async () => {
@@ -4238,7 +4285,7 @@ describe('handleWorkflowRunCommand — E2 single codebase auto-select', () => {
       Promise.resolve({
         success: true,
         message: 'Running workflow assist...',
-        workflow: { definition: assistWorkflow, args: 'test prompt' },
+        workflow: { kind: 'start', definition: assistWorkflow, args: 'test prompt' },
       })
     );
     // Single codebase triggers auto-select
@@ -4276,6 +4323,7 @@ describe('handleWorkflowRunCommand — E2 single codebase auto-select', () => {
         success: true,
         message: 'Running workflow assist...',
         workflow: {
+          kind: 'start',
           definition: assistWorkflow,
           args: 'test prompt',
           parseWarnings: ["Node 'plan': unknown key 'interactive' will be ignored."],
@@ -4320,6 +4368,7 @@ describe('handleWorkflowRunCommand — E2 single codebase auto-select', () => {
         success: true,
         message: 'Running workflow assist...',
         workflow: {
+          kind: 'start',
           definition: assistWorkflow,
           args: 'test prompt',
           // Resolved against a different scope — must NOT be forwarded.
@@ -4362,7 +4411,7 @@ describe('handleWorkflowRunCommand — E2 single codebase auto-select', () => {
       Promise.resolve({
         success: true,
         message: 'Running workflow assist...',
-        workflow: { definition: assistWorkflow, args: 'test prompt' },
+        workflow: { kind: 'start', definition: assistWorkflow, args: 'test prompt' },
       })
     );
     mockListCodebases.mockReturnValueOnce(Promise.resolve([codebase]));
@@ -4409,7 +4458,7 @@ describe('handleWorkflowRunCommand — E2 single codebase auto-select', () => {
       Promise.resolve({
         success: true,
         message: 'Running workflow assist...',
-        workflow: { definition: assistWorkflow, args: 'test prompt' },
+        workflow: { kind: 'start', definition: assistWorkflow, args: 'test prompt' },
       })
     );
     mockListCodebases.mockReturnValueOnce(Promise.resolve([codebase]));
@@ -4442,7 +4491,7 @@ describe('handleWorkflowRunCommand — E2 single codebase auto-select', () => {
       Promise.resolve({
         success: true,
         message: 'Running workflow assist...',
-        workflow: { definition: assistWorkflow, args: 'test prompt' },
+        workflow: { kind: 'start', definition: assistWorkflow, args: 'test prompt' },
       })
     );
     mockListCodebases.mockReturnValueOnce(Promise.resolve([codebase]));
@@ -4481,7 +4530,7 @@ describe('handleWorkflowRunCommand — E2 single codebase auto-select', () => {
       Promise.resolve({
         success: true,
         message: 'Running workflow assist...',
-        workflow: { definition: assistWorkflow, args: 'test prompt' },
+        workflow: { kind: 'start', definition: assistWorkflow, args: 'test prompt' },
       })
     );
     mockListCodebases.mockReturnValueOnce(Promise.resolve([codebase]));
@@ -4507,7 +4556,7 @@ describe('handleWorkflowRunCommand — E2 single codebase auto-select', () => {
       Promise.resolve({
         success: true,
         message: 'Running workflow assist...',
-        workflow: { definition: assistWorkflow, args: 'test prompt' },
+        workflow: { kind: 'start', definition: assistWorkflow, args: 'test prompt' },
       })
     );
     mockListCodebases.mockReturnValueOnce(Promise.resolve([codebase]));
@@ -4545,7 +4594,7 @@ describe('handleWorkflowRunCommand — E2 single codebase auto-select', () => {
       Promise.resolve({
         success: true,
         message: 'Running workflow...',
-        workflow: { definition: upperWorkflow, args: 'test' },
+        workflow: { kind: 'start', definition: upperWorkflow, args: 'test' },
       })
     );
     mockListCodebases.mockReturnValueOnce(Promise.resolve([codebase]));
@@ -4573,7 +4622,11 @@ describe('handleWorkflowRunCommand — E2 single codebase auto-select', () => {
       Promise.resolve({
         success: true,
         message: 'Running workflow...',
-        workflow: { definition: makeTestResolvedWorkflow({ name: 'missing' }), args: 'test' },
+        workflow: {
+          kind: 'start',
+          definition: makeTestResolvedWorkflow({ name: 'missing' }),
+          args: 'test',
+        },
       })
     );
     mockListCodebases.mockReturnValueOnce(Promise.resolve([codebase]));
@@ -4603,7 +4656,7 @@ describe('handleWorkflowRunCommand — E2 single codebase auto-select', () => {
       Promise.resolve({
         success: true,
         message: 'Running...',
-        workflow: { definition: assistWorkflow, args: 'test' },
+        workflow: { kind: 'start', definition: assistWorkflow, args: 'test' },
       })
     );
     mockListCodebases.mockReturnValueOnce(Promise.resolve([codebase]));
@@ -6511,12 +6564,36 @@ describe('continueResolvedGateRun — chat gate continuation source (#2646)', ()
     });
   }
 
+  async function writeGateWorkflow(
+    root: string,
+    description: string,
+    disableWorktree: boolean
+  ): Promise<void> {
+    await mkdir(join(root, '.archon', 'workflows'), { recursive: true });
+    await writeFile(
+      join(root, '.archon', 'workflows', 'gated.yaml'),
+      [
+        'name: gated',
+        `description: ${description}`,
+        ...(disableWorktree ? ['worktree:', '  enabled: false'] : []),
+        'nodes:',
+        '  - id: work',
+        '    prompt: Do the work',
+        '',
+      ].join('\n')
+    );
+  }
+
   beforeEach(async () => {
     mockExecuteWorkflow.mockClear();
+    mockHydrateResumableRun.mockClear();
+    mockValidateAndResolveIsolation.mockClear();
     // Reset, not clear: a queued `…Once` value that a test never consumes would otherwise
     // leak into the next one. Restores the factory default — a run predating captures.
     mockResolveContinuationWorkflow.mockReset();
     mockResolveContinuationWorkflow.mockImplementation(() => Promise.resolve(undefined));
+    mockDiscoverWorkflowsWithConfig.mockReset();
+    mockDiscoverWorkflowsWithConfig.mockResolvedValue({ workflows: [], errors: [] });
   });
 
   test("continues with the graph the run froze, not the chat turn's discovery list", async () => {
@@ -6533,8 +6610,6 @@ describe('continueResolvedGateRun — chat gate continuation source (#2646)', ()
       'conv-1',
       makeConversation({ codebase_id: 'codebase-1' }),
       makeCodebase(),
-      // What the checkout holds now: same name, edited since the run paused.
-      [makeTestWorkflowWithSource({ name: 'gated', description: 'edited' })],
       makeGateRun(),
       'approve'
     );
@@ -6544,6 +6619,54 @@ describe('continueResolvedGateRun — chat gate continuation source (#2646)', ()
       description?: string;
     };
     expect(executed.description).toBe('frozen');
+  });
+
+  test('uses the captured graph for host worktree policy', async () => {
+    const root = trackTempRoot(await mkdtemp(join(tmpdir(), 'archon-host-captured-policy-')));
+    const source = join(root, 'source');
+    await writeGateWorkflow(source, 'Captured graph', true);
+    const capture = await captureWorkflowSource({
+      sourceRoot: source,
+      captureRoot: join(root, 'capture'),
+    });
+    // Same name, opposite policy. A host that bypasses the run capture creates
+    // isolation here; the recorded graph explicitly disables it.
+    await writeGateWorkflow(source, 'Conflicting live graph', false);
+    mockResolveContinuationWorkflow.mockImplementationOnce((...args) =>
+      realResolveContinuationWorkflow(...args)
+    );
+    mockDiscoverWorkflowsWithConfig.mockImplementation((...args) =>
+      realDiscoverWorkflowsWithConfig(...args)
+    );
+    const run = makeGateRun();
+    run.working_path = source;
+    run.metadata = {
+      workflow_source: {
+        version: 1,
+        root: capture.anchor.root,
+        origin: capture.origin,
+        captured_at: capture.manifest.captured_at,
+        digest: capture.manifest.digest,
+        source_config: capture.manifest.source_config,
+        file_count: capture.manifest.file_count,
+        byte_count: capture.manifest.byte_count,
+      },
+    };
+
+    await continueResolvedGateRun(
+      makePlatform(),
+      'conv-1',
+      makeConversation({ codebase_id: 'codebase-1' }),
+      makeCodebase({ default_cwd: source }),
+      run,
+      'approve'
+    );
+
+    expect(mockValidateAndResolveIsolation).not.toHaveBeenCalled();
+    expect(mockExecuteWorkflow).toHaveBeenCalledTimes(1);
+    expect(
+      ((mockExecuteWorkflow.mock.calls[0] as unknown[])[4] as { description: string }).description
+    ).toBe('Captured graph');
   });
 
   test('continues a run whose workflow the current checkout no longer has', async () => {
@@ -6564,7 +6687,6 @@ describe('continueResolvedGateRun — chat gate continuation source (#2646)', ()
       'conv-1',
       makeConversation({ codebase_id: 'codebase-1' }),
       makeCodebase(),
-      [], // workflow gone from the checkout
       makeGateRun(),
       'approve'
     );
@@ -6579,12 +6701,15 @@ describe('continueResolvedGateRun — chat gate continuation source (#2646)', ()
   test('a run predating captures still resolves from the live list', async () => {
     // resolveContinuationWorkflow returns undefined for it, and the fallback is the only
     // thing that can name its graph.
+    mockDiscoverWorkflowsWithConfig.mockResolvedValueOnce({
+      workflows: [makeTestWorkflowWithSource({ name: 'gated', description: 'live' })],
+      errors: [],
+    });
     await continueResolvedGateRun(
       makePlatform(),
       'conv-1',
       makeConversation({ codebase_id: 'codebase-1' }),
       makeCodebase(),
-      [makeTestWorkflowWithSource({ name: 'gated', description: 'live' })],
       makeGateRun(),
       'approve'
     );
@@ -6607,7 +6732,6 @@ describe('continueResolvedGateRun — chat gate continuation source (#2646)', ()
       'conv-1',
       makeConversation({ codebase_id: 'codebase-1' }),
       makeCodebase(),
-      [makeTestWorkflowWithSource({ name: 'gated', description: 'edited' })],
       makeGateRun(),
       'approve'
     );
@@ -6616,7 +6740,9 @@ describe('continueResolvedGateRun — chat gate continuation source (#2646)', ()
     const messages = (platform.sendMessage as ReturnType<typeof mock>).mock.calls.map(
       c => (c as unknown[])[1] as string
     );
+    expect(messages[0]).toContain('Continuation requested');
     expect(messages.some(m => m.includes('digest mismatch'))).toBe(true);
+    expect(mockHydrateResumableRun).not.toHaveBeenCalled();
   });
 
   // #2910: both sides of the recovery branch. An ordinary resume failure leaves the
@@ -6628,12 +6754,15 @@ describe('continueResolvedGateRun — chat gate continuation source (#2646)', ()
     rejection: unknown
   ): Promise<string[]> {
     mockExecuteWorkflow.mockRejectedValueOnce(rejection);
+    mockDiscoverWorkflowsWithConfig.mockResolvedValueOnce({
+      workflows: [makeTestWorkflowWithSource({ name: 'gated', description: 'live' })],
+      errors: [],
+    });
     await continueResolvedGateRun(
       platform,
       'conv-1',
       makeConversation({ codebase_id: 'codebase-1' }),
       makeCodebase(),
-      [makeTestWorkflowWithSource({ name: 'gated', description: 'live' })],
       makeGateRun(),
       'approve'
     );
