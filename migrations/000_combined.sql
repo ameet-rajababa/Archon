@@ -357,6 +357,15 @@ ALTER TABLE remote_agent_conversations
 ALTER TABLE remote_agent_conversations
   ADD COLUMN IF NOT EXISTS title_pinned BOOLEAN DEFAULT FALSE;
 
+-- From migration 030: every title that predates the column is treated as one a
+-- human chose, because nothing was recording the answer when it was written.
+-- Idempotent; leaves untitled rows (the hidden workflow sub-chats) alone.
+UPDATE remote_agent_conversations
+SET title_pinned = TRUE
+WHERE title IS NOT NULL
+  AND title <> ''
+  AND title_pinned IS NOT TRUE;
+
 -- User identity foreign keys (nullable on the four primary tables).
 -- All FKs use ON DELETE SET NULL so future user deletion never cascades destructively.
 ALTER TABLE remote_agent_conversations

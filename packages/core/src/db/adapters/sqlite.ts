@@ -346,6 +346,15 @@ export class SqliteAdapter implements IDatabase {
         this.db.run(
           'ALTER TABLE remote_agent_conversations ADD COLUMN title_pinned INTEGER DEFAULT 0'
         );
+        // Migration 030, run inside the column-add guard so it happens exactly
+        // once. Every title written before this column existed answers "not
+        // pinned" for want of anywhere to record the answer, not because a
+        // human did not choose it — and the re-titler would read that as
+        // permission. Pinning them is the only reading that cannot destroy a
+        // deliberate name. `/retitle` overrides it per chat.
+        this.db.run(
+          "UPDATE remote_agent_conversations SET title_pinned = 1 WHERE title IS NOT NULL AND title <> ''"
+        );
       }
       if (!colNames.has('user_id')) {
         this.db.run(
