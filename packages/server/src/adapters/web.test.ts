@@ -208,3 +208,79 @@ describe('WebAdapter.emitLockEvent — dashboard mirror', () => {
     expect(emitted.some(e => e.includes('conversation_lock'))).toBe(true);
   });
 });
+
+describe('WebAdapter.currentActivity — what each chat is doing', () => {
+  test('a finished tool still answers, because the gap between tools is not idleness', async () => {
+    const { adapter } = makeAdapter();
+
+    await adapter.sendStructuredEvent('conv-1', {
+      type: 'tool',
+      toolName: 'Bash',
+      toolCallId: 't1',
+      toolInput: { command: 'bun run lint' },
+    });
+    await adapter.sendStructuredEvent('conv-1', {
+      type: 'tool_result',
+      toolName: 'Bash',
+      toolCallId: 't1',
+      toolOutput: 'ok',
+    });
+
+    // Without this the rail showed the fallback word almost always: most tools
+    // finish well inside the interval anything polls at.
+    const activity = adapter.currentActivity().get('conv-1');
+    expect(activity?.name).toBe('Bash');
+    expect(activity?.input.command).toBe('bun run lint');
+  });
+
+  test('a tool in flight outranks the one before it', async () => {
+    const { adapter } = makeAdapter();
+    await adapter.sendStructuredEvent('conv-1', {
+      type: 'tool',
+      toolName: 'Read',
+      toolCallId: 't1',
+      toolInput: { file_path: 'a.ts' },
+    });
+    await adapter.sendStructuredEvent('conv-1', {
+      type: 'tool_result',
+      toolName: 'Read',
+      toolCallId: 't1',
+      toolOutput: '',
+    });
+    await adapter.sendStructuredEvent('conv-1', {
+      type: 'tool',
+      toolName: 'Grep',
+      toolCallId: 't2',
+      toolInput: { pattern: 'actionType' },
+    });
+
+    expect(adapter.currentActivity().get('conv-1')?.name).toBe('Grep');
+  });
+
+  test('the turn ending clears it, so a finished chat describes nothing', async () => {
+    const { adapter } = makeAdapter();
+    await adapter.sendStructuredEvent('conv-1', {
+      type: 'tool',
+      toolName: 'Bash',
+      toolCallId: 't1',
+      toolInput: { command: 'ls' },
+    });
+    await adapter.emitLockEvent('conv-1', false);
+
+    expect(adapter.currentActivity().has('conv-1')).toBe(false);
+  });
+
+  test('a huge input is bounded before it rides a polled health check', async () => {
+    const { adapter } = makeAdapter();
+    await adapter.sendStructuredEvent('conv-1', {
+      type: 'tool',
+      toolName: 'Write',
+      toolCallId: 't1',
+      toolInput: { file_path: 'a.ts', content: 'x'.repeat(50_000), lines: 400 },
+    });
+
+    const input = adapter.currentActivity().get('conv-1')?.input ?? {};
+    expect(input.content?.length).toBe(160);
+    expect(input.lines).toBeUndefined(); // non-strings are dropped, not stringified
+  });
+});

@@ -56,6 +56,22 @@ export class WebAdapter implements IWebPlatformAdapter {
     string,
     Map<string, { toolCallId: string; name: string; startedAt: number; input: ToolInputSnapshot }>
   >();
+  /**
+   * The most recent tool each conversation invoked, running or finished.
+   *
+   * `runningTools` empties the instant a tool reports back, so on its own it
+   * answers "what is it doing" only during a tool — and most tools finish in
+   * well under the interval anything polls at. A reader watching the list saw
+   * the fallback word almost always, which is the thing this was built to
+   * replace. The last tool is still the truthful answer while the turn runs:
+   * between two tools the agent is thinking about the one it just did.
+   *
+   * Cleared when the turn ends, so it can never describe a finished chat.
+   */
+  private lastTool = new Map<
+    string,
+    { name: string; input: ToolInputSnapshot; startedAt: number }
+  >();
 
   constructor(
     private transport: SSETransport,
@@ -80,6 +96,7 @@ export class WebAdapter implements IWebPlatformAdapter {
     // Clean up stale tool tracking state on SSE disconnect to prevent
     // spurious tool_result events on the next message to this conversation.
     this.runningTools.delete(conversationId);
+    this.lastTool.delete(conversationId);
     this.toolCallCounter.delete(conversationId);
   }
 
@@ -210,11 +227,17 @@ export class WebAdapter implements IWebPlatformAdapter {
         convTools = new Map();
         this.runningTools.set(conversationId, convTools);
       }
+      const boundedInput = boundToolInput(chunk.toolInput);
       convTools.set(toolCallId, {
         toolCallId,
         name: chunk.toolName,
         startedAt: now,
-        input: boundToolInput(chunk.toolInput),
+        input: boundedInput,
+      });
+      this.lastTool.set(conversationId, {
+        name: chunk.toolName,
+        input: boundedInput,
+        startedAt: now,
       });
 
       event = JSON.stringify({
@@ -347,6 +370,7 @@ export class WebAdapter implements IWebPlatformAdapter {
     this.persistence.clearAll();
     this.toolCallCounter.clear();
     this.runningTools.clear();
+    this.lastTool.clear();
   }
 
   /**
@@ -383,6 +407,8 @@ export class WebAdapter implements IWebPlatformAdapter {
         }
         this.runningTools.delete(conversationId);
       }
+      // The turn is over, so there is no longer anything it is "doing".
+      this.lastTool.delete(conversationId);
       // Finalize tool durations in persistence buffer before flushing to DB
       this.persistence.finalizeRunningTools(conversationId);
       await this.persistence.flush(conversationId).catch((e: unknown) => {
@@ -422,7 +448,10 @@ export class WebAdapter implements IWebPlatformAdapter {
    * conversation, and one line can only say one thing.
    */
   currentActivity(): Map<string, { name: string; input: ToolInputSnapshot; startedAt: number }> {
-    const out = new Map<string, { name: string; input: ToolInputSnapshot; startedAt: number }>();
+    // Seed with the last tool of each turn, then let anything actually running
+    // overwrite it. A tool in flight is the better answer; the last one is the
+    // answer that is still true in the gaps between them.
+    const out = new Map(this.lastTool);
     for (const [conversationId, tools] of this.runningTools) {
       let newest: { name: string; input: ToolInputSnapshot; startedAt: number } | undefined;
       for (const tool of tools.values()) {
