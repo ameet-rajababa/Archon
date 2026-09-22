@@ -16,15 +16,7 @@ import {
   type ConversationSummary,
 } from '../primitives/conversation';
 import { relativeTime } from '../lib/format';
-import { describeActivity } from '../primitives/activity';
-import {
-  askAwaitingIds,
-  awaitingReason,
-  awaitingReplyIds,
-  chatStatus,
-  STATUS_LABEL,
-  STATUS_TITLE,
-} from '../primitives/chat-status';
+import { askAwaitingIds, chatStatus, STATUS_TITLE } from '../primitives/chat-status';
 import { RowMenu } from './RowMenu';
 import { clampPaneWidth, readPaneWidth, writePaneWidth, type PaneBounds } from '../lib/pane-width';
 
@@ -100,20 +92,6 @@ interface ConversationRailProps {
    */
   liveIds?: ReadonlySet<string>;
   /**
-   * What each working chat is doing, keyed by id. A row with an entry names the
-   * work — "Editing ChatPage.tsx" — instead of saying "working", which names
-   * nothing. Absent between tools, which is why the word remains the fallback.
-   */
-  liveTools?: Readonly<Record<string, { name: string; input: Record<string, string> }>>;
-  /**
-   * Whether the working answer has arrived at all.
-   *
-   * Gates the amber-for-unanswered rule below. Before the first poll lands,
-   * "not working" and "not asked" are the same empty set, and only this tells
-   * them apart.
-   */
-  liveKnown?: boolean;
-  /**
    * Chats with a run paused on an approval — your move, not the machine's.
    * Kept separate from `liveIds` because the two come from different places:
    * working is the server's conversation lock, awaiting belongs to a run.
@@ -157,8 +135,6 @@ export function ConversationRail({
   pendingNew,
   projectId,
   liveIds,
-  liveTools,
-  liveKnown = false,
   awaitingIds,
 }: ConversationRailProps): ReactElement {
   /* The filter box became nothing: a permanent text field for a list this
@@ -276,13 +252,6 @@ export function ConversationRail({
    * the conversation itself. A reader scanning the rail does not care which —
    * both say it is your move — so they merge before the mark is drawn.
    */
-  /**
-   * The third route to amber, kept apart because it ranks BELOW working rather
-   * than above it: a chat the agent merely spoke in last is your move too, but
-   * only once the turn it was speaking in has ended.
-   */
-  const awaitingReply = useMemo(() => awaitingReplyIds(conversations), [conversations]);
-
   const awaiting = useMemo(() => {
     const ids = askAwaitingIds(conversations);
     for (const id of awaitingIds ?? EMPTY_SET) ids.add(id);
@@ -524,19 +493,7 @@ export function ConversationRail({
 
         {visible.map((c, index) => {
           const isActive = c.id === activeConvId;
-          const status = chatStatus(c.id, {
-            working: liveIds ?? EMPTY_SET,
-            awaiting,
-            ...(liveKnown ? { awaitingReply } : {}),
-          });
-          // What it is doing beats the fact that it is doing something. Only
-          // while working: a finished chat's last tool is history, and the row
-          // has one line to spend.
-          const doing = status === 'working' ? liveTools?.[c.id] : undefined;
-          // What it is waiting FOR, when the chat carries a question it can be
-          // read from. Beats the bare word; falls back to it when there is
-          // nothing structured to say.
-          const reason = status === 'awaiting' ? awaitingReason(c.askCandidate) : null;
+          const status = chatStatus(c.id, { working: liveIds ?? EMPTY_SET, awaiting });
           const shift =
             dragId === null ? 0 : previewShift(boxesRef.current, dragFrom, dropIndex, index);
           return (
@@ -635,20 +592,17 @@ export function ConversationRail({
                       timestamp sits UNDER it instead of competing for the
                       same line. */}
                   <span className="rail-text">{conversationLabel(c)}</span>
-                  {/* The word replaces the timestamp rather than crowding it:
-                      "3m ago" is the wrong thing to read about a chat that is
-                      moving right now, or waiting on you. */}
-                  {doing === undefined && status === 'awaiting' && reason !== null ? (
-                    <span className={`chat-stamp is-${status}`} title={reason}>
-                      {reason}
-                    </span>
-                  ) : doing !== undefined ? (
-                    <span className={`chat-stamp is-${status}`}>
-                      {describeActivity(doing.name, doing.input)}
-                    </span>
-                  ) : status !== 'idle' ? (
-                    <span className={`chat-stamp is-${status}`}>{STATUS_LABEL[status]}</span>
-                  ) : c.lastActivityAt !== null ? (
+                  {/* Always the timestamp, never the state.
+                      The second line used to say the state in its own colour —
+                      "needs you", "editing rail.css" — and between the dot,
+                      the word and the colour a row said the same thing three
+                      times. Eleven rows of that is a rail you decode rather
+                      than scan. The dot carries the state; this line carries
+                      the one fact the dot cannot, which is how long ago.
+                      The chat you have OPEN still names its tool, in the status
+                      strip above the composer — one of those on screen, in the
+                      place where the detail is worth the room. */}
+                  {c.lastActivityAt !== null ? (
                     <time dateTime={c.lastActivityAt} className="chat-stamp">
                       {relativeTime(c.lastActivityAt)}
                     </time>

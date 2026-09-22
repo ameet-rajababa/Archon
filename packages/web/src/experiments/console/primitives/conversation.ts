@@ -47,14 +47,6 @@ export interface ConversationSummary {
    */
   askCandidate: string | null;
   /**
-   * Who spoke last in this chat, or null when nothing has been said.
-   *
-   * The rail's amber mark rests on it: a chat whose last word was the agent's
-   * is waiting for a human; one where the human spoke last is not. Nothing
-   * else on the row can separate those — `lastActivityAt` moves for both.
-   */
-  lastMessageRole: 'user' | 'assistant' | 'system' | null;
-  /**
    * Hand-arranged position in the rail, ascending, or `null` for a chat that
    * has never been placed. Stored on the row, so the arrangement follows the
    * reader to any browser rather than living in one machine's localStorage.
@@ -76,21 +68,12 @@ interface RawConversation {
   deleted_at?: string | null;
   sort_order?: number | null;
   ask_candidate?: string | null;
-  last_message_role?: string | null;
 }
 
 /**
- * Narrow the wire's free-form role to the three the console knows.
- *
- * Anything unrecognised — an older server that does not send the field, a
- * newer one that adds a role — reads as "no known last speaker" rather than
- * being forced into one of the three. Painting a chat amber on a guess is the
- * one outcome worth avoiding here.
+ * The wire shape as the console needs it. Everything the server sends that the
+ * rail does not read is dropped here rather than carried.
  */
-function parseMessageRole(raw: string | null | undefined): ConversationSummary['lastMessageRole'] {
-  return raw === 'user' || raw === 'assistant' || raw === 'system' ? raw : null;
-}
-
 export function toConversationSummary(raw: RawConversation): ConversationSummary {
   return {
     id: raw.platform_conversation_id,
@@ -103,7 +86,6 @@ export function toConversationSummary(raw: RawConversation): ConversationSummary
     // Archiving is a soft delete, so the timestamp's presence is the state.
     archived: raw.deleted_at != null,
     askCandidate: raw.ask_candidate ?? null,
-    lastMessageRole: parseMessageRole(raw.last_message_role),
     // `?? null` covers a server that predates the column, which reads as
     // never arranged rather than as position zero.
     sortOrder: raw.sort_order ?? null,

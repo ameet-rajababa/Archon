@@ -1,11 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import {
-  askAwaitingIds,
-  awaitingInputIds,
-  awaitingReason,
-  awaitingReplyIds,
-  chatStatus,
-} from './chat-status';
+import { askAwaitingIds, awaitingInputIds, chatStatus } from './chat-status';
 
 const sets = (working: string[], awaiting: string[]) => ({
   working: new Set(working),
@@ -117,70 +111,5 @@ describe('chatStatus when the working signal is missing', () => {
 
   test('a gate still outranks working', () => {
     expect(chatStatus('a', { working: new Set(['a']), awaiting: new Set(['a']) })).toBe('awaiting');
-  });
-});
-
-describe('awaitingReplyIds', () => {
-  test('a chat the agent spoke in last is waiting on you', () => {
-    expect([...awaitingReplyIds([{ id: 'a', lastMessageRole: 'assistant' }])]).toEqual(['a']);
-  });
-
-  test('a chat you spoke in last is not — the ball is with the machine', () => {
-    expect([...awaitingReplyIds([{ id: 'a', lastMessageRole: 'user' }])]).toEqual([]);
-  });
-
-  test('an empty chat, or a server that never sent the field, stays quiet', () => {
-    expect([...awaitingReplyIds([{ id: 'a', lastMessageRole: null }])]).toEqual([]);
-    expect([...awaitingReplyIds([{ id: 'a', lastMessageRole: 'system' }])]).toEqual([]);
-  });
-});
-
-describe('chatStatus ranks awaitingReply below working', () => {
-  const none: ReadonlySet<string> = new Set();
-  const a = new Set(['a']);
-
-  // Mid-turn the agent's own streamed text is the last message, so without
-  // this a running chat would go amber the moment it said anything.
-  test('working wins over having spoken last', () => {
-    expect(chatStatus('a', { working: a, awaiting: none, awaitingReply: a })).toBe('working');
-  });
-
-  test('a gate still wins over working', () => {
-    expect(chatStatus('a', { working: a, awaiting: a, awaitingReply: a })).toBe('awaiting');
-  });
-
-  test('once the turn ends, having spoken last is your move', () => {
-    expect(chatStatus('a', { working: none, awaiting: none, awaitingReply: a })).toBe('awaiting');
-  });
-
-  // The defect that got this reverted the first time: before the first poll
-  // lands, "not working" and "not asked" are the same empty set. Callers
-  // withhold the set until the answer is known, and then idle is the honest
-  // reading rather than a false call for help.
-  test('withheld until the working answer is known, it cannot cry wolf', () => {
-    expect(chatStatus('a', { working: none, awaiting: none })).toBe('idle');
-  });
-});
-
-describe('awaitingReason', () => {
-  const ask = (spec: unknown): string =>
-    `Some prose.\n\n\`\`\`ask\n${JSON.stringify(spec)}\n\`\`\``;
-
-  test('a waiting chat says what it is waiting FOR, in the agent’s own words', () => {
-    const spec = {
-      questions: [
-        { title: 'Rail amber or narrow?', options: [{ label: 'a' }, { label: 'b' }] },
-        { title: 'A second question', options: [{ label: 'c' }] },
-      ],
-    };
-    // Only the first, and only its title — a row has one line.
-    expect(awaitingReason(ask(spec))).toBe('Rail amber or narrow?');
-  });
-
-  test('nothing structured to read means no invented reason', () => {
-    expect(awaitingReason(null)).toBeNull();
-    expect(awaitingReason('')).toBeNull();
-    expect(awaitingReason('Just prose, no question.')).toBeNull();
-    expect(awaitingReason('```ask\n{ not json\n```')).toBeNull();
   });
 });

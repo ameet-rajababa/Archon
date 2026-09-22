@@ -589,12 +589,22 @@
   padding: 2px 8px 7px;
 }
 /* A chat row is taller than a rail row because it carries two lines. It still
-   pins its height rather than letting the contents decide — see .rail-row. */
+   pins its height rather than letting the contents decide — see .rail-row.
+
+   The left gutter is 26px, not the rail's 17px. Two marks live in that column
+   — the drag grip on hover, and the status dot — and at 17px the grip's right
+   edge sat 4px from the dot, so hovering a row put six grey dots and a
+   coloured one almost in contact. They are different controls saying different
+   things and they have to read as two objects. 26px leaves 10px between
+   them. */
 .chatlist .rail-row {
   height: auto;
   min-height: calc(17px + 2 * var(--row-y));
-  padding: 6px 8px 6px 17px;
+  padding: 6px 8px 6px 26px;
   align-items: flex-start;
+}
+.chatlist .rail-grip-dots {
+  left: 6px;
 }
 .chatlist .rail-row .rail-text {
   display: -webkit-box;
@@ -814,12 +824,6 @@
 .chat-status.is-idle i {
   background: currentColor;
   opacity: 0.7;
-}
-.chat-stamp.is-awaiting {
-  color: var(--warning);
-}
-.chat-stamp.is-working {
-  color: var(--running);
 }
 
 /* Owner section label.

@@ -2635,21 +2635,12 @@ export function registerApiRoutes(
    */
   async function lastMessageFacts(
     conversations: readonly import('@archon/core').Conversation[]
-  ): Promise<Map<string, { askCandidate: string | null; lastRole: string }>> {
-    const out = new Map<string, { askCandidate: string | null; lastRole: string }>();
+  ): Promise<Map<string, { askCandidate: string | null }>> {
+    const out = new Map<string, { askCandidate: string | null }>();
     const last = await messageDb.getLastMessagePerConversation(conversations.map(c => c.id));
     for (const [conversationId, message] of last) {
-      // Who spoke last, always — not only when the message looks like a
-      // question. A chat whose last word was the agent's is waiting on a
-      // human, and nothing else on the row distinguishes that from a chat with
-      // nothing pending: `last_activity_at` moves for both. Read off the same
-      // row the ask candidate comes from, because fetching it twice would
-      // double a query that already runs on every list request.
       const isAsk = message.role === 'assistant' && message.content.includes('```ask');
-      out.set(conversationId, {
-        askCandidate: isAsk ? message.content : null,
-        lastRole: message.role,
-      });
+      out.set(conversationId, { askCandidate: isAsk ? message.content : null });
     }
     return out;
   }
@@ -2755,9 +2746,6 @@ export function registerApiRoutes(
           return {
             ...toApiConversation(row),
             ask_candidate: fact?.askCandidate ?? null,
-            // A chat nobody has said anything in has no last speaker, which
-            // reads as null rather than as a role nobody played.
-            last_message_role: fact?.lastRole ?? null,
           };
         })
       );

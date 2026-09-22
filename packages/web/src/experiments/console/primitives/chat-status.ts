@@ -11,14 +11,17 @@
  *
  * The signals are different in kind and that is deliberate. "Working" is the
  * server's own answer — the conversation lock, read from /api/health — so it
- * is true even for a turn this browser did not start. "Awaiting" arrives three
- * ways, all meaning the same thing to a reader: a run paused on a gate, an
- * unanswered question, and a chat whose last word was the agent's. Only the
- * ordering separates them — see ChatStatusSets.
+ * is true even for a turn this browser did not start. "Awaiting" means a chat
+ * has asked for something SPECIFIC: a run paused on a gate, or an unanswered
+ * ask block. Both are things a human can act on and then be done with.
  *
- * That leaves idle meaning what it should. Not "finished", but "nothing is
- * pending here": an empty chat, or one where you spoke last and nothing picked
- * it up.
+ * A chat whose last word was merely the agent's is NOT awaiting. That rule
+ * existed twice and failed the same way both times: every finished chat ends
+ * with the agent, so the rail went amber end to end and idle became a state
+ * nothing ever reached. A mark that is always on is not a signal.
+ *
+ * That leaves idle meaning what it should — "nothing is pending here" — and
+ * reachable, which is the point.
  */
 import { splitReply } from './ask';
 import { runMessageConversationId } from './run';
@@ -28,22 +31,6 @@ export type ChatStatus = 'working' | 'awaiting' | 'idle';
 export interface ChatStatusSets {
   /** Platform conversation ids the server is executing a turn for. */
   working: ReadonlySet<string>;
-  /**
-   * Chats whose last word was the agent's — your move, once the turn is over.
-   *
-   * Ranked BELOW working, and that ordering is why it is a third set rather
-   * than more ids in `awaiting`: mid-turn the agent's own streamed text IS the
-   * last message, so merging them would paint every running chat amber the
-   * moment it said anything.
-   *
-   * Ordering alone is not enough, and this is where it was got wrong before.
-   * `working` is a POLLED answer, so before the first poll lands it is empty —
-   * not because nothing is running, but because nobody has asked. Fall through
-   * on that and a chat being actively worked on announces that it needs a
-   * human, which is the one direction this signal must never fail in. Pass
-   * this set only once the working answer is KNOWN; omit it until then.
-   */
-  awaitingReply?: ReadonlySet<string>;
   /**
    * Chats asking for something specific: a run paused on an approval, or an
    * unanswered question. Outranks working, because a run that has stopped to
@@ -56,21 +43,18 @@ export interface ChatStatusSets {
  * Exclusive and ordered, and the order ends at two.
  *
  * There was a third set — chats whose last word was the agent's — ranked below
- * working so that a streaming chat would not go amber mid-sentence. The
- * ranking was right and the state was wrong: EVERY finished chat ends with the
- * agent, so five of five went amber and the colour stopped meaning anything.
- * Worse, `working` is a polled signal, so in the seconds after a reconnect the
- * mask was simply missing and a chat being actively worked on announced that
- * it needed a human.
+ * working so a streaming chat would not go amber mid-sentence. The ranking was
+ * right and the STATE was wrong: every finished chat ends with the agent, so
+ * every finished chat was amber, and idle became unreachable. It also needed a
+ * `liveKnown` flag to be safe, because `working` is polled and an unanswered
+ * poll would have read as a finished turn — machinery whose only job was to
+ * stop a signal lying, which is a signal worth deleting instead.
  *
- * An unknown answer now falls to `idle`. A signal that degrades to silence
- * costs a moment of under-reporting; one that degrades to a call for help
- * teaches the reader to ignore the only colour that was supposed to move them.
+ * What is left says something a person can act on and then be finished with.
  */
 export function chatStatus(conversationId: string, sets: ChatStatusSets): ChatStatus {
   if (sets.awaiting.has(conversationId)) return 'awaiting';
   if (sets.working.has(conversationId)) return 'working';
-  if (sets.awaitingReply?.has(conversationId) === true) return 'awaiting';
   return 'idle';
 }
 
@@ -117,27 +101,6 @@ export function askAwaitingIds(
  * set came back empty for exactly the runs it exists to find, and no chat has
  * ever gone amber.
  */
-/**
- * Chats whose last word was the agent's.
- *
- * Every one of them is waiting on a human: a reply that has been read is
- * indistinguishable from one nobody has seen, so only the person can settle
- * it. A chat you spoke in last is deliberately not here — there the ball is
- * with the machine, or the turn was dropped, and neither is something to
- * prompt you about.
- *
- * Only meaningful once the working answer is known. See `awaitingReply`.
- */
-export function awaitingReplyIds(
-  conversations: readonly { id: string; lastMessageRole: string | null }[]
-): Set<string> {
-  const out = new Set<string>();
-  for (const c of conversations) {
-    if (c.lastMessageRole === 'assistant') out.add(c.id);
-  }
-  return out;
-}
-
 export function awaitingInputIds(
   runs: readonly {
     status: string;
@@ -164,28 +127,6 @@ export function awaitingInputIds(
  * presentational choice belongs. Two label maps for three states would be two
  * vocabularies again, which is the thing this file exists to prevent.
  */
-/**
- * What a waiting chat is waiting FOR, when it can be known.
- *
- * "Needs you" says a chat wants something without saying what, which is the
- * same shortcoming the status word had before it started naming the tool. An
- * ask block carries its own question, so the rail can show that question
- * instead — it is the agent's own words, not a category guessed from prose.
- *
- * Only the first question, and only its title: a row has one line. Null when
- * there is nothing structured to read, and the caller falls back to the word
- * rather than inventing a reason.
- */
-export function awaitingReason(askCandidate: string | null): string | null {
-  if (askCandidate === null || askCandidate === '') return null;
-  for (const part of splitReply(askCandidate)) {
-    if (part.kind !== 'ask') continue;
-    const first = part.spec.questions[0];
-    if (first !== undefined) return first.title;
-  }
-  return null;
-}
-
 export const STATUS_LABEL: Readonly<Record<ChatStatus, string>> = {
   working: 'Working',
   awaiting: 'Needs you',
