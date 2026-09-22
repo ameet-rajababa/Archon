@@ -2871,7 +2871,12 @@ export function registerApiRoutes(
         return apiError(c, 404, 'Conversation not found');
       }
       if (title !== undefined) {
-        await conversationDb.updateConversationTitle(conv.id, title.slice(0, 255));
+        // A rename through this route is a person choosing the name, so pin it.
+        // Automatic re-titling reads the pin and leaves the row alone; without
+        // it the two writers are indistinguishable and the edit gets undone.
+        await conversationDb.updateConversationTitle(conv.id, title.slice(0, 255), {
+          pinned: true,
+        });
       }
       // `undefined` leaves the color alone; an explicit `null` clears it. The
       // schema already constrained any non-null value to CONVERSATION_COLORS.

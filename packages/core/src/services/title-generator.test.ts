@@ -14,9 +14,29 @@ const mockUpdateConversationTitle = mock(() => Promise.resolve()) as Mock<
   (id: string, title: string) => Promise<void>
 >;
 
+const mockGetConversationById = mock(() =>
+  Promise.resolve({ id: 'c1', title: 'Opening Message Name', title_pinned: false })
+) as Mock<(id: string) => Promise<unknown>>;
+
 mock.module('../db/conversations', () => ({
   updateConversationTitle: mockUpdateConversationTitle,
+  getConversationById: mockGetConversationById,
 }));
+
+// Enough user turns to sit exactly on the re-title boundary (every 10).
+const manyTurns = Array.from({ length: 20 }, (_, i) => ({
+  id: `m${String(i)}`,
+  conversation_id: 'c1',
+  role: i % 2 === 0 ? 'user' : 'assistant',
+  content: `message ${String(i)}`,
+  metadata: '{}',
+  user_id: null,
+  created_at: '2026-01-01T00:00:00Z',
+}));
+const mockListMessages = mock(() => Promise.resolve(manyTurns)) as Mock<
+  (id: string, limit?: number) => Promise<unknown[]>
+>;
+mock.module('../db/messages', () => ({ listMessages: mockListMessages }));
 
 // AI client mock — sendQuery returns an AsyncGenerator<MessageChunk>
 const mockSendQuery = mock(async function* (): AsyncGenerator<MessageChunk> {
@@ -46,7 +66,7 @@ mock.module('@archon/providers', () => ({
 
 // ─── Import module under test (AFTER all mocks) ─────────────────────────────
 
-import { generateAndSetTitle } from './title-generator';
+import { generateAndSetTitle, reconsiderConversationTitle } from './title-generator';
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
@@ -278,5 +298,82 @@ describe('title-generator', () => {
     const savedTitle = mockUpdateConversationTitle.mock.calls[0][1] as string;
     expect(savedTitle.length).toBeLessThanOrEqual(100);
     expect(savedTitle).toEndWith('...');
+  });
+});
+
+describe('reconsiderConversationTitle', () => {
+  beforeEach(() => {
+    mockUpdateConversationTitle.mockClear();
+    mockSendQuery.mockClear();
+    mockGetConversationById.mockReset();
+    mockGetConversationById.mockImplementation(() =>
+      Promise.resolve({ id: 'c1', title: 'Opening Message Name', title_pinned: false })
+    );
+    mockListMessages.mockReset();
+    mockListMessages.mockImplementation(() => Promise.resolve(manyTurns));
+    mockSendQuery.mockImplementation(async function* (): AsyncGenerator<MessageChunk> {
+      yield { type: 'assistant', content: 'SSE Fan-out And Deploy' };
+      yield { type: 'result' };
+    });
+  });
+
+  test('renames when the model says the topic moved', async () => {
+    await reconsiderConversationTitle('c1', 'claude', '/tmp');
+    expect(mockUpdateConversationTitle).toHaveBeenCalledWith('c1', 'SSE Fan-out And Deploy');
+  });
+
+  test('KEEP leaves the title alone', async () => {
+    mockSendQuery.mockImplementation(async function* (): AsyncGenerator<MessageChunk> {
+      yield { type: 'assistant', content: 'KEEP' };
+      yield { type: 'result' };
+    });
+    await reconsiderConversationTitle('c1', 'claude', '/tmp');
+    expect(mockUpdateConversationTitle).not.toHaveBeenCalled();
+  });
+
+  test('a pinned title is never touched automatically', async () => {
+    mockGetConversationById.mockImplementation(() =>
+      Promise.resolve({ id: 'c1', title: 'My Own Name', title_pinned: true })
+    );
+    await reconsiderConversationTitle('c1', 'claude', '/tmp');
+    // Not even asked — a pinned row costs no model call.
+    expect(mockSendQuery).not.toHaveBeenCalled();
+    expect(mockUpdateConversationTitle).not.toHaveBeenCalled();
+  });
+
+  test('force overrides the pin — an explicit request beats the flag', async () => {
+    mockGetConversationById.mockImplementation(() =>
+      Promise.resolve({ id: 'c1', title: 'My Own Name', title_pinned: true })
+    );
+    await reconsiderConversationTitle('c1', 'claude', '/tmp', { force: true });
+    expect(mockUpdateConversationTitle).toHaveBeenCalledWith('c1', 'SSE Fan-out And Deploy');
+  });
+
+  test('off the turn boundary it does not call the model at all', async () => {
+    mockListMessages.mockImplementation(() => Promise.resolve(manyTurns.slice(0, 6)));
+    await reconsiderConversationTitle('c1', 'claude', '/tmp');
+    expect(mockSendQuery).not.toHaveBeenCalled();
+  });
+
+  test('force ignores the turn boundary', async () => {
+    mockListMessages.mockImplementation(() => Promise.resolve(manyTurns.slice(0, 6)));
+    await reconsiderConversationTitle('c1', 'claude', '/tmp', { force: true });
+    expect(mockUpdateConversationTitle).toHaveBeenCalledWith('c1', 'SSE Fan-out And Deploy');
+  });
+
+  test('an untitled chat is left to generateAndSetTitle', async () => {
+    mockGetConversationById.mockImplementation(() =>
+      Promise.resolve({ id: 'c1', title: null, title_pinned: false })
+    );
+    await reconsiderConversationTitle('c1', 'claude', '/tmp');
+    expect(mockSendQuery).not.toHaveBeenCalled();
+  });
+
+  test('never throws — a provider failure leaves the title standing', async () => {
+    mockSendQuery.mockImplementation(function (): AsyncGenerator<MessageChunk> {
+      throw new Error('provider exploded');
+    });
+    await reconsiderConversationTitle('c1', 'claude', '/tmp');
+    expect(mockUpdateConversationTitle).not.toHaveBeenCalled();
   });
 });

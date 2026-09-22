@@ -93,7 +93,7 @@ import { createChildWorktreeResolver } from '../workflows/child-isolation-resolv
 import { resolveWorkflowAdoption, WorkflowAdoptionError } from '../operations/workflow-adoption';
 import { loadConfig, loadRepoConfig } from '../config/config-loader';
 import type { MergedConfig } from '../config/config-types';
-import { generateAndSetTitle } from '../services/title-generator';
+import { generateAndSetTitle, reconsiderConversationTitle } from '../services/title-generator';
 import { startRunLiveOwner, withRunLiveOwner } from '../services/run-live-owner';
 import { validateAndResolveIsolation, dispatchBackgroundWorkflow } from './orchestrator';
 import { IsolationBlockedError } from '@archon/isolation';
@@ -2581,7 +2581,19 @@ export async function handleMessage(
       getLog().info({ conversationId, mcpPath: chatMcpConfig }, 'orchestrator.chat_mcp_config');
     }
 
-    if (!conversation.title && !trimmedMessage.startsWith('/')) {
+    // A chat is NAMED once, from its first message, and RECONSIDERED as it
+    // goes. Both use the small tier and the same per-user credential bag; the
+    // second is gated inside the service on turn count, so this is not a model
+    // call every message. Slash commands are skipped: `/retitle` asks for this
+    // explicitly through its own path, and no other command is what the chat
+    // is about.
+    // `/retitle` is handled HERE rather than with the other slash commands
+    // because this is where the small tier, the per-user credential bag and the
+    // cwd are already resolved. Dispatching it earlier would mean resolving all
+    // three a second time, in a second place that could resolve them
+    // differently.
+    const wantsRetitle = trimmedMessage === '/retitle' || trimmedMessage.startsWith('/retitle ');
+    if (wantsRetitle || !trimmedMessage.startsWith('/')) {
       const titleRequest = resolveModelRequest(aiProfile, 'small', configuredProviderKey);
       const titleOptions: SendQueryOptions = {
         model: titleRequest.model,
@@ -2596,15 +2608,40 @@ export async function handleMessage(
       if (titleRequest.preset) {
         applyPresetToRequestOptions(titleRequest.provider, titleRequest.preset, titleOptions);
       }
-      void generateAndSetTitle(
-        conversation.id,
-        message,
-        titleRequest.provider,
-        cwd,
-        undefined,
-        titleOptions.assistantConfig,
-        titleOptions
-      );
+      if (wantsRetitle) {
+        // Explicit: overrides a pinned title and skips the turn-count gate.
+        // Awaited, not fire-and-forget — the user asked and is waiting for the
+        // answer, and "kept" is as real an answer as a new name.
+        const before = conversation.title ?? '';
+        await reconsiderConversationTitle(conversation.id, titleRequest.provider, cwd, {
+          force: true,
+          requestOptions: titleOptions,
+        });
+        const after = (await db.getConversationById(conversation.id))?.title ?? before;
+        await platform.sendMessage(
+          conversationId,
+          after === before ? `Kept "${before}" — the topic still fits.` : `Renamed to "${after}".`
+        );
+        return;
+      }
+
+      if (!conversation.title) {
+        void generateAndSetTitle(
+          conversation.id,
+          message,
+          titleRequest.provider,
+          cwd,
+          undefined,
+          titleOptions.assistantConfig,
+          titleOptions
+        );
+      } else {
+        // Already named. The service decides whether the topic has actually
+        // moved, and leaves a pinned title alone.
+        void reconsiderConversationTitle(conversation.id, titleRequest.provider, cwd, {
+          requestOptions: titleOptions,
+        });
+      }
     }
 
     // 5. Send to AI provider

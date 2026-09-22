@@ -2926,6 +2926,16 @@ async function runWorkflowWithOwnedSource(
       getLog().warn({ err: error as Error, cwd }, 'workflow.title_config_load_failed');
     }
 
+    // Name it only if it has no name. The three chat call sites all guard on
+    // this; without it, a run reusing an existing --conversation-id renamed
+    // that chat from the run's message every time, and a pinned title — one a
+    // person typed — went with it. Re-titling on drift is the chat path's job
+    // and is gated there.
+    if (conversation.title) {
+      getLog().debug({ conversationId: conversation.id }, 'workflow.title_already_set');
+      return;
+    }
+
     try {
       const titleAssistantType = resolveTitleAssistantType(
         workflowEntry?.declared,

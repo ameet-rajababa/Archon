@@ -288,12 +288,28 @@ export async function touchConversation(id: string): Promise<void> {
 }
 
 /**
- * Update conversation title
+ * Update conversation title.
+ *
+ * `pinned` records WHO chose the name, and is the whole reason automatic
+ * re-titling is safe to turn on: the AI generator and a human rename write this
+ * same column through this same function, so without it nothing downstream can
+ * tell a generated title from one someone typed, and the re-titler would
+ * silently undo the rename.
+ *
+ * Pass `true` from a human rename, leave it out for a generated one. It is
+ * never cleared here — a chat a person has named stays named until they say
+ * otherwise, and an explicit re-title request overrides the flag rather than
+ * erasing what it records.
  */
-export async function updateConversationTitle(id: string, title: string): Promise<void> {
+export async function updateConversationTitle(
+  id: string,
+  title: string,
+  options?: { pinned?: boolean }
+): Promise<void> {
   const dialect = getDialect();
+  const pin = options?.pinned === true ? ', title_pinned = TRUE' : '';
   const result = await pool.query(
-    `UPDATE remote_agent_conversations SET title = $1, updated_at = ${dialect.now()} WHERE id = $2`,
+    `UPDATE remote_agent_conversations SET title = $1${pin}, updated_at = ${dialect.now()} WHERE id = $2`,
     [title, id]
   );
   if (result.rowCount === 0) {

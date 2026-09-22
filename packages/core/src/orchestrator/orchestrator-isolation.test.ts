@@ -365,6 +365,7 @@ function makeConversation(overrides?: Partial<Conversation>): Conversation {
     color: null,
     hidden: false,
     sort_order: null,
+    title_pinned: null,
     deleted_at: null,
     last_activity_at: null,
     user_id: null,

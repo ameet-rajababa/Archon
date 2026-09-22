@@ -46,6 +46,16 @@ export const conversationRowSchema = z.object({
    * Whoever reads the column breaks a tie by recency.
    */
   sort_order: z.number().nullable(),
+  /**
+   * A human named this chat, so automatic re-titling leaves it alone.
+   *
+   * Nullable because every row predates the column and an older binary never
+   * writes it — absent and false are the same statement. Pinned means "a person
+   * chose this", not "frozen": an explicit request to re-title still overrides
+   * it. The rule is that automation respects the edit and a direct instruction
+   * does not have to.
+   */
+  title_pinned: z.boolean().nullable(),
   deleted_at: z.date().nullable(),
   last_activity_at: z.date().nullable(),
   user_id: z.string().nullable(),

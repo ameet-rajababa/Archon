@@ -339,6 +339,14 @@ export class SqliteAdapter implements IDatabase {
       if (!colNames.has('sort_order')) {
         this.db.run('ALTER TABLE remote_agent_conversations ADD COLUMN sort_order INTEGER');
       }
+      // 0 rather than NULL-as-false: SQLite has no boolean, and an older binary
+      // that never writes this column leaves the default in place, which is the
+      // same answer as "no human has named this chat".
+      if (!colNames.has('title_pinned')) {
+        this.db.run(
+          'ALTER TABLE remote_agent_conversations ADD COLUMN title_pinned INTEGER DEFAULT 0'
+        );
+      }
       if (!colNames.has('user_id')) {
         this.db.run(
           'ALTER TABLE remote_agent_conversations ADD COLUMN user_id TEXT REFERENCES remote_agent_users(id) ON DELETE SET NULL'
@@ -709,6 +717,7 @@ export class SqliteAdapter implements IDatabase {
         title TEXT,
         color TEXT,
         sort_order INTEGER,
+        title_pinned INTEGER DEFAULT 0,
         deleted_at TEXT,
         hidden INTEGER DEFAULT 0,
         user_id TEXT REFERENCES remote_agent_users(id) ON DELETE SET NULL,

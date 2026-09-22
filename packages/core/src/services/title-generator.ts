@@ -8,6 +8,8 @@
 import { getAgentProvider } from '@archon/providers';
 import type { SendQueryOptions } from '@archon/providers/types';
 import * as conversationDb from '../db/conversations';
+import * as messageDb from '../db/messages';
+import type { MessageRow } from '../schemas/message';
 import { createLogger } from '@archon/paths';
 
 /** Lazy-initialized logger (deferred so test mocks can intercept createLogger) */
@@ -19,6 +21,19 @@ function getLog(): ReturnType<typeof createLogger> {
 
 /** Maximum title length in the database */
 const MAX_TITLE_LENGTH = 100;
+
+/**
+ * User turns between automatic re-title checks.
+ *
+ * Ten, because a title earns its keep by being stable: the rail is how a chat
+ * is found again, and a name that moves every few messages is worse than one
+ * that is slightly stale. It also bounds the cost to one small-tier call per
+ * ten user messages per chat.
+ */
+const RETITLE_EVERY_N_TURNS = 10;
+
+/** Recent messages shown to the drift check. Enough to see the topic, not the history. */
+const RETITLE_CONTEXT_MESSAGES = 20;
 
 /**
  * Generate and save a conversation title using AI.
@@ -139,4 +154,121 @@ function truncateMessage(message: string): string {
   return message.length > MAX_TITLE_LENGTH
     ? message.slice(0, MAX_TITLE_LENGTH - 3) + '...'
     : message;
+}
+
+/**
+ * Reconsider a chat's title once its topic has moved on.
+ *
+ * A title is generated from the FIRST message and then never revisited, so a
+ * long conversation carries the name of whatever opened it. This chat is the
+ * example: it began with frozen counts in the project rail and became an SSE
+ * transport fix, several deploys and a credential cleanup, under its original
+ * name throughout. The rail is the main way a chat is found, so the name being
+ * the oldest fact about it is the wrong fact to keep.
+ *
+ * Three things keep this cheap and safe:
+ *
+ * - It is gated on turn count, not run every turn. One small-tier call per
+ *   `RETITLE_EVERY_N_TURNS` user messages, not per message.
+ * - It is given the recent conversation, not the latest message. Titling from
+ *   the newest message alone is the same mistake as titling from the first,
+ *   moved to the other end — it would rename a long chat after whatever was
+ *   said in the last two minutes.
+ * - The model decides drift, not a heuristic. It answers `KEEP` when the title
+ *   still fits, which is the common case and costs one short reply.
+ *
+ * Never re-titles a pinned chat. Pass `force` for an explicit user request —
+ * `/retitle` — which overrides the pin, because the rule is that automation
+ * respects a human's rename and a direct instruction does not have to.
+ *
+ * Fire-and-forget safe: catches everything, and on any doubt leaves the
+ * existing title alone. A wrong rename is worse than a stale one.
+ */
+export async function reconsiderConversationTitle(
+  conversationDbId: string,
+  assistantType: string,
+  cwd: string,
+  opts?: { force?: boolean; requestOptions?: SendQueryOptions }
+): Promise<void> {
+  try {
+    const conversation = await conversationDb.getConversationById(conversationDbId);
+    if (!conversation) return;
+
+    const force = opts?.force === true;
+    const current = conversation.title ?? '';
+    if (!current) return; // Never titled — that is generateAndSetTitle's job.
+    if (conversation.title_pinned === true && !force) {
+      getLog().debug({ conversationDbId }, 'title.retitle_skipped_pinned');
+      return;
+    }
+
+    const messages = await messageDb.listMessages(conversationDbId, RETITLE_CONTEXT_MESSAGES);
+    const userTurns = messages.filter(m => m.role === 'user').length;
+    // An explicit request is answered whatever the turn count; the automatic
+    // path waits for a boundary so this is not a model call on every message.
+    if (!force && (userTurns < RETITLE_EVERY_N_TURNS || userTurns % RETITLE_EVERY_N_TURNS !== 0)) {
+      return;
+    }
+    if (messages.length === 0) return;
+
+    const titleModel = process.env.TITLE_GENERATION_MODEL || undefined;
+    const client = getAgentProvider(assistantType);
+    const options: SendQueryOptions = {
+      ...(opts?.requestOptions ?? {}),
+      ...(titleModel ? { model: titleModel } : {}),
+      nodeConfig: {
+        ...(opts?.requestOptions?.nodeConfig ?? {}),
+        allowed_tools: [],
+      },
+    };
+
+    let raw = '';
+    for await (const chunk of client.sendQuery(
+      buildRetitlePrompt(current, messages),
+      cwd,
+      undefined,
+      options
+    )) {
+      if (chunk.type === 'assistant') raw += chunk.content;
+    }
+
+    const answer = cleanTitle(raw);
+    // KEEP is the expected answer, so treat anything that looks like it as a
+    // decision to keep rather than as a title someone would have to read.
+    if (!answer || /^keep\b/i.test(answer)) {
+      getLog().debug({ conversationDbId }, 'title.retitle_kept');
+      return;
+    }
+    if (answer.toLowerCase() === current.toLowerCase()) return;
+
+    await conversationDb.updateConversationTitle(conversationDbId, answer);
+    getLog().info({ conversationDbId, from: current, to: answer }, 'title.retitled');
+  } catch (error) {
+    // Fire-and-forget — the existing title stands.
+    getLog().warn({ err: error as Error, conversationDbId }, 'title.retitle_failed');
+  }
+}
+
+/**
+ * Build the drift prompt.
+ *
+ * It states the current title and asks for a verdict, rather than asking for a
+ * title and comparing afterwards. Asking "what should this be called" always
+ * returns a name, and every one of those would be a rename.
+ */
+function buildRetitlePrompt(currentTitle: string, messages: readonly MessageRow[]): string {
+  const transcript = messages
+    .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content.slice(0, 400)}`)
+    .join('\n');
+
+  return `A chat is currently titled "${currentTitle}". Below is its recent conversation.
+
+If that title still describes what this chat is about, reply with exactly: KEEP
+
+Only if the topic has clearly moved on to something the title no longer covers, reply with a better title of 3-6 words. Return ONLY the title text — no quotes, no explanation, no trailing punctuation.
+
+Prefer KEEP. A title that is merely imperfect is not worth changing; renaming a chat moves it in the reader's memory.
+
+Recent conversation:
+${transcript}`;
 }
