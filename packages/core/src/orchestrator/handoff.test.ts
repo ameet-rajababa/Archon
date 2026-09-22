@@ -1,5 +1,12 @@
 import { describe, expect, test } from 'bun:test';
-import { findSecrets, handoffPath, renderHandoff, type HandoffInput } from './handoff';
+import {
+  findSecrets,
+  handoffPath,
+  lineageMetadata,
+  readLineage,
+  renderHandoff,
+  type HandoffInput,
+} from './handoff';
 
 const base: HandoffInput = {
   topic: 'context-bar',
@@ -100,5 +107,38 @@ describe('findSecrets', () => {
 
   test('a clean document is clean', () => {
     expect(findSecrets(renderHandoff(base))).toEqual([]);
+  });
+});
+
+describe('handoff lineage', () => {
+  const lineage = { from: 'conv-1-db', document: '/h/2026-09-22_topic.md' };
+
+  test('what the relay writes is what the undo reads', () => {
+    expect(readLineage(JSON.stringify(lineageMetadata(lineage)))).toEqual(lineage);
+  });
+
+  test('a message carrying other metadata is not a handoff', () => {
+    // Every assistant row carries usage metadata; none of them is a lineage.
+    expect(readLineage(JSON.stringify({ usage: { contextTokens: 120 } }))).toBeNull();
+  });
+
+  test('lineage survives alongside other keys', () => {
+    const mixed = JSON.stringify({ ...lineageMetadata(lineage), usage: { contextTokens: 1 } });
+    expect(readLineage(mixed)).toEqual(lineage);
+  });
+
+  // A half-written record must read as absent. The caller's next move is to
+  // archive this chat, and doing that with nothing reopened hides both.
+  test.each([
+    ['no metadata at all', '{}'],
+    ['unparseable', '{ not json'],
+    ['empty string', ''],
+    ['lineage is not an object', JSON.stringify({ handoff: 'conv-1-db' })],
+    ['missing document', JSON.stringify({ handoff: { from: 'conv-1-db' } })],
+    ['missing from', JSON.stringify({ handoff: { document: '/h/x.md' } })],
+    ['empty from', JSON.stringify({ handoff: { from: '', document: '/h/x.md' } })],
+    ['from is not a string', JSON.stringify({ handoff: { from: 7, document: '/h/x.md' } })],
+  ])('%s reads as no lineage', (_label, metadata) => {
+    expect(readLineage(metadata)).toBeNull();
   });
 });

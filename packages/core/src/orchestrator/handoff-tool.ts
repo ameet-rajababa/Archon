@@ -2,7 +2,13 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { defineNativeToolInputSchema, type NativeTool } from '@archon/providers/types';
 import { createLogger } from '@archon/paths';
-import { findSecrets, handoffPath, renderHandoff, type HandoffInput } from './handoff';
+import {
+  findSecrets,
+  handoffPath,
+  renderHandoff,
+  type HandoffInput,
+  type HandoffLineage,
+} from './handoff';
 
 const log = createLogger('orchestrator.handoff');
 
@@ -15,8 +21,14 @@ export interface HandoffContext {
   worktree: string;
   /** Where docs live. Defaults to ~/handoffs. */
   handoffsDir?: string;
-  /** Opens the successor and seeds it. Returns its platform id. */
-  relay: (trigger: string) => Promise<string>;
+  /**
+   * Opens the successor and seeds it. Returns its platform id.
+   *
+   * Takes the document path as well as the trigger because the seed row is
+   * where lineage lives: the successor has to be able to name what it replaced
+   * for `undo_handoff` to have anything to go back to.
+   */
+  relay: (trigger: string, document: string) => Promise<string>;
   /** Soft-deletes the current chat. Reversible, which is why it can be automatic. */
   archive: () => Promise<void>;
 }
@@ -130,7 +142,8 @@ export function buildHandoffTool(ctx: HandoffContext): NativeTool {
 
       try {
         const successor = await ctx.relay(
-          `Continue: ${path}\n\nThis is a handoff relay. Follow the CONTINUE FROM HERE block at the top of that document.`
+          `Continue: ${path}\n\nThis is a handoff relay. Follow the CONTINUE FROM HERE block at the top of that document.\n\nThis chat replaced an earlier one, which is now archived. If that was wrong, say "undo the handoff" — the old chat comes back and this one is archived in its place, with its work intact.`,
+          path
         );
         log.info({ path, successor, from: ctx.conversationId }, 'handoff.relayed');
       } catch (error) {
@@ -148,6 +161,63 @@ export function buildHandoffTool(ctx: HandoffContext): NativeTool {
       }
 
       return `Handed off. Document: ${path}. Continue in the new chat; this one is archived and can be restored from the Archived filter.`;
+    },
+  };
+}
+
+export interface UndoHandoffContext {
+  /** Where this chat came from, or null when it was not opened by a handoff. */
+  lineage: () => Promise<HandoffLineage | null>;
+  /** Brings the predecessor back. The same soft delete the handoff set. */
+  restore: (conversationId: string) => Promise<void>;
+  /** Archives THIS chat, putting it where the predecessor was. */
+  archiveSelf: () => Promise<void>;
+}
+
+/**
+ * Reverses a handoff: the previous chat comes back and this one takes its place
+ * in the archive.
+ *
+ * This is what pays for handing off without asking. The locked decision was an
+ * undo INSTEAD of a confirm dialog — a confirm taxes every handoff to catch the
+ * rare bad one, while an undo costs nothing until it is needed. An automatic
+ * handoff that cannot be reversed is an unconfirmed action with no way back,
+ * which is the one shape the decision ruled out.
+ *
+ * It never expires. The case the whole feature serves is the unattended one:
+ * the chat fills at 3am and hands itself off to an empty room, and an undo on a
+ * timer has expired by the time anybody reads it.
+ *
+ * Nothing is destroyed. Archiving is a soft delete in both directions, so the
+ * successor keeps whatever it did overnight and can be brought back the same
+ * way the predecessor just was.
+ */
+export function buildUndoHandoffTool(ctx: UndoHandoffContext): NativeTool {
+  return {
+    name: 'undo_handoff',
+    description:
+      'Reverse the handoff that opened this chat: reopen the chat it replaced and archive this one. Use when the user says the handoff was wrong or asks to undo it, or to go back to the previous chat. Only works in a chat a handoff created. Nothing is destroyed — this chat keeps its work and can be restored from the Archived filter.',
+    inputSchema: defineNativeToolInputSchema({ properties: {}, required: [] }),
+    handler: async (): Promise<string> => {
+      const lineage = await ctx.lineage();
+      if (lineage === null) {
+        return 'This chat was not opened by a handoff, so there is no earlier chat to go back to.';
+      }
+
+      // The predecessor is reopened FIRST and this chat archived only once that
+      // succeeded. The other order can leave the user with both chats hidden —
+      // one archived by the handoff and one by the undo meant to reverse it.
+      await ctx.restore(lineage.from);
+
+      try {
+        await ctx.archiveSelf();
+      } catch (error) {
+        log.warn({ err: error as Error, from: lineage.from }, 'handoff.undo_archive_self_failed');
+        return `The previous chat is open again, but this one could not be archived — archive it by hand so the work is not split across two chats. Document: ${lineage.document}`;
+      }
+
+      log.info({ from: lineage.from }, 'handoff.undone');
+      return `Undone. The previous chat is open again and this one is archived in its place; its work is intact and can be restored from the Archived filter. The handoff document is still at ${lineage.document}.`;
     },
   };
 }

@@ -74,6 +74,28 @@ export async function listMessages(
 }
 
 /**
+ * The conversation's opening user message, or null when it has none.
+ *
+ * Exists for handoff lineage: a relayed chat carries where it came from in the
+ * metadata of the message that seeded it, and that seed is by construction the
+ * first user row — the relay creates the conversation and writes it before the
+ * successor has said anything. Asked as its own query rather than read out of
+ * `listMessages`, whose window holds the NEWEST 200: a successor that ran all
+ * night would have pushed its own origin out of view, and the undo would
+ * disappear at exactly the point the night made it worth having.
+ */
+export async function getFirstUserMessage(conversationId: string): Promise<MessageRow | null> {
+  const result = await pool.query<MessageRow>(
+    `SELECT * FROM remote_agent_messages
+     WHERE conversation_id = $1 AND role = 'user'
+     ORDER BY created_at ASC, id ASC
+     LIMIT 1`,
+    [conversationId]
+  );
+  return result.rows[0] ?? null;
+}
+
+/**
  * Get recent messages with workflowResult metadata for a conversation.
  * Used to inject workflow context into the orchestrator prompt.
  * Non-throwing — returns empty array on error.

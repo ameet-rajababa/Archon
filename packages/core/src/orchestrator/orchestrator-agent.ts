@@ -32,7 +32,8 @@ import { getAgentProvider, getProviderCapabilities } from '@archon/providers';
 import { buildManageRunTool } from './manage-run-tool';
 import { buildProjectBriefTool } from './update-project-brief-tool';
 import { basename } from 'node:path';
-import { buildHandoffTool } from './handoff-tool';
+import { buildHandoffTool, buildUndoHandoffTool } from './handoff-tool';
+import { lineageMetadata, readLineage } from './handoff';
 import {
   bandFor,
   handoffAction,
@@ -2684,7 +2685,7 @@ export async function handleMessage(
           repo: basename(cwd),
           branch: (await getCurrentBranch(toRepoPath(cwd))) ?? 'unknown',
           worktree: cwd,
-          relay: async (trigger): Promise<string> => {
+          relay: async (trigger, document): Promise<string> => {
             const successorId = `web-${String(Date.now())}-${Math.random().toString(36).slice(2, 8)}`;
             const successor = await db.getOrCreateConversation(
               'web',
@@ -2706,8 +2707,19 @@ export async function handleMessage(
             // than thrown: the document is already on disk and the successor
             // already exists, so losing the handoff over one absent row would
             // trade the whole feature for its caption.
+            //
+            // It also carries the lineage. There is no parent column on a
+            // conversation, so this row is the only record of what the
+            // successor replaced — and `undo_handoff` has nothing to reopen
+            // without it.
             try {
-              await messageDb.addMessage(successor.id, 'user', trigger, undefined, userId);
+              await messageDb.addMessage(
+                successor.id,
+                'user',
+                trigger,
+                lineageMetadata({ from: conversation.id, document }),
+                userId
+              );
             } catch (e: unknown) {
               getLog().warn({ err: toError(e), successorId }, 'handoff.seed_persist_failed');
             }
@@ -2720,6 +2732,23 @@ export async function handleMessage(
             return successorId;
           },
           archive: async (): Promise<void> => {
+            await db.setConversationArchived(conversation.id, true);
+          },
+        }),
+        // The other half of the handoff, and what pays for it firing without
+        // asking. Registered unconditionally rather than behind a lineage
+        // lookup: knowing whether to offer it costs the same query as
+        // performing it, and the tool says so plainly in a chat that has no
+        // predecessor.
+        buildUndoHandoffTool({
+          lineage: async () => {
+            const seed = await messageDb.getFirstUserMessage(conversation.id);
+            return seed === null ? null : readLineage(seed.metadata);
+          },
+          restore: async (predecessorId): Promise<void> => {
+            await db.setConversationArchived(predecessorId, false);
+          },
+          archiveSelf: async (): Promise<void> => {
             await db.setConversationArchived(conversation.id, true);
           },
         }),
