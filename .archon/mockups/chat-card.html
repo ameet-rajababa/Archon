@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en" data-mode="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Archon — chat card mockups</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   Tokens lifted VERBATIM from packages/web/src/theme/tokens.css.
+   Not re-picked by eye — if a colour looks wrong here it is wrong there too.
+   ───────────────────────────────────────────────────────────────────────── */
+:root{
+  --radius-control:6px;--radius-card:8px;--radius-panel:10px;--radius-pill:999px;
+  --text-body:13px;--text-micro:11px;--row-y:5px;--row-gap:2px;
+}
+[data-mode=dark]{
+  --surface:oklch(.175 .007 265);--surface-inset:oklch(.13 .006 265);
+  --surface-elevated:oklch(.205 .009 265);--surface-hover:oklch(.235 .01 265);
+  --surface-bright:oklch(.275 .012 265);
+  --border:oklch(.275 .012 265);--border-bright:oklch(.355 .016 265);
+  --text-primary:oklch(.97 .002 265);--text-secondary:oklch(.78 .006 265);
+  --text-tertiary:oklch(.636 .008 265);
+  --running:oklch(.72 .155 245);
+  --warning:oklch(.8 .14 85);--warning-mark:var(--warning);
+  --error:oklch(.68 .2 18);
+  --accent-bright:oklch(.644 .145 278);
+}
+[data-mode=light]{
+  --surface:oklch(1 0 0);--surface-inset:oklch(.958 .004 265);
+  --surface-elevated:oklch(.995 .001 265);--surface-hover:oklch(.945 .005 265);
+  --surface-bright:oklch(.9 .005 265);
+  --border:oklch(.915 .004 265);--border-bright:oklch(.78 .006 265);
+  --text-primary:oklch(.22 .006 265);--text-secondary:oklch(.48 .008 265);
+  --text-tertiary:oklch(.529 .008 265);
+  --running:oklch(.518 .13 245);
+  --warning:oklch(.525 .11 75);--warning-mark:oklch(.61 .14 78);
+  --error:oklch(.52 .21 18);
+  --accent-bright:oklch(.52 .155 278);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0;padding:28px 32px 60px;
+  font-family:Inter,system-ui,sans-serif;
+  background:var(--surface-inset);color:var(--text-primary);
+}
+h1{font-size:17px;font-weight:600;margin:0 0 4px}
+.sub{font-size:12.5px;color:var(--text-tertiary);margin:0 0 22px;max-width:760px;line-height:1.55}
+.modes{position:fixed;top:18px;right:22px;display:flex;gap:6px;z-index:5}
+.modes button{
+  font:500 11px/1 Inter,sans-serif;padding:6px 10px;border-radius:var(--radius-control);
+  border:1px solid var(--border-bright);background:var(--surface);color:var(--text-secondary);cursor:pointer;
+}
+.modes button[aria-pressed=true]{color:var(--text-primary);border-color:var(--accent-bright)}
+
+.grid{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start}
+.variant{width:268px;flex:0 0 auto}
+.variant > h2{
+  font:600 10px/1 'JetBrains Mono',monospace;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--text-tertiary);margin:0 0 3px;
+}
+.variant > .note{font-size:11.5px;color:var(--text-tertiary);line-height:1.5;margin:0 0 9px;min-height:50px}
+.variant > .recommend{color:var(--accent-bright);font-weight:600}
+.pane{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-panel);
+  padding:8px;
+}
+
+/* ── the row, as rail.css has it ───────────────────────────────────────── */
+.rail-row{
+  display:flex;align-items:flex-start;gap:8px;width:100%;position:relative;
+  text-align:left;padding:6px 8px 6px 17px;margin-bottom:var(--row-gap);
+  border-radius:var(--radius-card);cursor:pointer;
+}
+.rail-row:hover{background:var(--surface-hover)}
+.rail-row[aria-current=true]{background:var(--surface-hover)}
+.rail-text{
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  overflow:hidden;font-size:var(--text-body);line-height:1.35;color:var(--text-secondary);
+}
+.rail-row:hover .rail-text,.rail-row[aria-current=true] .rail-text{color:var(--text-primary)}
+.rail-row[aria-current=true] .rail-text{font-weight:500}
+.body{min-width:0;flex:1}
+.chat-stamp{
+  display:block;text-transform:lowercase;margin-top:2px;font-size:var(--text-micro);
+  color:var(--text-tertiary);letter-spacing:.3px;font-variant-numeric:tabular-nums;
+}
+.chat-stamp.is-working{color:var(--running)}
+.chat-stamp.is-awaiting{color:var(--warning)}
+
+/* ── the mark ──────────────────────────────────────────────────────────── */
+.chat-status{flex:0 0 auto;display:grid;place-items:center}
+.chat-status i{display:block;width:8px;height:8px;border-radius:50%}
+.chat-status.is-working{position:relative;color:var(--running)}
+.chat-status.is-working i{background:currentColor;animation:throb 1.9s ease-in-out infinite}
+.chat-status.is-working::after{
+  content:'';position:absolute;width:8px;height:8px;border-radius:50%;
+  background:currentColor;opacity:.55;animation:ping 1.9s cubic-bezier(0,0,.2,1) infinite;
+}
+.chat-status.is-awaiting{color:var(--warning-mark)}
+.chat-status.is-awaiting i{background:currentColor;animation:throb 1.9s ease-in-out infinite}
+.chat-status.is-idle{color:var(--text-tertiary)}
+.chat-status.is-idle i{background:currentColor;opacity:.7}
+.chat-status.is-idle svg{width:13px;height:13px;display:block;stroke:currentColor;fill:none;stroke-width:2}
+@keyframes throb{0%,100%{transform:scale(1);opacity:1}45%{transform:scale(1.28);opacity:.8}}
+@keyframes ping{0%{transform:scale(1);opacity:.5}75%,100%{transform:scale(2.1);opacity:0}}
+
+/* ── VARIANT A · today ─────────────────────────────────────────────────── */
+.v-a .chat-status{width:15px;margin-top:2px}
+
+/* ── VARIANT B · all dots, slot collapsed to the dot ───────────────────── */
+.v-b .chat-status{width:8px;margin-top:5px}
+.v-b .rail-row{gap:7px}
+
+/* ── VARIANT C · tighter still ─────────────────────────────────────────── */
+.v-c .chat-status{width:7px;margin-top:5px}
+.v-c .chat-status i{width:7px;height:7px}
+.v-c .chat-status.is-working::after{width:7px;height:7px}
+.v-c .rail-row{gap:6px}
+
+/* ── VARIANT D · dot in the gutter, text flush left ────────────────────── */
+.v-d .rail-row{padding-left:9px;gap:7px}
+.v-d .chat-status{width:8px;margin-top:5px}
+.v-d .chat-stamp{margin-top:3px}
+
+/* measuring rule, drawn only when asked for */
+body.measure .chat-status{outline:1px solid color-mix(in oklch,var(--error),transparent 40%)}
+body.measure .body{outline:1px solid color-mix(in oklch,var(--running),transparent 55%)}
+
+.legend{margin:30px 0 0;font-size:12px;color:var(--text-tertiary);line-height:1.65;max-width:780px}
+.legend code{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-secondary)}
+.legend b{color:var(--text-primary);font-weight:600}
+</style>
+</head>
+<body>
+
+<div class="modes">
+  <button type="button" data-mode-btn="dark" aria-pressed="true">Dark</button>
+  <button type="button" data-mode-btn="light" aria-pressed="false">Light</button>
+  <button type="button" id="measure" aria-pressed="false">Show boxes</button>
+</div>
+
+<h1>Chat card — the mark and the gap</h1>
+<p class="sub">
+  Two changes in one picture. <b>Idle becomes a dot</b>, so the three states are one
+  vocabulary instead of two glyphs and a bubble — and it matches what the chat's own
+  status pill and the project chip already draw. <b>The gap closes</b>: today the dot
+  sits in a 15px slot with an 8px gap after it, so an 8px dot ends up ~11.5px from the
+  word it belongs to and reads as unrelated to it.
+  The working dot still throbs and sends a ring out, so watch that the ring does not
+  crowd the text at the tighter gaps.
+</p>
+
+<div class="grid">
+
+  <section class="variant v-a">
+    <h2>A · today</h2>
+    <p class="note">15px slot, 8px gap. Idle is a chat bubble. The mark floats away from its own label.</p>
+    <div class="pane" data-rows></div>
+  </section>
+
+  <section class="variant v-b">
+    <h2>B · all dots, slot = dot <span class="recommend">· recommended</span></h2>
+    <p class="note">Slot collapses to the dot's own 8px, gap 7px. Dot edge to text: 7px, down from 11.5. Ring clears the text by 2.6px.</p>
+    <div class="pane" data-rows></div>
+  </section>
+
+  <section class="variant v-c">
+    <h2>C · tighter</h2>
+    <p class="note">7px dot, 6px gap. Reads as one unit — but the working ring now grazes the title, and a 7px amber dot is a small thing to be the loudest signal in the rail.</p>
+    <div class="pane" data-rows></div>
+  </section>
+
+  <section class="variant v-d">
+    <h2>D · B, in the drag gutter</h2>
+    <p class="note">Same as B, but the 17px reserved for the drag handle is given back — the dot moves left, every card gains 8px of title. The grip would then overlay the dot on hover.</p>
+    <div class="pane" data-rows></div>
+  </section>
+
+</div>
+
+<p class="legend">
+  <b>What is not up for grabs here.</b> The mark stays distinguishable without colour —
+  working throbs <i>and</i> radiates, awaiting throbs alone, idle is still. Three states
+  told apart by hue would fail for anyone who cannot separate blue from amber, and fail
+  again in a screenshot.<br>
+  <b>Removed in the same pass:</b> the <code>72%</code> context reading on each card. The
+  gauge in the chat's own status pill stays — it is the one that names the model and the
+  denominator, which is what makes a percentage mean anything.
+</p>
+
+<script>
+// One row set, rendered into every variant, so a difference on screen is a
+// difference in the CSS above and nothing else.
+const BUBBLE = '<svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>';
+const ROWS = [
+  { status:'working', title:'Push tool activity on the dashboard stream', stamp:'editing web.ts', current:true },
+  { status:'working', title:'archon-upstream deploy checks', stamp:'reading rail.css' },
+  { status:'awaiting', title:'Settings IA — where does the model picker live?', stamp:'which tier owns the default?' },
+  { status:'idle', title:'Console chat status and realtime', stamp:'14m ago' },
+  { status:'idle', title:'Healthchecks intent registry — three projects, one token each and a frozen self-heal', stamp:'3d ago' },
+];
+document.querySelectorAll('[data-rows]').forEach(pane => {
+  pane.innerHTML = ROWS.map(r => `
+    <div class="rail-row"${r.current ? ' aria-current="true"' : ''}>
+      <span class="chat-status is-${r.status}">${r.status === 'idle' && pane.closest('.v-a') ? BUBBLE : '<i></i>'}</span>
+      <span class="body">
+        <span class="rail-text">${r.title}</span>
+        <span class="chat-stamp is-${r.status}">${r.stamp}</span>
+      </span>
+    </div>`).join('');
+});
+
+document.querySelectorAll('[data-mode-btn]').forEach(b => {
+  b.addEventListener('click', () => {
+    document.documentElement.dataset.mode = b.dataset.modeBtn;
+    document.querySelectorAll('[data-mode-btn]').forEach(o =>
+      o.setAttribute('aria-pressed', String(o === b)));
+  });
+});
+const m = document.getElementById('measure');
+m.addEventListener('click', () => {
+  const on = document.body.classList.toggle('measure');
+  m.setAttribute('aria-pressed', String(on));
+});
+</script>
+</body>
+</html>
