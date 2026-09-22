@@ -10,9 +10,16 @@
 # say "the commit I just made", and a hand-typed SHA is the one thing that
 # cannot be checked against what the asker actually meant.
 #
-# THIS SCRIPT DIES WITH THE DEPLOY. The rebuild restarts the container it is
-# running in, so it cannot report the outcome — it prints where the outcome
-# will be instead. Read /.archon/deploy-last.log once the console is back.
+# THIS SCRIPT DOES NOT SEE THE OUTCOME. It writes the request and returns; the
+# host builds for minutes afterwards and then waits for a moment when no chat
+# is mid-turn before it swaps. So it prints where the outcome will be instead.
+# Read /.archon/deploy-last.log afterwards.
+#
+# The swap no longer ends the asking session, as long as that session is not
+# mid-turn when it happens: a conversation's provider session id is persisted,
+# so an open chat resumes with its context intact. Keep talking to it and the
+# wait keeps waiting — the deploy will not take a turn out from under you, and
+# it will not proceed until you stop.
 set -euo pipefail
 
 VOLUME="${VOLUME:-/.archon}"
@@ -87,5 +94,6 @@ printf '%s\n' "$SHA" >"$REQUEST"
 echo "requested $SHA"
 git log --oneline -1
 echo
-echo "The host deploys in ~30s and the restart will kill this session."
-echo "When the console is back: cat /.archon/deploy-last.log"
+echo "The host builds now, then waits for a moment when nothing is mid-turn."
+echo "This chat is one of those — it will not swap while you are mid-turn."
+echo "Afterwards: cat /.archon/deploy-last.log"

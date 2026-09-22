@@ -31,10 +31,12 @@ DEPLOY_DIR="${DEPLOY_DIR:-/opt/archon}"
 DEPLOY="${DEPLOY:-$DEPLOY_DIR/scripts/deploy-local.sh}"
 SOURCE_DIR="${SOURCE_DIR:-/home/appuser/archon-upstream}"
 SERVICE="${SERVICE:-app}"
-# Seconds between the request landing and the rebuild starting. The rebuild
-# kills the container, and with it the session that asked — this is the window
-# in which its reply reaches the screen. Cheap: the deploy itself takes minutes.
-GRACE="${GRACE:-30}"
+# There is no grace period here any more. It was a fixed 30s sleep, guessing at
+# how long the asking session needed to finish speaking; deploy-local.sh now
+# WAITS for that to be true rather than assuming it, and will not swap while any
+# chat holds the conversation lock. The steps before the wait — preflight,
+# remote, pull, build — disturb nothing and take minutes, so starting them
+# immediately is strictly better than sleeping first.
 
 now() { date -u '+%Y-%m-%dT%H:%M:%SZ'; }
 note() { printf '%s  %s\n' "$(now)" "$1"; }
@@ -98,9 +100,6 @@ if [ "$HEAD" != "$WANT" ]; then
 fi
 
 note "checkout confirms $HEAD"
-note "waiting ${GRACE}s so the session that asked can finish speaking"
-sleep "$GRACE"
-
 note "starting deploy"
 if bash "$DEPLOY"; then
   note "DEPLOYED $WANT"
