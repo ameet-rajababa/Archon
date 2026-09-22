@@ -4,6 +4,7 @@ import {
   formatWorkflowContextSection,
   buildOrchestratorSystemAppend,
   buildRunManagementSection,
+  buildProjectOverviewSection,
   formatPausedGateSection,
 } from './prompt-builder';
 import type { Codebase, Conversation } from '../types';
@@ -214,6 +215,30 @@ describe('buildRunManagementSection', () => {
     const section = buildRunManagementSection();
     expect(section).toContain('stranded');
     expect(section).toContain('archon workflow resume');
+  });
+});
+
+describe('buildProjectOverviewSection', () => {
+  test('names the tool and the explicit user trigger', () => {
+    const section = buildProjectOverviewSection();
+    expect(section).toContain('## Project Overview');
+    expect(section).toContain('update_project_brief');
+    expect(section).toContain('/overview');
+  });
+
+  test('states the same trigger as the tool description, not a second policy', () => {
+    const section = buildProjectOverviewSection();
+    // The tool's own description says "when a piece of work LANDS ... NOT every
+    // turn". The section must defer to that rather than invent a rival rule,
+    // or the agent is given two answers to one question.
+    expect(section).toContain('LANDS');
+    expect(section).toContain('Not every turn');
+    expect(section).toContain("the tool's own description");
+  });
+
+  test('says omitting a field keeps it, so a refresh cannot blank `why`', () => {
+    const section = buildProjectOverviewSection();
+    expect(section).toMatch(/omitting a field keeps it/i);
   });
 });
 

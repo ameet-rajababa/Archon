@@ -336,6 +336,7 @@ mock.module('./prompt-builder', () => ({
   buildOrchestratorPrompt: mockBuildOrchestratorPrompt,
   buildProjectScopedPrompt: mockBuildProjectScopedPrompt,
   buildOrchestratorSystemAppend: mockBuildOrchestratorSystemAppend,
+  buildProjectOverviewSection: mock(() => '## Project Overview'),
 }));
 
 // Error/tool formatter mocks

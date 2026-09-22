@@ -405,6 +405,34 @@ When the user asks what's running, whether a run passed/failed, or to approve / 
 }
 
 /**
+ * Build the project-overview section of the orchestrator prompt.
+ *
+ * The `update_project_brief` tool has existed with no instruction anywhere but
+ * its own description string, which the agent only reads if it thinks to look
+ * at its tool list. The result is what you would expect: the Overview page says
+ * "Not written yet" for projects that have been worked on for weeks. A tool
+ * nobody is told about is a tool nobody calls.
+ *
+ * Appended under the SAME gate that registers the tool — project-scoped, on a
+ * provider with in-process native tools. Naming a tool the turn does not have
+ * is the dishonesty `formatPausedGateSection` already refuses to commit.
+ *
+ * It restates the tool's own "when" rather than inventing a second policy: the
+ * description is the contract, and two descriptions of one trigger is a pair
+ * kept in agreement by hand. What this adds is the part the description cannot
+ * know — that the user has a way to ask for it explicitly.
+ */
+export function buildProjectOverviewSection(): string {
+  return `## Project Overview
+
+This project has an overview — \`why\` it exists, what we are \`doing\`, and \`where\` it has got to — written with the \`update_project_brief\` tool and shown on the project's Overview page. It is the first thing anyone sees, including you at the start of a later conversation, so a stale one is worse than an empty one.
+
+Keep it current as a side effect of real work, on the trigger the tool's own description states: when a piece of work LANDS. Not every turn, and not for a question you merely answered.
+
+When the user types \`/overview\`, that is an explicit request to bring it up to date now. Look at what has actually happened — recent runs, commits, open issues, what this conversation has changed — then call the tool and tell them in one line what you rewrote, or say plainly that nothing had changed and you left it alone. Do not rewrite \`why\` unless the project's purpose genuinely moved; omitting a field keeps it.`;
+}
+
+/**
  * Build the static orchestrator context string for use as a cacheable system prompt append.
  * Returns the same content as buildOrchestratorPrompt/buildProjectScopedPrompt depending
  * on whether the conversation is scoped to a project. The run-management section is NOT

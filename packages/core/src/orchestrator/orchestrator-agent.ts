@@ -93,6 +93,7 @@ import { validateAndResolveIsolation, dispatchBackgroundWorkflow } from './orche
 import { IsolationBlockedError } from '@archon/isolation';
 import {
   buildOrchestratorSystemAppend,
+  buildProjectOverviewSection,
   buildRunManagementSection,
   formatPausedGateSection,
   formatWorkflowContextSection,
@@ -2544,6 +2545,13 @@ export async function handleMessage(
     // git-repo cwd, which unscoped chats (cwd ~/.archon/workspaces) don't have.
     if (scopedCaps !== null && !scopedCaps.nativeTools) {
       systemAppend += `\n\n${buildRunManagementSection()}`;
+    }
+    // The inverse gate: the overview section is only true where the tool it
+    // describes is actually registered below. Same condition, deliberately
+    // written the same way, so the two cannot drift into describing a tool the
+    // turn does not have.
+    if (conversation.codebase_id !== null && scopedCaps?.nativeTools) {
+      systemAppend += `\n\n${buildProjectOverviewSection()}`;
     }
     const systemPrompt =
       providerKey === 'claude'

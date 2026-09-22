@@ -200,6 +200,7 @@ mock.module('@archon/isolation', () => ({
 mock.module('./prompt-builder', () => ({
   buildOrchestratorPrompt: mock(() => 'prompt'),
   buildProjectScopedPrompt: mock(() => 'prompt'),
+  buildProjectOverviewSection: mock(() => '## Project Overview'),
 }));
 
 mock.module('../utils/error-formatter', () => ({
