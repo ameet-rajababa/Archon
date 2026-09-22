@@ -17,6 +17,8 @@ const FIXED: Readonly<Record<string, string>> = {
   'no-repository': 'This project has no repository, so there is nothing to read.',
   'not-github': 'This project’s remote is not GitHub.',
   'no-token': 'No GitHub token is configured on the server.',
+  'app-not-installed':
+    'Archon’s GitHub App is not installed on this repository. Install it there, or give the server a token.',
   unreachable: 'GitHub could not be reached.',
 };
 
