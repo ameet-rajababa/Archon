@@ -31,11 +31,14 @@ import { safeDeactivateSession } from '../state/session-transitions';
 import { getAgentProvider, getProviderCapabilities } from '@archon/providers';
 import { buildManageRunTool } from './manage-run-tool';
 import { buildProjectBriefTool } from './update-project-brief-tool';
+import { basename } from 'node:path';
+import { buildHandoffTool } from './handoff-tool';
 import { getArchonWorkspacesPath, ensureArchonWorkspacesPath } from '@archon/paths';
 import { resolveWorkflowSourceRoot } from '../utils/workflow-source-root';
 import {
   execFileAsync,
   findRepoRoot,
+  getCurrentBranch,
   getDefaultRemote,
   syncWorkspace,
   toBranchName,
@@ -2627,6 +2630,35 @@ export async function handleMessage(
         // Keeps the project's brief current. Same gate as manage_run: a chat
         // scoped to a project, on a provider with in-process native tools.
         buildProjectBriefTool({ codebaseId: scopedCodebaseId }),
+        // Lets a chat move its work into a fresh one rather than run until the
+        // provider compacts and chooses the summary itself.
+        buildHandoffTool({
+          codebaseId: scopedCodebaseId,
+          conversationId,
+          repo: basename(cwd),
+          branch: (await getCurrentBranch(toRepoPath(cwd))) ?? 'unknown',
+          worktree: cwd,
+          relay: async (trigger): Promise<string> => {
+            const successorId = `web-${String(Date.now())}-${Math.random().toString(36).slice(2, 8)}`;
+            await db.getOrCreateConversation(
+              'web',
+              successorId,
+              scopedCodebaseId,
+              undefined,
+              userId
+            );
+            // Dispatched, not awaited. The successor orients itself while this
+            // turn finishes; awaiting it would hold this conversation open
+            // waiting for a different one to think.
+            void handleMessage(platform, successorId, trigger, { userId }).catch((e: unknown) => {
+              getLog().warn({ err: toError(e), successorId }, 'handoff.successor_dispatch_failed');
+            });
+            return successorId;
+          },
+          archive: async (): Promise<void> => {
+            await db.setConversationArchived(conversation.id, true);
+          },
+        }),
         buildManageRunTool({
           codebaseId: scopedCodebaseId,
           // One continuation per turn: the resume runs in this conversation and
