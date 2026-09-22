@@ -101,9 +101,14 @@ export async function getProjectCounts(projectId: string): Promise<ProjectCounts
 
   // A route that does not exist yet (or a repo that cannot be asked) means
   // "unknown", not "zero" — the cell stays blank rather than claiming none.
+  // A `reason` is that same "could not be asked", delivered as a 200 with an
+  // empty list: a rejected token, a non-GitHub remote, no repository at all.
+  // Counting those as 0 open issues is the claim this guard exists to refuse.
   const issuesValue = issues.status === 'fulfilled' ? issues.value : null;
   const openIssues =
-    issuesValue === null || !Array.isArray(issuesValue.issues)
+    issuesValue === null ||
+    !Array.isArray(issuesValue.issues) ||
+    (issuesValue.reason !== null && issuesValue.reason !== undefined)
       ? null
       : issuesValue.issues.filter(i => i.state === 'OPEN').length;
 
