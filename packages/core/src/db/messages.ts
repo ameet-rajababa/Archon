@@ -187,15 +187,24 @@ export async function getLatestContextPerConversation(
          FROM remote_agent_messages
          WHERE conversation_id IN (${placeholders})
            AND role = 'assistant'
-           AND metadata LIKE '%"context"%'
+           -- CAST, not a bare LIKE: this column is jsonb on PostgreSQL and
+           -- TEXT on SQLite, and jsonb has no LIKE operator at all. Without
+           -- the cast the statement RAISES, the catch below turns that into
+           -- an empty map, and every chat silently shows no reading. CAST
+           -- is the one spelling both backends accept.
+           AND CAST(metadata AS TEXT) LIKE '%"context"%'
        ) ranked
        WHERE rn = 1`,
       [...conversationIds]
     );
     for (const row of result.rows) {
-      if (typeof row.metadata !== 'string' || row.metadata === '') continue;
       try {
-        const parsed: unknown = JSON.parse(row.metadata);
+        // jsonb comes back already parsed; TEXT comes back as a string. Both
+        // are normal, so both are handled rather than one being treated as the
+        // shape and the other skipped.
+        const raw: unknown = row.metadata;
+        const parsed: unknown =
+          typeof raw === 'string' ? (raw === '' ? null : JSON.parse(raw)) : raw;
         const usage = (parsed as { usage?: Record<string, unknown> } | null)?.usage;
         if (usage === undefined) continue;
         const tokens = usage.context;

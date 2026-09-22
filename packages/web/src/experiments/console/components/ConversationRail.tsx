@@ -19,6 +19,7 @@ import { describeActivity } from '../primitives/activity';
 import { occupancyPercent, occupancyTone } from '../primitives/context-window';
 import {
   askAwaitingIds,
+  awaitingReason,
   awaitingReplyIds,
   chatStatus,
   STATUS_LABEL,
@@ -482,6 +483,10 @@ export function ConversationRail({
           // while working: a finished chat's last tool is history, and the row
           // has one line to spend.
           const doing = status === 'working' ? liveTools?.[c.id] : undefined;
+          // What it is waiting FOR, when the chat carries a question it can be
+          // read from. Beats the bare word; falls back to it when there is
+          // nothing structured to say.
+          const reason = status === 'awaiting' ? awaitingReason(c.askCandidate) : null;
           // How full it is, in the same colour the strip under the chat uses —
           // one threshold table, so a row and the chat it opens can never
           // disagree about whether to worry. Absent until a turn has reported
@@ -596,7 +601,11 @@ export function ConversationRail({
                       {occupancyPercent(fill)}%
                     </span>
                   )}
-                  {doing !== undefined ? (
+                  {doing === undefined && status === 'awaiting' && reason !== null ? (
+                    <span className={`chat-stamp is-${status}`} title={reason}>
+                      {reason}
+                    </span>
+                  ) : doing !== undefined ? (
                     <span className={`chat-stamp is-${status}`}>
                       {describeActivity(doing.name, doing.input)}
                     </span>

@@ -164,6 +164,28 @@ export function awaitingInputIds(
  * presentational choice belongs. Two label maps for three states would be two
  * vocabularies again, which is the thing this file exists to prevent.
  */
+/**
+ * What a waiting chat is waiting FOR, when it can be known.
+ *
+ * "Needs you" says a chat wants something without saying what, which is the
+ * same shortcoming the status word had before it started naming the tool. An
+ * ask block carries its own question, so the rail can show that question
+ * instead — it is the agent's own words, not a category guessed from prose.
+ *
+ * Only the first question, and only its title: a row has one line. Null when
+ * there is nothing structured to read, and the caller falls back to the word
+ * rather than inventing a reason.
+ */
+export function awaitingReason(askCandidate: string | null): string | null {
+  if (askCandidate === null || askCandidate === '') return null;
+  for (const part of splitReply(askCandidate)) {
+    if (part.kind !== 'ask') continue;
+    const first = part.spec.questions[0];
+    if (first !== undefined) return first.title;
+  }
+  return null;
+}
+
 export const STATUS_LABEL: Readonly<Record<ChatStatus, string>> = {
   working: 'Working',
   awaiting: 'Needs you',

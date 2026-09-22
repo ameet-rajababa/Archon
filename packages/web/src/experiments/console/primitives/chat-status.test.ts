@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { askAwaitingIds, awaitingInputIds, awaitingReplyIds, chatStatus } from './chat-status';
+import {
+  askAwaitingIds,
+  awaitingInputIds,
+  awaitingReason,
+  awaitingReplyIds,
+  chatStatus,
+} from './chat-status';
 
 const sets = (working: string[], awaiting: string[]) => ({
   working: new Set(working),
@@ -153,5 +159,28 @@ describe('chatStatus ranks awaitingReply below working', () => {
   // reading rather than a false call for help.
   test('withheld until the working answer is known, it cannot cry wolf', () => {
     expect(chatStatus('a', { working: none, awaiting: none })).toBe('idle');
+  });
+});
+
+describe('awaitingReason', () => {
+  const ask = (spec: unknown): string =>
+    `Some prose.\n\n\`\`\`ask\n${JSON.stringify(spec)}\n\`\`\``;
+
+  test('a waiting chat says what it is waiting FOR, in the agent’s own words', () => {
+    const spec = {
+      questions: [
+        { title: 'Rail amber or narrow?', options: [{ label: 'a' }, { label: 'b' }] },
+        { title: 'A second question', options: [{ label: 'c' }] },
+      ],
+    };
+    // Only the first, and only its title — a row has one line.
+    expect(awaitingReason(ask(spec))).toBe('Rail amber or narrow?');
+  });
+
+  test('nothing structured to read means no invented reason', () => {
+    expect(awaitingReason(null)).toBeNull();
+    expect(awaitingReason('')).toBeNull();
+    expect(awaitingReason('Just prose, no question.')).toBeNull();
+    expect(awaitingReason('```ask\n{ not json\n```')).toBeNull();
   });
 });

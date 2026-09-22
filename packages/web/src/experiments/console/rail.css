@@ -772,8 +772,11 @@
   color: var(--warning-mark);
 }
 .chat-status.is-awaiting i {
-  background: transparent;
-  border: 2px solid currentColor;
+  /* Solid, not an outline. A ring reads as faint at 8px against a near-black
+     surface, and this is the one state that is asking for something. The
+     working mark keeps its radiating halo, so the two are still told apart by
+     more than hue: one pulses alone, the other sends a ring out. */
+  background: currentColor;
   /* Moves like the working dot, on the same 1.9s beat, because a mark that
      wants something from you should be as hard to overlook as one that is
      busy. The SHAPE still separates them — open ring against filled dot —
