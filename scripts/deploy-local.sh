@@ -6,7 +6,7 @@
 #
 #   sudo bash /opt/archon/scripts/deploy-local.sh
 #
-# WHY THIS EXISTS. Deploying is six steps and each one can succeed while doing
+# WHY THIS EXISTS. Deploying is seven steps and each one can succeed while doing
 # nothing. In one evening: a push that was never run, a pull blocked by git's
 # ownership guard, and two builds from a checkout that had not moved — every
 # one reported success, and three of four deploys shipped the wrong commit
@@ -23,6 +23,12 @@
 #   DEPLOY_DIR   the docker build CONTEXT — a SEPARATE clone, on the host
 #   The source is not bind-mounted into the image, which is why a rebuild is
 #   required for server changes and a restart alone does nothing.
+#
+# WHAT IT WILL NOT DO. Recreating the container destroys whatever it is
+# holding: a turn in flight, a message queued behind one, a workflow run that
+# comes back as a `running` row nobody finishes. So step 5 waits for a moment
+# when none of those exist. A chat that is merely open is not one of them — its
+# provider session id is persisted, so it resumes with its context intact.
 set -euo pipefail
 
 SOURCE_DIR="${SOURCE_DIR:-/home/appuser/archon-upstream}"
@@ -112,13 +118,45 @@ DEPLOY_SHA=$(in_container "git -C '$DEPLOY_DIR' rev-parse HEAD" | tr -d '\r\n')
 echo "build context confirms: $DEPLOY_SHA"
 
 # ── 4. Build ────────────────────────────────────────────────────────────────
-# The SHA goes INTO the image so step 6 can ask what is running instead of
+# The SHA goes INTO the image so step 7 can ask what is running instead of
 # inferring it from what was built.
-step "4/6  Build"
+#
+# Built BEFORE the wait, deliberately. The build takes minutes and disturbs
+# nothing; spending them after a quiet moment was found would spend the moment
+# itself, and the box would be busy again by the time there was an image.
+step "4/7  Build"
 docker compose build --build-arg "GIT_SHA=$SHA" "$SERVICE" || die "build failed"
 
-# ── 5. Up ───────────────────────────────────────────────────────────────────
-step "5/6  Restart and wait for health"
+# ── 5. Wait for a moment when nothing is mid-flight ─────────────────────────
+# Asked of the server that is ABOUT TO BE REPLACED, because it is the only
+# thing that knows what it is holding. See scripts/turn-gap.ts for what counts
+# as busy and why an unreadable answer is treated as busy.
+#
+# Run inside the container: bun is there, and so is the health endpoint. The
+# script rides the source checkout, which deploy-on-request.sh has already
+# confirmed is at the commit being shipped.
+step "5/7  Wait for a turn-gap"
+if [ "${SKIP_TURN_GAP:-0}" = "1" ]; then
+  # The escape hatch, for a box wedged badly enough that waiting for it to go
+  # quiet is waiting forever. It ends live turns. Announced rather than silent,
+  # because the whole point of this step is that nobody reaches it by accident.
+  printf '\033[33mSKIP_TURN_GAP=1 — swapping without waiting; work in flight WILL be lost\033[0m\n'
+else
+  # `|| gap_status=$?` and not a bare call: under `set -e` a non-zero exit here
+  # would end the script before the case below could say which non-zero it was,
+  # and "timed out" and "could not tell" need different words.
+  gap_status=0
+  in_container "cd '$SOURCE_DIR' && HEALTH_URL='$HEALTH_URL' TURN_GAP_TIMEOUT='${TURN_GAP_TIMEOUT:-}' TURN_GAP_INTERVAL='${TURN_GAP_INTERVAL:-}' TURN_GAP_CONFIRM='${TURN_GAP_CONFIRM:-}' bun scripts/turn-gap.ts" \
+    || gap_status=$?
+  case $gap_status in
+    0) ;;
+    1) die "the box never went quiet — NOTHING was deployed, and it is still running what it was. Ask again later, or set SKIP_TURN_GAP=1 to swap anyway and lose the work in flight." ;;
+    *) die "could not read what the container is holding, so it was left alone — NOTHING was deployed" ;;
+  esac
+fi
+
+# ── 6. Up ───────────────────────────────────────────────────────────────────
+step "6/7  Restart and wait for health"
 docker compose up -d "$SERVICE" || die "up failed"
 
 for _ in $(seq 1 60); do
@@ -128,10 +166,10 @@ done
 curl -fsS "$HEALTH_URL" >/dev/null 2>&1 || die "never became healthy at $HEALTH_URL"
 echo "healthy"
 
-# ── 6. Ask the running container which commit it IS ─────────────────────────
+# ── 7. Ask the running container which commit it IS ─────────────────────────
 # The one question worth asking. Everything above can be green while the
 # container still runs an older image.
-step "6/6  Verify what is actually running"
+step "7/7  Verify what is actually running"
 RUNNING_SHA=$(docker compose exec -T "$SERVICE" cat /app/.deployed-sha 2>/dev/null | tr -d '\r\n' || true)
 [ -n "$RUNNING_SHA" ] || die "the running image carries no SHA — it predates this script; re-run now that the Dockerfile records one"
 [ "$RUNNING_SHA" = "$SHA" ] || die "running $RUNNING_SHA, expected $SHA"
