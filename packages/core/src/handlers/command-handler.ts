@@ -1544,10 +1544,9 @@ Talk naturally — the orchestrator routes your requests to the right workflow a
 # AI assistant preference (optional - overrides global default)
 # assistant: claude
 
-# Commands configuration (optional)
+# Additional command folder to search, on top of .archon/commands (optional)
 # commands:
-#   folder: .archon/commands
-#   autoLoad: true
+#   folder: my/other/commands
 `;
         await writeFile(configPath, defaultConfig);
 

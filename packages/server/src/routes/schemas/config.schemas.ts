@@ -55,7 +55,6 @@ export const safeConfigSchema = z
     }),
     concurrency: z.object({ maxConversations: z.number() }),
     defaults: z.object({
-      copyDefaults: z.boolean(),
       loadDefaultCommands: z.boolean(),
       loadDefaultWorkflows: z.boolean(),
     }),
