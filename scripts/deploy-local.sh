@@ -72,14 +72,33 @@ if [ "${DIRTY_COUNT:-0}" != "0" ]; then
   printf '\033[33mnote: %s uncommitted file(s) in the source checkout — they will NOT be deployed\033[0m\n' "$DIRTY_COUNT"
 fi
 
-# ── 2. Push, then ask GitHub what it has ────────────────────────────────────
-# The push is the step that has silently not happened. `git push` succeeding is
-# not evidence; the remote's own answer is.
-step "2/6  Push to $REMOTE/$REMOTE_BRANCH"
-in_container "cd '$SOURCE_DIR' && git push '$REMOTE' '$SOURCE_BRANCH:$REMOTE_BRANCH' 2>&1 | tail -2" \
-  || die "push failed"
+# ── 2. Ask GitHub what it has, and push only if it is behind ────────────────
+# ASKED FIRST, pushed second. The requester pushes before it writes the request
+# (see request-deploy.sh), because the container is the half that holds GitHub
+# credentials — its token is injected per call by the env-var store and is not
+# in the container's own environment, so a push issued from HERE, through
+# `docker compose exec`, sees only whatever stale token the image was built
+# with. That is what stopped two deploys: one on a token that had been rotated,
+# one on no credential at all.
+#
+# Nothing is lost by asking first. The remote's own answer was always the
+# evidence this step trusted — the push was only ever how the answer became
+# true, and it is still attempted when the remote is genuinely behind, which is
+# what a manual run of this script needs.
+step "2/6  Confirm $REMOTE/$REMOTE_BRANCH has $SHA"
+remote_sha() {
+  in_container "cd '$SOURCE_DIR' && git ls-remote '$REMOTE' 'refs/heads/$REMOTE_BRANCH' | cut -f1" \
+    | tr -d '\r\n'
+}
 
-REMOTE_SHA=$(in_container "cd '$SOURCE_DIR' && git ls-remote '$REMOTE' 'refs/heads/$REMOTE_BRANCH' | cut -f1" | tr -d '\r\n')
+REMOTE_SHA=$(remote_sha)
+if [ "$REMOTE_SHA" != "$SHA" ]; then
+  echo "remote is at ${REMOTE_SHA:-nothing} — pushing"
+  in_container "cd '$SOURCE_DIR' && git push '$REMOTE' '$SOURCE_BRANCH:$REMOTE_BRANCH' 2>&1 | tail -2" \
+    || die "remote is at ${REMOTE_SHA:-nothing} and the push failed — push from the source checkout, which has the credentials"
+  REMOTE_SHA=$(remote_sha)
+fi
+
 [ "$REMOTE_SHA" = "$SHA" ] || die "remote is at ${REMOTE_SHA:-nothing}, expected $SHA"
 echo "remote confirms: $REMOTE_SHA"
 
