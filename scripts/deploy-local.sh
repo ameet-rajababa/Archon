@@ -68,7 +68,7 @@ cd "$DEPLOY_DIR" || die "no deploy directory at $DEPLOY_DIR"
 # cannot be trusted is worse than no check; tests belong to the commit, and
 # this script's honest job is proving that a specific SHA reached the
 # container.
-step "1/6  Preflight"
+step "1/7  Preflight"
 SHA=$(in_container "git -C '$SOURCE_DIR' rev-parse HEAD" | tr -d '\r\n')
 [ -n "$SHA" ] || die "could not read the source HEAD"
 echo "source HEAD: $SHA"
@@ -91,7 +91,7 @@ fi
 # evidence this step trusted — the push was only ever how the answer became
 # true, and it is still attempted when the remote is genuinely behind, which is
 # what a manual run of this script needs.
-step "2/6  Confirm $REMOTE/$REMOTE_BRANCH has $SHA"
+step "2/7  Confirm $REMOTE/$REMOTE_BRANCH has $SHA"
 remote_sha() {
   in_container "cd '$SOURCE_DIR' && git ls-remote '$REMOTE' 'refs/heads/$REMOTE_BRANCH' | cut -f1" \
     | tr -d '\r\n'
@@ -109,11 +109,29 @@ fi
 echo "remote confirms: $REMOTE_SHA"
 
 # ── 3. Pull into the build context, then assert it moved ────────────────────
-step "3/6  Pull into $DEPLOY_DIR"
-in_container "git -C '$DEPLOY_DIR' pull --ff-only '$REMOTE' '$REMOTE_BRANCH' 2>&1 | tail -2" \
+# ON THE HOST, not through the container. $DEPLOY_DIR is the host's own build
+# context — `docker compose build` reads it from here, two steps down — and it
+# is visible to the container only through a bind mount declared in
+# docker-compose.override.yml. Routing this git through that mount made the
+# deploy depend on something that has nothing to do with it, and when a compose
+# invocation carrying -f recreated the app container without the override, this
+# step died on a directory the host could see the whole time. Three deploys
+# failed here before the cause was the mount rather than the pull.
+#
+# Needs no credentials: the fork is public, and reading from it authenticates
+# against nothing. The push is the half that needs a token, and it belongs to
+# the container — see request-deploy.sh.
+#
+# safe.directory because the checkout is owned by neither root nor the invoking
+# user, which is git's dubious-ownership guard and another way this has
+# silently done nothing.
+step "3/7  Pull into $DEPLOY_DIR"
+command -v git >/dev/null 2>&1 \
+  || die "the host has no git, and $DEPLOY_DIR is the host's build context"
+git -c safe.directory='*' -C "$DEPLOY_DIR" pull --ff-only "$REMOTE" "$REMOTE_BRANCH" 2>&1 | tail -2 \
   || die "pull failed — resolve it in $DEPLOY_DIR by hand"
 
-DEPLOY_SHA=$(in_container "git -C '$DEPLOY_DIR' rev-parse HEAD" | tr -d '\r\n')
+DEPLOY_SHA=$(git -c safe.directory='*' -C "$DEPLOY_DIR" rev-parse HEAD | tr -d '\r\n')
 [ "$DEPLOY_SHA" = "$SHA" ] || die "build context is at $DEPLOY_SHA, expected $SHA — building it would ship the wrong commit"
 echo "build context confirms: $DEPLOY_SHA"
 
