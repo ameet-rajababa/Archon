@@ -17,6 +17,11 @@ set -euo pipefail
 
 VOLUME="${VOLUME:-/.archon}"
 REQUEST="$VOLUME/deploy-request"
+# Same defaults as deploy-local.sh, which pushes to the same place: the host
+# pulls `$REMOTE_BRANCH` from the public fork, so both halves have to name it
+# identically or the host fetches a branch nobody wrote to.
+REMOTE="${REMOTE:-fork}"
+REMOTE_BRANCH="${REMOTE_BRANCH:-deploy}"
 
 SHA=$(git rev-parse HEAD)
 
