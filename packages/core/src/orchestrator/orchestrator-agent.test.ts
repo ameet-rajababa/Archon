@@ -149,11 +149,15 @@ mock.module('@archon/paths', () => ({
 const mockUpdateConversation = mock<typeof ConversationDb.updateConversation>(() =>
   Promise.resolve()
 );
+const mockSetConversationArchived = mock<typeof ConversationDb.setConversationArchived>(() =>
+  Promise.resolve()
+);
 mock.module('../db/conversations', () => ({
   getOrCreateConversation: mockGetOrCreateConversation,
   getConversationByPlatformId: mock(() => Promise.resolve(null)),
   updateConversation: mockUpdateConversation,
   touchConversation: mock(() => Promise.resolve()),
+  setConversationArchived: mockSetConversationArchived,
 }));
 
 const mockListCodebases = mock<typeof CodebaseDb.listCodebases>(() => Promise.resolve([]));
@@ -6652,5 +6656,142 @@ describe('continueResolvedGateRun — chat gate continuation source (#2646)', ()
 
     expect(messages.some(m => m.includes('final status could not be saved'))).toBe(true);
     expect(messages.some(m => m.includes('retry with `/workflow resume'))).toBe(false);
+  });
+});
+
+// ── The handoff relay seeds a VISIBLE successor ──────────────────────────────
+
+/**
+ * The relay is the only path into `handleMessage` on web that does not arrive
+ * through an HTTP route, and on web the route — not `handleMessage` — writes
+ * the inbound user row. A relay that forgets to write it itself produces a
+ * successor with a title, an assistant reply, and no prompt above it: the
+ * reader is shown a chat that appeared on its own and cannot see what it was
+ * asked. That is the regression these tests hold shut.
+ */
+describe('handoff relay', () => {
+  let capsMock: ReturnType<typeof mock>;
+  let prevExistsSyncImpl: ((...args: unknown[]) => unknown) | undefined;
+
+  /** The `handoff` tool the orchestrator injected for the turn in flight. */
+  function inFlightHandoffTool():
+    | { name: string; handler: (input: Record<string, unknown>) => Promise<string> }
+    | undefined {
+    const call = mockSendQuery.mock.calls.at(-1) as unknown[] | undefined;
+    const options = call?.[3] as
+      | {
+          nativeTools?: {
+            name: string;
+            handler: (input: Record<string, unknown>) => Promise<string>;
+          }[];
+        }
+      | undefined;
+    return options?.nativeTools?.find(t => t.name === 'handoff');
+  }
+
+  /** Have the agent call `handoff` once with `input`, then finish its turn. */
+  function agentCallsHandoff(input: Record<string, unknown>, sink: string[]): void {
+    mockSendQuery.mockImplementationOnce(async function* () {
+      const tool = inFlightHandoffTool();
+      if (tool) sink.push(await tool.handler(input));
+      yield { type: 'assistant', content: 'done' };
+      yield { type: 'result', sessionId: 'session-1' };
+    });
+  }
+
+  const VALID_INPUT = {
+    topic: 'context-bar',
+    tldr: 'Made context occupancy visible.',
+    evidenceCommand: 'bun run test',
+    evidenceExpectation: '803 passing',
+  };
+
+  beforeEach(async () => {
+    mockSendQuery.mockClear();
+    mockAddMessage.mockClear();
+    mockSetConversationArchived.mockClear();
+    mockGetOrCreateConversation.mockReset();
+    mockDiscoverWorkflowsWithConfig.mockReset();
+    mockDiscoverWorkflowsWithConfig.mockImplementation(() =>
+      Promise.resolve({ workflows: [], errors: [] })
+    );
+
+    const providers = await import('@archon/providers');
+    capsMock = providers.getProviderCapabilities as ReturnType<typeof mock>;
+    capsMock.mockReturnValue({ ...DEFAULT_PROVIDER_CAPS, nativeTools: true });
+
+    // Two callers share this file-wide mock and want opposite answers. The
+    // turn's worktree check needs `true` or the turn is declined before a tool
+    // is ever built; `handoffPath`'s collision guard walks `-2`, `-3`, … until
+    // a name is free, so a blanket `true` spins it forever — a synchronous
+    // loop no test timeout can interrupt. Answering per path satisfies both:
+    // directories exist, handoff documents do not.
+    const fs = await import('fs');
+    const existsSyncMock = fs.existsSync as unknown as ReturnType<typeof mock>;
+    prevExistsSyncImpl = existsSyncMock.getMockImplementation();
+    existsSyncMock.mockImplementation((...args: unknown[]) => !String(args[0]).endsWith('.md'));
+  });
+
+  afterEach(async () => {
+    capsMock.mockReturnValue({ ...DEFAULT_PROVIDER_CAPS });
+    const fs = await import('fs');
+    (fs.existsSync as unknown as ReturnType<typeof mock>).mockImplementation(
+      prevExistsSyncImpl ?? (() => true)
+    );
+  });
+
+  /**
+   * A project-scoped chat whose relay-created successor is a DISTINCT row.
+   * The two ids differ deliberately: a successor seeded onto the predecessor's
+   * own id is the bug that looks like a pass.
+   */
+  function arrangeScopedChat() {
+    const codebase = makeCodebase();
+    mockGetCodebase.mockImplementation(() => Promise.resolve(codebase));
+    mockListCodebases.mockImplementation(() => Promise.resolve([codebase]));
+    mockGetOrCreateConversation.mockImplementation((_platform, platformId) =>
+      Promise.resolve(
+        makeConversation({
+          id: platformId === 'conv-1' ? 'conv-1-db' : 'successor-db',
+          platform_conversation_id: platformId,
+          codebase_id: 'codebase-1',
+          cwd: '/repos/test-repo',
+        })
+      )
+    );
+  }
+
+  test('the successor is given the relay trigger as a visible user message', async () => {
+    arrangeScopedChat();
+    const results: string[] = [];
+    agentCallsHandoff(VALID_INPUT, results);
+
+    await handleMessage(makePlatform(), 'conv-1', 'hand this off');
+
+    const seeded = mockAddMessage.mock.calls.filter(
+      ([conversationId, role]) => conversationId === 'successor-db' && role === 'user'
+    );
+    expect(seeded).toHaveLength(1);
+    expect(seeded[0]?.[2]).toContain('Continue: ');
+    expect(seeded[0]?.[2]).toContain('handoff relay');
+    // The predecessor's own transcript is untouched — the seed belongs to the
+    // chat that has to act on it, not the one being closed.
+    expect(
+      mockAddMessage.mock.calls.some(([id, role]) => id === 'conv-1-db' && role === 'user')
+    ).toBe(false);
+  });
+
+  test('a seed that cannot be persisted still hands off', async () => {
+    arrangeScopedChat();
+    // The document is already written and the successor already exists, so an
+    // absent caption must not cost the whole handoff.
+    mockAddMessage.mockImplementationOnce(() => Promise.reject(new Error('db down')));
+    const results: string[] = [];
+    agentCallsHandoff(VALID_INPUT, results);
+
+    await handleMessage(makePlatform(), 'conv-1', 'hand this off');
+
+    expect(results[0]).toContain('Handed off');
+    expect(mockSetConversationArchived).toHaveBeenCalled();
   });
 });
