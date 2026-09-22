@@ -19,15 +19,8 @@ import { useParams } from 'react-router';
 import { IssueTypeChip } from '../components/IssueTypeChip';
 import { useNow } from '../lib/clock';
 import { relativeTime } from '../lib/format';
+import { issueReasonText } from '../lib/issue-reason';
 import { RowMenu } from '../components/RowMenu';
-
-/** Why a board is legitimately empty, in the words a person would use. */
-const REASON_TEXT: Readonly<Record<string, string>> = {
-  'no-repository': 'This project has no repository, so there is nothing to read.',
-  'not-github': 'This project’s remote is not GitHub.',
-  'no-token': 'No GitHub token is configured on the server.',
-  unreachable: 'GitHub could not be reached.',
-};
 
 function Card({ issue, column }: { issue: GithubIssue; column: IssueColumn }): ReactElement {
   const type = issueType(issue);
@@ -127,7 +120,7 @@ export function IssuesPage(): ReactElement {
         }
         hint={
           data?.reason !== null && data?.reason !== undefined
-            ? (REASON_TEXT[data.reason] ?? data.reason)
+            ? issueReasonText(data.reason)
             : `${data?.repo ?? 'This repository'} has no issues.`
         }
       />
