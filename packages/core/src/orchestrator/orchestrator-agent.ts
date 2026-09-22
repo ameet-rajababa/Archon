@@ -2680,13 +2680,31 @@ export async function handleMessage(
           worktree: cwd,
           relay: async (trigger): Promise<string> => {
             const successorId = `web-${String(Date.now())}-${Math.random().toString(36).slice(2, 8)}`;
-            await db.getOrCreateConversation(
+            const successor = await db.getOrCreateConversation(
               'web',
               successorId,
               scopedCodebaseId,
               undefined,
               userId
             );
+            // The relay is a SECOND entry into handleMessage, and the only one
+            // on web that does not arrive through an HTTP route. For web the
+            // route owns the inbound user row (see the isWebAdapter guard in
+            // handleMessage), so a relay that does not write it itself leaves
+            // the successor with no user message at all: the reader opens a
+            // titled chat holding an assistant reply and no visible prompt
+            // above it, with nothing on screen saying why the chat exists.
+            //
+            // Awaited, so the user row precedes the assistant row the dispatch
+            // below will write. A failure here is logged and tolerated rather
+            // than thrown: the document is already on disk and the successor
+            // already exists, so losing the handoff over one absent row would
+            // trade the whole feature for its caption.
+            try {
+              await messageDb.addMessage(successor.id, 'user', trigger, undefined, userId);
+            } catch (e: unknown) {
+              getLog().warn({ err: toError(e), successorId }, 'handoff.seed_persist_failed');
+            }
             // Dispatched, not awaited. The successor orients itself while this
             // turn finishes; awaiting it would hold this conversation open
             // waiting for a different one to think.
