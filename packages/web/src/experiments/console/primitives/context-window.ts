@@ -14,6 +14,41 @@
  * denominator would be believed, and it decides when a chat gets abandoned.
  */
 
+/**
+ * Where the reading changes colour, and the one place that decides it.
+ *
+ * Owned here rather than in whichever component happens to draw it, because
+ * two surfaces now wear the same number — the strip under the chat and the
+ * row in the rail — and a second copy of these thresholds would be a second
+ * opinion about when to worry. Destined to become a user setting; when it
+ * does, this is the seam that reads it.
+ *
+ * Amber is "think about wrapping up", red is "do it". Red sits at 60 rather
+ * than higher so the band that says act is long enough to act in: on a 1M
+ * window that is 400k of runway instead of 250k.
+ */
+export const AMBER_AT = 0.4;
+export const RED_AT = 0.6;
+
+/** The token for a fraction, or the quiet one when no percentage is claimed. */
+export function occupancyTone(fraction: number | null): string {
+  if (fraction === null) return 'var(--text-tertiary)';
+  if (fraction >= RED_AT) return 'var(--error)';
+  if (fraction >= AMBER_AT) return 'var(--warning-mark)';
+  return 'var(--text-tertiary)';
+}
+
+/**
+ * The percentage a reader sees: a whole number, never rounded down to hide.
+ *
+ * Deliberately uncapped. A percentage capped at 100 lets a wrong denominator
+ * pass as merely full — this once read 100% for a conversation at 283% of the
+ * window it had been given.
+ */
+export function occupancyPercent(fraction: number): number {
+  return Math.round(fraction * 100);
+}
+
 export interface ContextReading {
   /** How full the context was when the last turn ended. */
   tokens: number;
@@ -92,9 +127,22 @@ export function shortModel(model: string): string {
     .replace(/-\d{8}$/, '');
 }
 
-/** `163k`, `1.2M`, `840` — a token count at a glance. */
+/**
+ * `163k`, `1M`, `1.2M`, `840` — a token count at a glance.
+ *
+ * Lower-case `k`, upper-case `M`: those are the SI prefixes for a thousand and
+ * a million, and an upper-case K is kelvin.
+ *
+ * A trailing `.0` is dropped. `1.0M` spends a character to say nothing — the
+ * window it usually labels is exactly a million — while `1.2M` still needs its
+ * decimal, because rounding it to `1M` would be a fifth of the window lost in
+ * the rendering.
+ */
 export function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000_000) {
+    const millions = (n / 1_000_000).toFixed(1);
+    return `${millions.endsWith('.0') ? millions.slice(0, -2) : millions}M`;
+  }
   if (n >= 1_000) return `${Math.round(n / 1_000).toString()}k`;
   return n.toString();
 }

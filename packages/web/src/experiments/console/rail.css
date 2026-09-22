@@ -821,3 +821,13 @@
   line-height: 1;
   user-select: none;
 }
+
+/* How full a chat's context is, on the row that opens it.
+   Colour is the whole signal, so the mark itself stays out of the way: the
+   stamp's size, sitting after the status word rather than replacing it. */
+.chat-fill {
+  margin-left: 6px;
+  font-size: var(--text-micro);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.2px;
+}

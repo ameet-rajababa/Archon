@@ -1,10 +1,12 @@
 import type { ReactElement } from 'react';
-import { contextReading, formatTokens, shortModel } from '../primitives/context-window';
+import {
+  contextReading,
+  formatTokens,
+  occupancyPercent,
+  occupancyTone,
+  shortModel,
+} from '../primitives/context-window';
 import type { Message } from '../primitives/message';
-
-/** Where the bar changes colour. Amber is "think about wrapping up", red is "do". */
-const AMBER_AT = 0.4;
-const RED_AT = 0.75;
 
 /**
  * How full this chat's context is, said out loud: used, total, and the model
@@ -35,14 +37,7 @@ export function ContextBar({ messages }: { messages: readonly Message[] }): Reac
   // was 283% of the window it had been given, and the cap is what made that
   // look merely full rather than impossible.
   const pct = fraction;
-  const color =
-    pct === null
-      ? 'var(--text-tertiary)'
-      : pct >= RED_AT
-        ? 'var(--error)'
-        : pct >= AMBER_AT
-          ? 'var(--warning-mark)'
-          : 'var(--text-tertiary)';
+  const color = occupancyTone(pct);
 
   const title = [
     window === null
@@ -75,7 +70,7 @@ export function ContextBar({ messages }: { messages: readonly Message[] }): Reac
       <span style={{ color }}>
         {formatTokens(tokens)}
         {window === null ? '' : `/${formatTokens(window)}`}
-        {pct === null ? '' : ` ${String(Math.round(pct * 100))}%`}
+        {pct === null ? '' : ` ${String(occupancyPercent(pct))}%`}
       </span>
       {model === null ? null : (
         <span className="truncate text-text-tertiary">{shortModel(model)}</span>

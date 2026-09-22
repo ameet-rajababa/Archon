@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { contextReading, formatTokens, shortModel } from './context-window';
+import {
+  contextReading,
+  formatTokens,
+  occupancyPercent,
+  occupancyTone,
+  shortModel,
+} from './context-window';
 
 const turn = (context: number, window?: number, costUsd: number | null = null) => ({
   usage: {
@@ -83,5 +89,40 @@ describe('formatTokens', () => {
     expect(formatTokens(840)).toBe('840');
     expect(formatTokens(163_000)).toBe('163k');
     expect(formatTokens(1_200_000)).toBe('1.2M');
+  });
+
+  // `1.0M` spends a character to say nothing, and it is the window label most
+  // often on screen. A decimal that carries information stays.
+  test('drops a trailing .0 but keeps a decimal that means something', () => {
+    expect(formatTokens(1_000_000)).toBe('1M');
+    expect(formatTokens(2_000_000)).toBe('2M');
+    expect(formatTokens(1_900_000)).toBe('1.9M');
+  });
+});
+
+describe('occupancyTone', () => {
+  test('grey below 40, amber to 60, red from 60', () => {
+    expect(occupancyTone(0.39)).toBe('var(--text-tertiary)');
+    expect(occupancyTone(0.4)).toBe('var(--warning-mark)');
+    expect(occupancyTone(0.59)).toBe('var(--warning-mark)');
+    expect(occupancyTone(0.6)).toBe('var(--error)');
+    expect(occupancyTone(2.83)).toBe('var(--error)');
+  });
+
+  test('no window, no claim', () => {
+    expect(occupancyTone(null)).toBe('var(--text-tertiary)');
+  });
+});
+
+describe('occupancyPercent', () => {
+  test('a whole number', () => {
+    expect(occupancyPercent(0.774)).toBe(77);
+    expect(occupancyPercent(0.5)).toBe(50);
+  });
+
+  // A cap would let a wrong denominator pass as merely full. This once read
+  // 100% for a conversation at 283% of the window it had been given.
+  test('never capped, because a capped number hides a broken one', () => {
+    expect(occupancyPercent(2.835)).toBe(284);
   });
 });

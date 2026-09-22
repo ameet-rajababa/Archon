@@ -55,6 +55,13 @@ export interface ConversationSummary {
    */
   lastMessageRole: 'user' | 'assistant' | 'system' | null;
   /**
+   * How full this chat's context was when its last turn ended, and the window
+   * that figure is a fraction OF. Null where no turn has reported one — which
+   * is how a chat shows no percentage rather than a guessed one.
+   */
+  contextTokens: number | null;
+  contextWindow: number | null;
+  /**
    * Hand-arranged position in the rail, ascending, or `null` for a chat that
    * has never been placed. Stored on the row, so the arrangement follows the
    * reader to any browser rather than living in one machine's localStorage.
@@ -77,6 +84,8 @@ interface RawConversation {
   sort_order?: number | null;
   ask_candidate?: string | null;
   last_message_role?: string | null;
+  context_tokens?: number | null;
+  context_window?: number | null;
 }
 
 /**
@@ -104,6 +113,8 @@ export function toConversationSummary(raw: RawConversation): ConversationSummary
     archived: raw.deleted_at != null,
     askCandidate: raw.ask_candidate ?? null,
     lastMessageRole: parseMessageRole(raw.last_message_role),
+    contextTokens: typeof raw.context_tokens === 'number' ? raw.context_tokens : null,
+    contextWindow: typeof raw.context_window === 'number' ? raw.context_window : null,
     // `?? null` covers a server that predates the column, which reads as
     // never arranged rather than as position zero.
     sortOrder: raw.sort_order ?? null,

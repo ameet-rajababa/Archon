@@ -2748,16 +2748,26 @@ export function registerApiRoutes(
         userId,
         archived
       );
-      const facts = await lastMessageFacts(conversations);
+      const [facts, contexts] = await Promise.all([
+        lastMessageFacts(conversations),
+        // How full each chat is. Sent as the two numbers rather than a
+        // percentage: the console divides and decides what to call the result,
+        // and a server that also had an opinion about that would be a second
+        // one to keep in step.
+        messageDb.getLatestContextPerConversation(conversations.map(row => row.id)),
+      ]);
       return c.json(
         conversations.map(row => {
           const fact = facts.get(row.id);
+          const context = contexts.get(row.id);
           return {
             ...toApiConversation(row),
             ask_candidate: fact?.askCandidate ?? null,
             // A chat nobody has said anything in has no last speaker, which
             // reads as null rather than as a role nobody played.
             last_message_role: fact?.lastRole ?? null,
+            context_tokens: context?.tokens ?? null,
+            context_window: context?.window ?? null,
           };
         })
       );

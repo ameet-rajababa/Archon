@@ -16,6 +16,7 @@ import {
 } from '../primitives/conversation';
 import { relativeTime } from '../lib/format';
 import { describeActivity } from '../primitives/activity';
+import { occupancyPercent, occupancyTone } from '../primitives/context-window';
 import {
   askAwaitingIds,
   awaitingReplyIds,
@@ -481,6 +482,14 @@ export function ConversationRail({
           // while working: a finished chat's last tool is history, and the row
           // has one line to spend.
           const doing = status === 'working' ? liveTools?.[c.id] : undefined;
+          // How full it is, in the same colour the strip under the chat uses —
+          // one threshold table, so a row and the chat it opens can never
+          // disagree about whether to worry. Absent until a turn has reported
+          // a reading against a known window.
+          const fill =
+            c.contextTokens !== null && c.contextWindow !== null && c.contextWindow > 0
+              ? c.contextTokens / c.contextWindow
+              : null;
           const shift =
             dragId === null ? 0 : previewShift(boxesRef.current, dragFrom, dropIndex, index);
           return (
@@ -578,6 +587,15 @@ export function ConversationRail({
                   {/* The word replaces the timestamp rather than crowding it:
                       "3m ago" is the wrong thing to read about a chat that is
                       moving right now, or waiting on you. */}
+                  {fill === null ? null : (
+                    <span
+                      className="chat-fill"
+                      style={{ color: occupancyTone(fill) }}
+                      title={`Context ${String(occupancyPercent(fill))}% full`}
+                    >
+                      {occupancyPercent(fill)}%
+                    </span>
+                  )}
                   {doing !== undefined ? (
                     <span className={`chat-stamp is-${status}`}>
                       {describeActivity(doing.name, doing.input)}

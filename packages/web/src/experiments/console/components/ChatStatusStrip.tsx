@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement } from 'react';
+import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import { describeActivity, formatElapsed, traceLine } from '../primitives/activity';
 import { STATUS_COLOR, STATUS_LABEL, type ChatStatus } from '../primitives/chat-status';
 import type { InlineToolCall } from '../primitives/message';
@@ -18,6 +18,16 @@ interface ChatStatusStripProps {
   /** Whether the trace below the strip is revealed. */
   expanded: boolean;
   onToggle: () => void;
+  /**
+   * Rendered on the strip's own line, to the right of the pill.
+   *
+   * A slot rather than a sibling because this component is a COLUMN — pill,
+   * then the trace beneath it. Anything laid out beside the column as a whole
+   * gets centred against its full height, so expanding the trace floated the
+   * context bar into the middle of the tool list. Inside the row, alignment is
+   * structural and cannot drift.
+   */
+  trailing?: ReactNode;
 }
 
 /**
@@ -74,6 +84,7 @@ export function ChatStatusStrip({
   trace,
   expanded,
   onToggle,
+  trailing,
 }: ChatStatusStripProps): ReactElement {
   const elapsed = useElapsed(status === 'working' ? since : null);
   const ago = status === 'idle' ? agoLabel(lastActivityAt) : null;
@@ -97,47 +108,50 @@ export function ChatStatusStrip({
 
   return (
     <div className="mt-1.5 flex flex-col items-start gap-1">
-      <button
-        type="button"
-        onClick={onToggle}
-        disabled={trace.length === 0}
-        title={
-          trace.length === 0
-            ? undefined
-            : expanded
-              ? 'Hide what the agent did'
-              : 'Show what the agent is doing'
-        }
-        aria-expanded={trace.length === 0 ? undefined : expanded}
-        aria-live="polite"
-        className="flex w-fit items-center gap-2 rounded-full border border-border bg-surface-inset px-3 py-1.5 text-[12px] text-text-secondary transition-colors enabled:hover:border-border-bright enabled:hover:text-text-primary disabled:cursor-default"
-      >
-        {/* The rail's own mark, not a second one that looks like it. Working
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onToggle}
+          disabled={trace.length === 0}
+          title={
+            trace.length === 0
+              ? undefined
+              : expanded
+                ? 'Hide what the agent did'
+                : 'Show what the agent is doing'
+          }
+          aria-expanded={trace.length === 0 ? undefined : expanded}
+          aria-live="polite"
+          className="flex w-fit items-center gap-2 rounded-full border border-border bg-surface-inset px-3 py-1.5 text-[12px] text-text-secondary transition-colors enabled:hover:border-border-bright enabled:hover:text-text-primary disabled:cursor-default"
+        >
+          {/* The rail's own mark, not a second one that looks like it. Working
             throbs and radiates; awaiting is an open ring; idle is a quiet dot.
             Borrowing the class means the two surfaces cannot drift apart — a
             spinner here and a heartbeat there was two vocabularies for one
             state. Geometry stays with the rail row (see rail.css). */}
-        <span aria-hidden className={`chat-status is-${status} shrink-0`}>
-          <i />
-        </span>
-        <span
-          className="font-medium"
-          style={{ color: status === 'idle' ? 'var(--text-secondary)' : tone }}
-        >
-          {label}
-        </span>
-        {elapsed !== null ? (
-          <span className="font-mono text-[11px] text-text-tertiary tabular-nums">{elapsed}</span>
-        ) : null}
-        {ago !== null ? (
-          <span className="font-mono text-[11px] text-text-tertiary tabular-nums">{ago}</span>
-        ) : null}
-        {trace.length > 0 ? (
-          <span aria-hidden className="font-mono text-[10px] text-text-tertiary">
-            {expanded ? '▾ hide' : '▸ details'}
+          <span aria-hidden className={`chat-status is-${status} shrink-0`}>
+            <i />
           </span>
-        ) : null}
-      </button>
+          <span
+            className="font-medium"
+            style={{ color: status === 'idle' ? 'var(--text-secondary)' : tone }}
+          >
+            {label}
+          </span>
+          {elapsed !== null ? (
+            <span className="font-mono text-[11px] text-text-tertiary tabular-nums">{elapsed}</span>
+          ) : null}
+          {ago !== null ? (
+            <span className="font-mono text-[11px] text-text-tertiary tabular-nums">{ago}</span>
+          ) : null}
+          {trace.length > 0 ? (
+            <span aria-hidden className="font-mono text-[10px] text-text-tertiary">
+              {expanded ? '▾ hide' : '▸ details'}
+            </span>
+          ) : null}
+        </button>
+        {trailing}
+      </div>
 
       {expanded && trace.length > 0 ? (
         <ol className="ml-3 flex flex-col gap-[3px] border-l border-border pl-3 font-mono text-[12px]">

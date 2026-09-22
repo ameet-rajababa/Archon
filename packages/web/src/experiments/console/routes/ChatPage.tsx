@@ -674,22 +674,20 @@ export function ChatPage(): ReactElement {
                       the right reason — and an empty screen is exactly what a
                       broken indicator looks like. */}
                   {activeConvId !== null || working ? (
-                    <div className="flex items-center gap-3">
-                      <ChatStatusStrip
-                        status={status}
-                        since={workingSince}
-                        lastActivityAt={lastActivityAt}
-                        trace={turnTrace}
-                        expanded={showTools}
-                        onToggle={() => {
-                          setShowTools(v => !v);
-                        }}
-                      />
-                      {/* Beside what the chat is DOING, because how full it is
-                          is the other half of the same question: whether to
-                          keep going here or start somewhere fresh. */}
-                      <ContextBar messages={renderedMessages} />
-                    </div>
+                    <ChatStatusStrip
+                      status={status}
+                      since={workingSince}
+                      lastActivityAt={lastActivityAt}
+                      trace={turnTrace}
+                      expanded={showTools}
+                      onToggle={() => {
+                        setShowTools(v => !v);
+                      }}
+                      /* On the strip's own line, because how full the chat is
+                         is the other half of what it is doing: whether to keep
+                         going here or start somewhere fresh. */
+                      trailing={<ContextBar messages={renderedMessages} />}
+                    />
                   ) : null}
                 </StreamContextProvider>
               )}
