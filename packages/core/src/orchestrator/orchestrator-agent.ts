@@ -33,7 +33,13 @@ import { buildManageRunTool } from './manage-run-tool';
 import { buildProjectBriefTool } from './update-project-brief-tool';
 import { basename } from 'node:path';
 import { buildHandoffTool } from './handoff-tool';
-import { bandFor, nudgeMessage, shouldAnnounce, type NudgeBand } from './handoff-nudge';
+import {
+  bandFor,
+  handoffAction,
+  hasOpenAsk,
+  type HandoffBlocker,
+  type NudgeBand,
+} from './handoff-nudge';
 import { contextWindowFor } from './context-window';
 import { resolveChatsConfig } from '../config/chats';
 import { getArchonWorkspacesPath, ensureArchonWorkspacesPath } from '@archon/paths';
@@ -3086,7 +3092,7 @@ async function handleStreamMode(
     });
   }
   await maybeSendResultFooter(platform, conversationId, lastResult);
-  await maybeNudgeHandoff(platform, conversationId, lastResult);
+  await maybeNudgeHandoff(platform, conversationId, lastResult, fullResponse, userId);
   // Anonymous telemetry: one completed direct-chat turn. The workflow-invocation
   // and project-registration paths return above without reaching this — those
   // are covered by workflow_invoked / codebase_registered instead. Platform +
@@ -3367,7 +3373,7 @@ async function handleBatchMode(
     });
   }
   await maybeSendResultFooter(platform, conversationId, lastResult);
-  await maybeNudgeHandoff(platform, conversationId, lastResult);
+  await maybeNudgeHandoff(platform, conversationId, lastResult, finalMessage, userId);
   // Anonymous telemetry: one completed direct-chat turn (same exclusion
   // rationale as the stream-mode capture in handleStreamMode above).
   captureChatTurn({
@@ -3407,7 +3413,9 @@ const nudgeBands = new Map<string, NudgeBand>();
 async function maybeNudgeHandoff(
   platform: IPlatformAdapter,
   conversationId: string,
-  info: { contextTokens?: number; model?: string } | undefined
+  info: { contextTokens?: number; model?: string } | undefined,
+  reply: string,
+  userId?: string
 ): Promise<void> {
   if (!platform.sendStructuredEvent) return;
   if (info?.contextTokens === undefined) return;
@@ -3415,21 +3423,92 @@ async function maybeNudgeHandoff(
   if (window === null || window <= 0) return;
 
   try {
-    const { nudgeAt, handoffAt } = resolveChatsConfig((await loadConfig()).chats);
+    const { nudgeAt, handoffAt, autoHandoff } = resolveChatsConfig((await loadConfig()).chats);
     const fraction = info.contextTokens / window;
     const band = bandFor(fraction, nudgeAt, handoffAt);
     const previous = nudgeBands.get(conversationId) ?? 'none';
     // Record every reading, not just the ones that spoke: a fall has to be
-    // remembered for the next rise to count as a crossing.
+    // remembered for the next rise to count as a crossing. Recording BEFORE
+    // acting is also what stops an automatic handoff from firing twice: the
+    // turn it dispatches ends here too, and by then the band has been seen.
     nudgeBands.set(conversationId, band);
-    if (band === 'none' || !shouldAnnounce(previous, band)) return;
 
+    const action = handoffAction({
+      band,
+      previous,
+      fraction,
+      autoHandoff,
+      blocker: await handoffBlocker(platform, conversationId, reply),
+    });
+    if (action.kind === 'silent') return;
+    if (action.kind === 'announce') {
+      await platform.sendStructuredEvent(conversationId, {
+        type: 'system',
+        content: action.message,
+      });
+      return;
+    }
+
+    // Acting means asking THIS chat to hand itself off, not calling the tool
+    // for it. The document's worth is the judgement in it — which decisions
+    // are locked, which approaches died — and only the session that did the
+    // work holds that. A system-composed document would carry the mechanics
+    // and none of the reason, which is the failure the tool exists to prevent.
     await platform.sendStructuredEvent(conversationId, {
       type: 'system',
-      content: nudgeMessage(band, fraction),
+      content: `This chat is ${String(Math.round(fraction * 100))}% of the model's context window. Handing off automatically — writing the document and carrying the work into a fresh chat.`,
     });
+    // Dispatched, not awaited: this turn holds the conversation lock, so the
+    // handoff turn queues behind it rather than deadlocking against it.
+    void handleMessage(platform, conversationId, AUTO_HANDOFF_TRIGGER, { userId }).catch(
+      (e: unknown) => {
+        getLog().warn({ err: toError(e), conversationId }, 'handoff.auto_dispatch_failed');
+      }
+    );
   } catch (error) {
     getLog().warn({ err: toError(error), conversationId }, 'handoff_nudge_failed');
+  }
+}
+
+/**
+ * The turn an automatic handoff starts. Addressed to the agent, not the reader.
+ *
+ * Names the tool and forbids the two ways this goes wrong: asking permission
+ * (there is nobody awake to give it — the whole point is unattended running),
+ * and starting something new in a chat that is about to be archived.
+ */
+const AUTO_HANDOFF_TRIGGER =
+  'This chat has reached its configured handoff threshold. Call the `handoff` tool now, ' +
+  'composing the document from what you actually did in this conversation — the decisions ' +
+  'that are locked and why, the approaches that died and the evidence that killed them, ' +
+  'what landed, and what is left. Do not ask whether to proceed, and do not begin any new ' +
+  'work first.';
+
+/**
+ * What this chat still owes a human, which an automatic handoff must not walk
+ * away from. `null` when it owes nothing.
+ *
+ * A paused run is read from the durable row rather than inferred, and a failure
+ * to read it BLOCKS rather than allows: not knowing whether someone is owed an
+ * answer is not the same as knowing they are not.
+ */
+async function handoffBlocker(
+  platform: IPlatformAdapter,
+  conversationId: string,
+  reply: string
+): Promise<HandoffBlocker | null> {
+  if (hasOpenAsk(reply)) return 'open-question';
+  try {
+    const conversation = await db.getConversationByPlatformId(
+      platform.getPlatformType(),
+      conversationId
+    );
+    if (!conversation) return null;
+    const paused = await workflowDb.getPausedWorkflowRun(conversation.id);
+    return paused === null ? null : 'awaiting-approval';
+  } catch (error) {
+    getLog().warn({ err: toError(error), conversationId }, 'handoff.blocker_read_failed');
+    return 'awaiting-approval';
   }
 }
 

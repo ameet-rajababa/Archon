@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { bandFor, nudgeMessage, shouldAnnounce } from './handoff-nudge';
+import { bandFor, handoffAction, hasOpenAsk, nudgeMessage, shouldAnnounce } from './handoff-nudge';
 
 describe('bandFor', () => {
   test('below the nudge level there is nothing to say', () => {
@@ -52,5 +52,89 @@ describe('nudgeMessage', () => {
   test('the urgent one asks for a decision, the quiet one does not', () => {
     expect(nudgeMessage('handoff', 0.6)).toContain('Time to hand off');
     expect(nudgeMessage('nudge', 0.45)).toContain('soon');
+  });
+});
+
+// Backticks cannot live in a template literal, so fences are built from a
+// constant and the fixtures are assembled line by line.
+const F3 = '`'.repeat(3);
+const F4 = '`'.repeat(4);
+const doc = (...lines: string[]): string => lines.join('\n');
+
+describe('hasOpenAsk', () => {
+  test('a plain ask block is an open question', () => {
+    expect(hasOpenAsk(doc('Pick one:', '', F3 + 'ask', '{"questions":[]}', F3, ''))).toBe(true);
+  });
+
+  test('prose and ordinary code blocks are not', () => {
+    expect(hasOpenAsk('Just a sentence.')).toBe(false);
+    expect(hasOpenAsk(doc(F3 + 'ts', 'const ask = 1;', F3))).toBe(false);
+    expect(hasOpenAsk('')).toBe(false);
+  });
+
+  test('an ask fence DEMONSTRATED inside a longer fence is not a question', () => {
+    // Every document that explains ask blocks contains one of these. Reading it
+    // as a live question would block automatic handoff forever — which is the
+    // whole reason this is a scanner and not a regex.
+    expect(
+      hasOpenAsk(
+        doc(
+          'Here is the format:',
+          '',
+          F4,
+          F3 + 'ask',
+          '{"questions":[]}',
+          F3,
+          F4,
+          '',
+          'That is all.'
+        )
+      )
+    ).toBe(false);
+  });
+
+  test('an unterminated fence never became a block', () => {
+    expect(hasOpenAsk(doc(F3 + 'ask', '{"questions":[]}'))).toBe(false);
+  });
+
+  test('a real ask AFTER a demonstration still counts', () => {
+    expect(hasOpenAsk(doc(F4, F3 + 'ask', F4, '', F3 + 'ask', '{"questions":[]}', F3))).toBe(true);
+  });
+});
+
+describe('handoffAction', () => {
+  const base = { previous: 'none' as const, fraction: 0.6, autoHandoff: true, blocker: null };
+
+  test('a band that has already spoken stays quiet', () => {
+    expect(handoffAction({ ...base, band: 'handoff', previous: 'handoff' })).toEqual({
+      kind: 'silent',
+    });
+    expect(handoffAction({ ...base, band: 'none' })).toEqual({ kind: 'silent' });
+  });
+
+  test('the nudge band only ever speaks, even with autoHandoff on', () => {
+    expect(handoffAction({ ...base, band: 'nudge', fraction: 0.42 }).kind).toBe('announce');
+  });
+
+  test('autoHandoff off leaves the handoff band a suggestion', () => {
+    expect(handoffAction({ ...base, band: 'handoff', autoHandoff: false })).toEqual({
+      kind: 'announce',
+      message: nudgeMessage('handoff', 0.6),
+    });
+  });
+
+  test('autoHandoff on, nothing owed, acts', () => {
+    expect(handoffAction({ ...base, band: 'handoff' })).toEqual({ kind: 'hand-off' });
+  });
+
+  test.each([
+    ['awaiting-approval' as const, 'approval'],
+    ['open-question' as const, 'open question'],
+  ])('a blocked handoff says why rather than falling silent (%s)', (blocker, expected) => {
+    const action = handoffAction({ ...base, band: 'handoff', blocker });
+    expect(action.kind).toBe('announce');
+    if (action.kind !== 'announce') throw new Error('unreachable');
+    expect(action.message).toContain(expected);
+    expect(action.message).toContain('60%');
   });
 });
