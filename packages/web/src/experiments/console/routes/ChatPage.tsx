@@ -334,7 +334,7 @@ export function ChatPage(): ReactElement {
   // looking at. Pushed on the dashboard stream the moment a chat starts or
   // stops (see lib/sse.ts); the hook's own poll is the backstop for what a push
   // cannot reach, shared with every other reader of the same answer.
-  const { ids: liveIds } = useLiveChats();
+  const { ids: liveIds, tools: liveTools } = useLiveChats();
 
   /**
    * Chats whose run is paused on an approval.
@@ -665,6 +665,11 @@ export function ChatPage(): ReactElement {
                       since={workingSince}
                       lastActivityAt={lastActivityAt}
                       trace={turnTrace}
+                      /* What it is doing, from the server's own map rather
+                         than from rows that do not exist yet: tool calls are
+                         written when the turn ENDS, so the trace is empty for
+                         exactly the stretch this line is read. */
+                      live={activeConvId === null ? null : (liveTools[activeConvId] ?? null)}
                       expanded={showTools}
                       onToggle={() => {
                         setShowTools(v => !v);

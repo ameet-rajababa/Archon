@@ -107,6 +107,11 @@ export function persistedSegmentCount(messages: { role: string; content: string 
     const m = messages[i];
     if (m === undefined) continue;
     if (m.role === 'user') break;
+    // Only the agent's own rows are segments. A `system` notice — a handoff
+    // saying why it happened — sits in the same span and carries content, so
+    // counting it would report one more segment persisted than there are and
+    // silently swallow the last live one.
+    if (m.role !== 'assistant') continue;
     if (m.content.trim().length > 0) count++;
   }
   return count;
