@@ -1,4 +1,4 @@
-import { MessageCircle, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactElement,
 } from 'react';
 import {
@@ -16,7 +17,6 @@ import {
 } from '../primitives/conversation';
 import { relativeTime } from '../lib/format';
 import { describeActivity } from '../primitives/activity';
-import { occupancyPercent, occupancyTone } from '../primitives/context-window';
 import {
   askAwaitingIds,
   awaitingReason,
@@ -26,6 +26,7 @@ import {
   STATUS_TITLE,
 } from '../primitives/chat-status';
 import { RowMenu } from './RowMenu';
+import { clampPaneWidth, readPaneWidth, writePaneWidth, type PaneBounds } from '../lib/pane-width';
 
 import { chooseNeighbourChat } from '../lib/last-chat';
 import {
@@ -41,6 +42,21 @@ import {
 
 /** Shared empty set, so an absent prop does not allocate one per row per render. */
 const EMPTY_SET: ReadonlySet<string> = new Set();
+
+/**
+ * Bounds for the chat rail, narrower than the project rail's on both ends.
+ *
+ * A chat row carries a wrapped title and a line of activity under it, not a
+ * name and a table of counts, so it stays readable further down than 232 —
+ * and needs less than 440 to stop wrapping every title to two lines. The
+ * initial value is the 236 the rail shipped at.
+ */
+const CHATLIST_WIDTH: PaneBounds = {
+  key: 'archon.console.chatRailWidth',
+  min: 200,
+  max: 420,
+  initial: 236,
+};
 
 /** Which archived state the rail is showing. */
 export type ArchiveScope = 'active' | 'archived' | 'all';
@@ -158,6 +174,39 @@ export function ConversationRail({
     setMenuFor(null);
   }, []);
   const renameRef = useRef<HTMLInputElement>(null);
+
+  /* ── drag to resize ─────────────────────────────────────────────────────
+     The project rail's gesture, on the rail beside it: pointer-driven, clamped
+     to the pane's bounds, written down on release rather than on every frame.
+     Two resizable panes in one row that behaved differently would be the thing
+     to explain, not the second handle. */
+  const [width, setWidth] = useState<number>(() => readPaneWidth(CHATLIST_WIDTH));
+  const [resizing, setResizing] = useState(false);
+  // The width as of this render, readable from inside the pointer listeners —
+  // which are registered once per gesture and would otherwise close over the
+  // width the drag STARTED at forever.
+  const widthRef = useRef(width);
+  widthRef.current = width;
+
+  const startResize = useCallback((e: ReactPointerEvent<HTMLDivElement>): void => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = widthRef.current;
+    let latest = startW;
+    setResizing(true);
+    const move = (ev: PointerEvent): void => {
+      latest = clampPaneWidth(startW + (ev.clientX - startX), CHATLIST_WIDTH);
+      setWidth(latest);
+    };
+    const up = (): void => {
+      setResizing(false);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      writePaneWidth(CHATLIST_WIDTH, latest);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }, []);
 
   useEffect(() => {
     // select(), not just focus(): a rename almost always replaces the title
@@ -359,7 +408,8 @@ export function ConversationRail({
 
   return (
     <aside
-      className="chatlist flex h-full min-h-0 shrink-0 flex-col"
+      className="chatlist relative flex h-full min-h-0 shrink-0 flex-col"
+      style={{ width, flexBasis: width }}
       aria-label="Chats"
       onClick={() => {
         setMenuFor(null);
@@ -487,14 +537,6 @@ export function ConversationRail({
           // read from. Beats the bare word; falls back to it when there is
           // nothing structured to say.
           const reason = status === 'awaiting' ? awaitingReason(c.askCandidate) : null;
-          // How full it is, in the same colour the strip under the chat uses —
-          // one threshold table, so a row and the chat it opens can never
-          // disagree about whether to worry. Absent until a turn has reported
-          // a reading against a known window.
-          const fill =
-            c.contextTokens !== null && c.contextWindow !== null && c.contextWindow > 0
-              ? c.contextTokens / c.contextWindow
-              : null;
           const shift =
             dragId === null ? 0 : previewShift(boxesRef.current, dragFrom, dropIndex, index);
           return (
@@ -551,11 +593,15 @@ export function ConversationRail({
               ) : null}
 
               {/* Status on the LEFT, where the eye lands first on a list you
-                  scan rather than read. Idle keeps the chat glyph — it is the
-                  one state with nothing to announce, so the mark goes back to
-                  saying what kind of row this is. */}
+                  scan rather than read. One mark in three states, never a
+                  different KIND of mark per state: a chat bubble for idle made
+                  the column read as two vocabularies — a glyph that says what
+                  the row is, and dots that say what it is doing — and it was
+                  also the one surface disagreeing with the chat's own status
+                  pill and the project chip, which have always drawn all three
+                  as dots. Idle is the quiet one: still, grey, no halo. */}
               <span aria-hidden title={STATUS_TITLE[status]} className={`chat-status is-${status}`}>
-                {status === 'idle' ? <MessageCircle /> : <i />}
+                <i />
               </span>
 
               {renamingId === c.id ? (
@@ -592,15 +638,6 @@ export function ConversationRail({
                   {/* The word replaces the timestamp rather than crowding it:
                       "3m ago" is the wrong thing to read about a chat that is
                       moving right now, or waiting on you. */}
-                  {fill === null ? null : (
-                    <span
-                      className="chat-fill"
-                      style={{ color: occupancyTone(fill) }}
-                      title={`Context ${String(occupancyPercent(fill))}% full`}
-                    >
-                      {occupancyPercent(fill)}%
-                    </span>
-                  )}
                   {doing === undefined && status === 'awaiting' && reason !== null ? (
                     <span className={`chat-stamp is-${status}`} title={reason}>
                       {reason}
@@ -660,6 +697,27 @@ export function ConversationRail({
             </div>
           );
         })}
+      </div>
+
+      {/* Resize handle, straddling the rail's own border — the project rail's
+          handle, in the same place relative to its pane, so the gesture is one
+          thing to learn rather than two. */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize chat list"
+        title="Drag to resize"
+        onPointerDown={startResize}
+        className="group absolute -right-1 top-0 z-10 flex h-full w-[9px] cursor-col-resize items-center justify-center"
+      >
+        <span
+          aria-hidden
+          className={`w-[2px] rounded-sm transition-all ${
+            resizing
+              ? 'h-full bg-accent-bright'
+              : 'h-9 bg-transparent group-hover:h-14 group-hover:bg-accent-bright/60'
+          }`}
+        />
       </div>
     </aside>
   );

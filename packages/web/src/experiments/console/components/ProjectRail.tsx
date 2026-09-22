@@ -1,4 +1,4 @@
-import { Search, Inbox, Play, PanelLeft } from 'lucide-react';
+import { Search, Inbox, Play, PanelLeft, ChevronUp, ChevronDown } from 'lucide-react';
 import { useRailPeek } from '../lib/use-rail-peek';
 import { RAIL_AUTO_COLLAPSE_PX, useViewportWidth } from '../lib/use-viewport';
 import {
@@ -10,6 +10,7 @@ import {
   rowBoxes,
 } from '../lib/chat-order';
 import { readProjectOrder, writeProjectOrder } from '../lib/project-order';
+import { clampPaneWidth, readPaneWidth, writePaneWidth, type PaneBounds } from '../lib/pane-width';
 import { pushOrder, syncPresentation } from '../lib/presentation-sync';
 
 /** Matches `margin-bottom: var(--row-gap)` on .rail-row at comfortable density. */
@@ -33,7 +34,12 @@ import { EnvVarsDialog } from './EnvVarsDialog';
 import { useEntity, invalidate } from '../store/cache';
 import { K } from '../store/keys';
 import * as skill from '../skills';
-import { clampDropToGroup, groupByOwner, type Project } from '../primitives/project';
+import {
+  clampDropToGroup,
+  groupByOwner,
+  moveOwnerGroup,
+  type Project,
+} from '../primitives/project';
 
 interface ProjectRailProps {
   onAddProject: () => void;
@@ -75,28 +81,15 @@ function GlobalRunning(): ReactElement | null {
   );
 }
 
-const RAIL_WIDTH_KEY = 'archon.console.railWidth';
 const RAIL_COLLAPSED_KEY = 'archon.console.railCollapsed';
-const RAIL_MIN = 232;
-const RAIL_MAX = 440;
-const RAIL_DEFAULT = 280;
 
-function readRailWidth(): number {
-  try {
-    const v = parseInt(localStorage.getItem(RAIL_WIDTH_KEY) ?? '', 10);
-    return v >= RAIL_MIN && v <= RAIL_MAX ? v : RAIL_DEFAULT;
-  } catch {
-    return RAIL_DEFAULT;
-  }
-}
-
-function writeRailWidth(w: number): void {
-  try {
-    localStorage.setItem(RAIL_WIDTH_KEY, String(w));
-  } catch {
-    /* ignore */
-  }
-}
+/** Bounds for the project rail. The chat rail declares its own; see lib/pane-width. */
+const RAIL_WIDTH: PaneBounds = {
+  key: 'archon.console.railWidth',
+  min: 232,
+  max: 440,
+  initial: 280,
+};
 
 const RAIL_NAV_LINK_CLASS =
   'flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-1.5 text-left text-[13px] font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary';
@@ -147,7 +140,7 @@ export function ProjectRail({ onAddProject, onSearch }: ProjectRailProps): React
      default so the list logic below is untouched and can be wired to the
      palette's own filter later without another rewrite. */
   const query = '';
-  const [width, setWidth] = useState<number>(readRailWidth);
+  const [width, setWidth] = useState<number>(() => readPaneWidth(RAIL_WIDTH));
 
   /**
    * Collapsed to the icon column, and whether a peek is currently open.
@@ -303,8 +296,25 @@ export function ProjectRail({ onAddProject, onSearch }: ProjectRailProps): React
     endDrag();
   };
 
-  // Pointer-driven resize; width clamps to [RAIL_MIN, RAIL_MAX] and persists
-  // on release. Pointer capture keeps the drag alive outside the handle.
+  /**
+   * Send a whole account's section past the one above or below it.
+   *
+   * Written the same way a drag is — fold the displayed order back into the
+   * stored one, push it, then tell the memo that localStorage moved — because
+   * it IS the same write. A section is just a block of rows, so the arrangement
+   * it produces has to be indistinguishable from having dragged each of them.
+   */
+  const moveGroup = (owner: string, direction: -1 | 1): void => {
+    const moved = moveOwnerGroup(groups, owner, direction);
+    if (moved === null) return;
+    const next = mergeManualOrder(readProjectOrder(), moved);
+    writeProjectOrder(next);
+    pushOrder(next);
+    setOrderTick(t => t + 1);
+  };
+
+  // Pointer-driven resize; width clamps to the rail's bounds and persists on
+  // release. Pointer capture keeps the drag alive outside the handle.
   const startResize = useCallback((e: React.PointerEvent<HTMLDivElement>): void => {
     e.preventDefault();
     const startX = e.clientX;
@@ -312,14 +322,14 @@ export function ProjectRail({ onAddProject, onSearch }: ProjectRailProps): React
     let latest = startW;
     setResizing(true);
     const move = (ev: PointerEvent): void => {
-      latest = Math.max(RAIL_MIN, Math.min(RAIL_MAX, startW + (ev.clientX - startX)));
+      latest = clampPaneWidth(startW + (ev.clientX - startX), RAIL_WIDTH);
       setWidth(latest);
     };
     const up = (): void => {
       setResizing(false);
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
-      writeRailWidth(latest);
+      writePaneWidth(RAIL_WIDTH, latest);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
@@ -456,11 +466,43 @@ export function ProjectRail({ onAddProject, onSearch }: ProjectRailProps): React
               </div>
             </>
           ) : null}
-          {groups.map(group => (
+          {groups.map((group, gi) => (
             <Fragment key={group.owner}>
               {/* Hidden with the rest of the labels when the rail is collapsed:
                   at 63px there is nothing to label. */}
-              <div className="rail-hide rail-owner">{group.owner}</div>
+              <div className="rail-hide rail-owner">
+                <span className="rail-owner-name">{group.owner}</span>
+                {/* Two buttons rather than a drag, because a section is not a
+                    row: dragging one means carrying every project in it past
+                    every project in another, and the preview for that is a
+                    different gesture wearing the row drag's clothes. Up and
+                    down is the whole vocabulary an account order needs.
+                    Revealed on hover, like the row grips. */}
+                <span className="rail-owner-move">
+                  <button
+                    type="button"
+                    aria-label={`Move ${group.owner} up`}
+                    title="Move this account up"
+                    disabled={gi === 0}
+                    onClick={() => {
+                      moveGroup(group.owner, -1);
+                    }}
+                  >
+                    <ChevronUp />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Move ${group.owner} down`}
+                    title="Move this account down"
+                    disabled={gi === groups.length - 1}
+                    onClick={() => {
+                      moveGroup(group.owner, 1);
+                    }}
+                  >
+                    <ChevronDown />
+                  </button>
+                </span>
+              </div>
               {group.items.map((p, i) => {
                 const index = group.start + i;
                 return (

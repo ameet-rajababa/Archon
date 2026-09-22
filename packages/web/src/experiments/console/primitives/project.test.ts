@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { clampDropToGroup, groupByOwner, ownerOf, toProject } from './project';
+import { clampDropToGroup, groupByOwner, moveOwnerGroup, ownerOf, toProject } from './project';
 
 const base = {
   id: 'p1',
@@ -120,5 +120,38 @@ describe('clampDropToGroup', () => {
 
   test('an unknown id passes through — the caller decides what to do', () => {
     expect(clampDropToGroup(groups, 'nope', 3)).toBe(3);
+  });
+});
+
+describe('moveOwnerGroup', () => {
+  const p = (id: string, name: string): { id: string; name: string } => ({ id, name });
+  // [ameet/a ameet/b] [rajababa/x] [zz/q]
+  const groups = groupByOwner([
+    p('r1', 'rajababa-io/x'),
+    p('a1', 'ameet-rajababa/a'),
+    p('a2', 'ameet-rajababa/b'),
+    p('z1', 'zz/q'),
+  ]);
+
+  test('moves a whole account past its neighbour, projects and all', () => {
+    expect(moveOwnerGroup(groups, 'ameet-rajababa', -1)).toEqual(['a1', 'a2', 'r1', 'z1']);
+  });
+
+  test('moves down as well', () => {
+    expect(moveOwnerGroup(groups, 'rajababa-io', 1)).toEqual(['a1', 'a2', 'r1', 'z1']);
+  });
+
+  test('projects keep their own order inside the account that moved', () => {
+    const moved = moveOwnerGroup(groups, 'ameet-rajababa', 1);
+    expect(moved).toEqual(['r1', 'z1', 'a1', 'a2']);
+  });
+
+  test('nothing to do at the end it is already at', () => {
+    expect(moveOwnerGroup(groups, 'rajababa-io', -1)).toBeNull();
+    expect(moveOwnerGroup(groups, 'zz', 1)).toBeNull();
+  });
+
+  test('an unknown account is nothing to do, not a rearrangement', () => {
+    expect(moveOwnerGroup(groups, 'nobody', -1)).toBeNull();
   });
 });

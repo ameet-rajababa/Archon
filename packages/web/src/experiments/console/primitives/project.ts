@@ -125,6 +125,34 @@ export function groupByOwner<T extends { name: string }>(items: readonly T[]): O
 }
 
 /**
+ * The displayed order with one account's whole section moved up or down.
+ *
+ * Grouping does not sort (see `groupByOwner`): a section sits where its first
+ * project sits, so moving an account means moving its projects as a BLOCK past
+ * the neighbouring account's. Everything else — the projects inside each
+ * section, and the sections either side — keeps its place.
+ *
+ * Returns the ids in their new order, or `null` when there is nothing to do:
+ * an unknown account, or one already at the end it is being sent to. A caller
+ * that gets `null` must not write, because writing an unchanged order still
+ * costs a round trip and still repaints the rail.
+ */
+export function moveOwnerGroup<T extends { id: string }>(
+  groups: readonly OwnerGroup<T>[],
+  owner: string,
+  direction: -1 | 1
+): string[] | null {
+  const from = groups.findIndex(g => g.owner === owner);
+  if (from === -1) return null;
+  const to = from + direction;
+  if (to < 0 || to >= groups.length) return null;
+  const next = [...groups];
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved);
+  return next.flatMap(g => g.items.map(i => i.id));
+}
+
+/**
  * Keep a drop inside the dragged row's own owner group.
  *
  * Grouping and a hand-chosen order were called mutually exclusive when the

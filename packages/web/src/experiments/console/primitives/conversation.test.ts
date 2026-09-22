@@ -23,8 +23,6 @@ const conv = (over: Partial<ConversationSummary> = {}): ConversationSummary => (
   archived: false,
   askCandidate: null,
   lastMessageRole: null,
-  contextTokens: null,
-  contextWindow: null,
   sortOrder: null,
   ...over,
 });

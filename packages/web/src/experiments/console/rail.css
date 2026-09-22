@@ -566,11 +566,19 @@
    Ported from the prototype. It lives beside the transcript rather than in
    the rail, which is what gives it room for two lines of title and a
    timestamp — a 268px rail row never had that. */
+/* The width here is only the value before the component has read the one you
+   dragged it to — see CHATLIST_WIDTH in ConversationRail. Nothing else should
+   set it: an inline width and a stylesheet width that disagree is a pane that
+   snaps back on the next render.
+
+   No `overflow-y` of its own. The list inside it scrolls (`flex-1` against a
+   `min-h-0` column), so this never had anything to scroll — and an overflow
+   value here establishes a clipping box, which cuts off the resize handle
+   straddling the right border. */
 .chatlist {
   width: 236px;
   flex: 0 0 auto;
   min-height: 0;
-  overflow-y: auto;
   padding: 8px 8px 8px 0;
   border-right: 1px solid var(--border);
 }
@@ -685,10 +693,23 @@
 /* The rail's SLOT, kept apart from the mark's appearance: the project chip in
    the header wears the same three marks and must not inherit a row's
    geometry. Separating them is what stops the chip growing a second set of
-   rules — and a second heartbeat, which is exactly what it had. */
+   rules — and a second heartbeat, which is exactly what it had.
+
+   The slot is the DOT's own width, not a column wide enough to have held a
+   glyph. At 15px the 8px dot sat centred with 3.5px of slot either side, and
+   the row's 8px gap on top of that put it 11.5px from the word it belongs to
+   — far enough that the mark read as its own column rather than as part of
+   the line it labels. Every state is a dot now, so there is nothing wider to
+   reserve for. The gap drops with it; 7px still clears the working ring,
+   which reaches 2.1× and so comes within 2.6px of the text at its widest. */
+.chatlist .rail-row {
+  gap: 7px;
+}
 .chatlist .rail-row > .chat-status {
-  width: 15px;
-  margin-top: 2px;
+  width: 8px;
+  /* Optically centred on the title's first line (13px text, 1.35 line-height),
+     not on the row: a dot centred on a two-line card floats between them. */
+  margin-top: 5px;
 }
 .chat-status i {
   display: block;
@@ -783,22 +804,16 @@
      so the two never rely on telling amber from blue. */
   animation: chat-throb 1.9s ease-in-out infinite;
 }
-/* Idle keeps the chat glyph: it is the one state with nothing to announce, so
-   the mark goes back to saying what KIND of row this is. */
+/* Idle: a quiet dot — settled, not empty. It is the one state with nothing to
+   announce, so it is the only one that does not move. Still a dot rather than
+   a chat glyph, because the column has one job: three states of one mark. What
+   KIND of row this is, is said by the rail it is sitting in. */
 .chat-status.is-idle {
   color: var(--text-tertiary);
 }
-/* A chat row draws its idle state as the chat glyph, because there the mark
-   also says what KIND of row this is. Anywhere else — the header chip — there
-   is no kind to say, so idle is a quiet dot: settled, not empty. */
 .chat-status.is-idle i {
   background: currentColor;
   opacity: 0.7;
-}
-.chat-status.is-idle svg {
-  width: 13px;
-  height: 13px;
-  display: block;
 }
 .chat-stamp.is-awaiting {
   color: var(--warning);
@@ -814,6 +829,9 @@
    another row you could click. Indented to the icon column so the project
    names below start where the label does. */
 .rail-owner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 10px 7px 3px 17px;
   font-family: ui-monospace, Menlo, monospace;
   font-size: 10px;
@@ -824,13 +842,52 @@
   line-height: 1;
   user-select: none;
 }
-
-/* How full a chat's context is, on the row that opens it.
-   Colour is the whole signal, so the mark itself stays out of the way: the
-   stamp's size, sitting after the status word rather than replacing it. */
-.chat-fill {
-  margin-left: 6px;
-  font-size: var(--text-micro);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.2px;
+.rail-owner-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+/* Which account sits above which. Revealed on hover like the row grips, and
+   for the same reason: the rail is read far more often than it is arranged, so
+   the controls for arranging it should not be part of what you read. */
+.rail-owner-move {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.11s;
+}
+.rail-owner:hover .rail-owner-move,
+.rail-owner:focus-within .rail-owner-move {
+  opacity: 1;
+}
+.rail-owner-move button {
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+  color: var(--text-tertiary);
+  transition:
+    color 0.11s,
+    background-color 0.11s;
+}
+.rail-owner-move button:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+/* Dimmed, not hidden: an account at the top of the rail still shows both
+   controls, so the pair never changes shape as you move a section past the
+   end and the one you want stays where your cursor already is. */
+.rail-owner-move button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.rail-owner-move svg {
+  width: 11px;
+  height: 11px;
+  display: block;
+}
+/* Collapsed the labels are hidden with `rail-hide`; nothing to arrange at 63px. */
