@@ -209,12 +209,16 @@ export class WebAdapter implements IWebPlatformAdapter {
    * console watching live sees it immediately and a console opened later
    * reads it out of the history. One notice, both paths.
    */
-  async sendDurableNotice(conversationId: string, content: string): Promise<void> {
+  async sendDurableNotice(
+    conversationId: string,
+    content: string,
+    metadata?: Record<string, unknown>
+  ): Promise<void> {
     try {
       await this.persistence.flush(conversationId);
       const dbId = this.persistence.conversationDbId(conversationId);
       if (dbId !== undefined) {
-        await addMessage(dbId, 'system', content);
+        await addMessage(dbId, 'system', content, metadata);
       } else {
         // No mapping means nothing has persisted for this conversation yet, so
         // there is no row to attach to. Live delivery below still happens.

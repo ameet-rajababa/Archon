@@ -128,6 +128,46 @@ export async function getRecentWorkflowResultMessages(
 }
 
 /**
+ * How many times this chat has already been told to hand itself off.
+ *
+ * The guard against doing it twice has to survive a restart, because a restart
+ * is what broke it: the in-memory band map that stops a threshold announcing
+ * repeatedly is cleared on boot, and re-arming an ANNOUNCEMENT costs a repeated
+ * sentence while re-arming an ACTION costs a second document and a second
+ * successor. Observed on 2026-09-22, when a deploy landed between two readings.
+ *
+ * Counted from the durable notice the handoff already writes rather than from
+ * new state, and matched on a metadata flag rather than on the sentence — the
+ * wording is prose and will be reworded, the flag is a contract.
+ *
+ * Bounded rather than absolute. One retry is what recovered the interrupted
+ * attempt above: a handoff that fails leaves the chat open, and the unattended
+ * case is exactly where nobody is present to ask for another. Two is the whole
+ * budget; past that something is wrong that repeating will not fix.
+ */
+export async function countAutoHandoffNotices(conversationId: string): Promise<number> {
+  const dbType = getDatabaseType();
+  const flag =
+    dbType === 'postgresql'
+      ? "(metadata->>'autoHandoff') = 'true'"
+      : "json_extract(metadata, '$.autoHandoff') = 1";
+  try {
+    const result = await pool.query<{ count: string | number }>(
+      `SELECT COUNT(*) AS count FROM remote_agent_messages
+       WHERE conversation_id = $1 AND role = 'system' AND ${flag}`,
+      [conversationId]
+    );
+    return Number(result.rows[0]?.count ?? 0);
+  } catch (error) {
+    // Blocks rather than allows. Not knowing how many times this already fired
+    // is not the same as knowing it never did, and the failure this guards is
+    // the expensive one.
+    getLog().warn({ err: error as Error, conversationId }, 'db.auto_handoff_count_failed');
+    return Number.MAX_SAFE_INTEGER;
+  }
+}
+
+/**
  * The newest message in each of several conversations, in one query.
  *
  * For deciding whether a chat is waiting on a human: the answer depends only

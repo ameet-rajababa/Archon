@@ -3357,16 +3357,35 @@ async function maybeNudgeHandoff(
     // turn it dispatches ends here too, and by then the band has been seen.
     nudgeBands.set(conversationId, band);
 
+    // One lookup, shared: the blocker needs the row to read a paused run, and
+    // the durable attempt count is keyed by the same id.
+    const conversation = await db.getConversationByPlatformId(
+      platform.getPlatformType(),
+      conversationId
+    );
     const action = handoffAction({
       band,
       previous,
       fraction,
       autoHandoff,
-      blocker: await handoffBlocker(platform, conversationId, reply),
+      blocker: await handoffBlocker(conversation?.id, reply),
     });
     if (action.kind === 'silent') return;
     if (action.kind === 'announce') {
       await notice(platform, conversationId, action.message);
+      return;
+    }
+
+    // The one-shot guard for an ACTION has to be durable. `nudgeBands` lives in
+    // memory and is cleared on restart, which re-arms it — harmless for a
+    // sentence, expensive for a handoff, and observed on 2026-09-22 when a
+    // deploy landed between two readings and this announced twice.
+    // No row means nothing has persisted yet, so there is nothing to count and
+    // nothing to write the guard onto either — decline rather than act blind.
+    if (conversation === null) return;
+    const alreadyTried = await messageDb.countAutoHandoffNotices(conversation.id);
+    if (alreadyTried >= MAX_AUTO_HANDOFF_ATTEMPTS) {
+      getLog().warn({ conversationId, attempts: alreadyTried }, 'handoff.auto_attempts_exhausted');
       return;
     }
 
@@ -3378,7 +3397,8 @@ async function maybeNudgeHandoff(
     await notice(
       platform,
       conversationId,
-      `This chat is ${String(Math.round(fraction * 100))}% of the model's context window. Handing off automatically — writing the document and carrying the work into a fresh chat.`
+      `This chat is ${String(Math.round(fraction * 100))}% of the model's context window. Handing off automatically — writing the document and carrying the work into a fresh chat.`,
+      { autoHandoff: true }
     );
     // Dispatched, not awaited: this turn holds the conversation lock, so the
     // handoff turn queues behind it rather than deadlocking against it.
@@ -3403,10 +3423,11 @@ async function maybeNudgeHandoff(
 async function notice(
   platform: IPlatformAdapter,
   conversationId: string,
-  content: string
+  content: string,
+  metadata?: Record<string, unknown>
 ): Promise<void> {
   if (platform.sendDurableNotice) {
-    await platform.sendDurableNotice(conversationId, content);
+    await platform.sendDurableNotice(conversationId, content, metadata);
     return;
   }
   await platform.sendStructuredEvent?.(conversationId, { type: 'system', content });
@@ -3419,6 +3440,16 @@ async function notice(
  * (there is nobody awake to give it — the whole point is unattended running),
  * and starting something new in a chat that is about to be archived.
  */
+/**
+ * How many times one chat may be told to hand itself off automatically.
+ *
+ * Two, not one. A handoff that fails leaves the chat open and unhanded, and the
+ * unattended case is exactly the one with nobody present to ask again — the
+ * interrupted attempt on 2026-09-22 was recovered by precisely this retry.
+ * Past two, repeating is not going to fix whatever is wrong.
+ */
+const MAX_AUTO_HANDOFF_ATTEMPTS = 2;
+
 const AUTO_HANDOFF_TRIGGER =
   'This chat has reached its configured handoff threshold. Call the `handoff` tool now, ' +
   'composing the document from what you actually did in this conversation — the decisions ' +
@@ -3435,21 +3466,16 @@ const AUTO_HANDOFF_TRIGGER =
  * answer is not the same as knowing they are not.
  */
 async function handoffBlocker(
-  platform: IPlatformAdapter,
-  conversationId: string,
+  conversationDbId: string | undefined,
   reply: string
 ): Promise<HandoffBlocker | null> {
   if (hasOpenAsk(reply)) return 'open-question';
+  if (conversationDbId === undefined) return null;
   try {
-    const conversation = await db.getConversationByPlatformId(
-      platform.getPlatformType(),
-      conversationId
-    );
-    if (!conversation) return null;
-    const paused = await workflowDb.getPausedWorkflowRun(conversation.id);
+    const paused = await workflowDb.getPausedWorkflowRun(conversationDbId);
     return paused === null ? null : 'awaiting-approval';
   } catch (error) {
-    getLog().warn({ err: toError(error), conversationId }, 'handoff.blocker_read_failed');
+    getLog().warn({ err: toError(error), conversationDbId }, 'handoff.blocker_read_failed');
     return 'awaiting-approval';
   }
 }

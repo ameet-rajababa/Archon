@@ -219,7 +219,11 @@ export interface IPlatformAdapter {
    * So durability is the CALLER's decision, because only the caller knows
    * whether the thing it is saying is a status or a fact.
    */
-  sendDurableNotice?(conversationId: string, content: string): Promise<void>;
+  sendDurableNotice?(
+    conversationId: string,
+    content: string,
+    metadata?: Record<string, unknown>
+  ): Promise<void>;
 
   /** Retract previously streamed text (used when workflow routing intercepts) */
   emitRetract?(conversationId: string): Promise<void>;
