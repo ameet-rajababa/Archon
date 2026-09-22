@@ -195,6 +195,13 @@ COPY docker-entrypoint.sh /usr/local/bin/
 RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh \
     && chmod +x /usr/local/bin/docker-entrypoint.sh
 
+# The commit this image was built from, so a deployment can PROVE what is
+# running rather than assume it. Unset in an ordinary build, which reads as
+# `unknown` — a missing answer, never a wrong one. scripts/deploy-local.sh
+# passes it and refuses to finish if the running container disagrees.
+ARG GIT_SHA=unknown
+RUN echo "$GIT_SHA" > /app/.deployed-sha
+
 # Default port (matches .env.example PORT=3000)
 EXPOSE 3000
 

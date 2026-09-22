@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+#
+# Deploy this checkout to the local Docker install, verifying every step.
+#
+# Run on the HOST (it needs docker), not inside the container:
+#
+#   sudo bash /opt/archon/scripts/deploy-local.sh
+#
+# WHY THIS EXISTS. Deploying is six steps and each one can succeed while doing
+# nothing. In one evening: a push that was never run, a pull blocked by git's
+# ownership guard, and two builds from a checkout that had not moved — every
+# one reported success, and three of four deploys shipped the wrong commit
+# without saying so.
+#
+# So the rule here is that no step is trusted to have worked. Each one is
+# followed by a question whose answer comes from somewhere else: GitHub is
+# asked for the SHA it now has, the deploy checkout is asked what its HEAD is,
+# and the running container is asked which commit it was built from. A step
+# whose effect cannot be confirmed stops the deploy.
+#
+# The layout it assumes, all overridable:
+#   SOURCE_DIR   where the work happens — inside the container
+#   DEPLOY_DIR   the docker build CONTEXT — a SEPARATE clone, on the host
+#   The source is not bind-mounted into the image, which is why a rebuild is
+#   required for server changes and a restart alone does nothing.
+set -euo pipefail
+
+SOURCE_DIR="${SOURCE_DIR:-/home/appuser/archon-upstream}"
+DEPLOY_DIR="${DEPLOY_DIR:-/opt/archon}"
+SOURCE_BRANCH="${SOURCE_BRANCH:-local/deploy}"
+REMOTE="${REMOTE:-fork}"
+REMOTE_BRANCH="${REMOTE_BRANCH:-deploy}"
+SERVICE="${SERVICE:-app}"
+HEALTH_URL="${HEALTH_URL:-http://localhost:3000/api/health}"
+SKIP_TESTS="${SKIP_TESTS:-0}"
+
+step() { printf '\n\033[1m── %s\033[0m\n' "$1"; }
+die() { printf '\n\033[31mSTOPPED: %s\033[0m\n' "$1" >&2; exit 1; }
+
+# Everything container-side runs as root through one helper: the two checkouts
+# are owned by different users and root is neither, so git's dubious-ownership
+# guard fires on both. It is set here rather than asked of the operator because
+# forgetting it is one of the ways a deploy silently did nothing.
+in_container() {
+  docker compose exec -T -u root "$SERVICE" sh -lc "git config --global --add safe.directory '*' >/dev/null 2>&1; $1"
+}
+
+cd "$DEPLOY_DIR" || die "no deploy directory at $DEPLOY_DIR"
+
+# ── 1. Preflight ────────────────────────────────────────────────────────────
+# Refuse to deploy a tree with uncommitted work: whatever is uncommitted is not
+# what gets built, so the deploy would ship something nobody reviewed.
+step "1/6  Preflight"
+DIRTY=$(in_container "git -C '$SOURCE_DIR' status --porcelain --untracked-files=no | head -5")
+[ -z "$DIRTY" ] || die $'uncommitted changes in the source checkout:\n'"$DIRTY"
+
+SHA=$(in_container "git -C '$SOURCE_DIR' rev-parse HEAD" | tr -d '\r\n')
+[ -n "$SHA" ] || die "could not read the source HEAD"
+echo "source HEAD: $SHA"
+
+if [ "$SKIP_TESTS" != "1" ]; then
+  echo "running web tests…"
+  in_container "cd '$SOURCE_DIR/packages/web' && bun run test 2>&1 | tail -3" \
+    || die "tests failed — fix them or re-run with SKIP_TESTS=1"
+fi
+
+# ── 2. Push, then ask GitHub what it has ────────────────────────────────────
+# The push is the step that has silently not happened. `git push` succeeding is
+# not evidence; the remote's own answer is.
+step "2/6  Push to $REMOTE/$REMOTE_BRANCH"
+in_container "cd '$SOURCE_DIR' && git push \"https://x-access-token:\${GH_TOKEN}@github.com/ameet-rajababa/Archon.git\" '$SOURCE_BRANCH:$REMOTE_BRANCH' 2>&1 | tail -2" \
+  || die "push failed"
+
+REMOTE_SHA=$(in_container "cd '$SOURCE_DIR' && git ls-remote '$REMOTE' 'refs/heads/$REMOTE_BRANCH' | cut -f1" | tr -d '\r\n')
+[ "$REMOTE_SHA" = "$SHA" ] || die "remote is at ${REMOTE_SHA:-nothing}, expected $SHA"
+echo "remote confirms: $REMOTE_SHA"
+
+# ── 3. Pull into the build context, then assert it moved ────────────────────
+step "3/6  Pull into $DEPLOY_DIR"
+in_container "git -C '$DEPLOY_DIR' pull --ff-only '$REMOTE' '$REMOTE_BRANCH' 2>&1 | tail -2" \
+  || die "pull failed — resolve it in $DEPLOY_DIR by hand"
+
+DEPLOY_SHA=$(in_container "git -C '$DEPLOY_DIR' rev-parse HEAD" | tr -d '\r\n')
+[ "$DEPLOY_SHA" = "$SHA" ] || die "build context is at $DEPLOY_SHA, expected $SHA — building it would ship the wrong commit"
+echo "build context confirms: $DEPLOY_SHA"
+
+# ── 4. Build ────────────────────────────────────────────────────────────────
+# The SHA goes INTO the image so step 6 can ask what is running instead of
+# inferring it from what was built.
+step "4/6  Build"
+docker compose build --build-arg "GIT_SHA=$SHA" "$SERVICE" || die "build failed"
+
+# ── 5. Up ───────────────────────────────────────────────────────────────────
+step "5/6  Restart and wait for health"
+docker compose up -d "$SERVICE" || die "up failed"
+
+for _ in $(seq 1 60); do
+  if curl -fsS "$HEALTH_URL" >/dev/null 2>&1; then break; fi
+  sleep 2
+done
+curl -fsS "$HEALTH_URL" >/dev/null 2>&1 || die "never became healthy at $HEALTH_URL"
+echo "healthy"
+
+# ── 6. Ask the running container which commit it IS ─────────────────────────
+# The one question worth asking. Everything above can be green while the
+# container still runs an older image.
+step "6/6  Verify what is actually running"
+RUNNING_SHA=$(docker compose exec -T "$SERVICE" cat /app/.deployed-sha 2>/dev/null | tr -d '\r\n' || true)
+[ -n "$RUNNING_SHA" ] || die "the running image carries no SHA — it predates this script; re-run now that the Dockerfile records one"
+[ "$RUNNING_SHA" = "$SHA" ] || die "running $RUNNING_SHA, expected $SHA"
+
+printf '\n\033[32mDeployed %s\033[0m\n' "$SHA"
+in_container "git -C '$DEPLOY_DIR' log --oneline -1"
