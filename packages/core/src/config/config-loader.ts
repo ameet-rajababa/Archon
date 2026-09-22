@@ -563,6 +563,10 @@ function mergeGlobalConfig(defaults: MergedConfig, global: GlobalConfig): Merged
     result.workflows = { ...result.workflows, ...global.workflows };
   }
 
+  if (global.chats) {
+    result.chats = { ...result.chats, ...global.chats };
+  }
+
   // Container backend defaults (folder projects)
   if (global.container) {
     result.container = { ...global.container };

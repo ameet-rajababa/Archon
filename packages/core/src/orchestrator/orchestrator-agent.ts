@@ -33,6 +33,9 @@ import { buildManageRunTool } from './manage-run-tool';
 import { buildProjectBriefTool } from './update-project-brief-tool';
 import { basename } from 'node:path';
 import { buildHandoffTool } from './handoff-tool';
+import { bandFor, nudgeMessage, shouldAnnounce, type NudgeBand } from './handoff-nudge';
+import { contextWindowFor } from './context-window';
+import { resolveChatsConfig } from '../config/chats';
 import { getArchonWorkspacesPath, ensureArchonWorkspacesPath } from '@archon/paths';
 import { resolveWorkflowSourceRoot } from '../utils/workflow-source-root';
 import {
@@ -3028,6 +3031,7 @@ async function handleStreamMode(
     });
   }
   await maybeSendResultFooter(platform, conversationId, lastResult);
+  await maybeNudgeHandoff(platform, conversationId, lastResult);
   // Anonymous telemetry: one completed direct-chat turn. The workflow-invocation
   // and project-registration paths return above without reaching this — those
   // are covered by workflow_invoked / codebase_registered instead. Platform +
@@ -3308,6 +3312,7 @@ async function handleBatchMode(
     });
   }
   await maybeSendResultFooter(platform, conversationId, lastResult);
+  await maybeNudgeHandoff(platform, conversationId, lastResult);
   // Anonymous telemetry: one completed direct-chat turn (same exclusion
   // rationale as the stream-mode capture in handleStreamMode above).
   captureChatTurn({
@@ -3322,6 +3327,55 @@ async function handleBatchMode(
     tokensOut: lastResult?.tokens?.output,
     outcome: 'completed',
   });
+}
+
+/**
+ * How full each chat was when it last spoke, so a band announces itself once.
+ *
+ * In memory, and deliberately not persisted. Losing it on restart re-arms the
+ * nudge, which costs one repeated sentence; persisting it would mean a schema
+ * for a reminder, and a reminder is not worth a migration.
+ */
+const nudgeBands = new Map<string, NudgeBand>();
+
+/**
+ * Say something when a chat crosses a fill threshold — once per band.
+ *
+ * Reads the same figure the bar draws: gross input on the LAST request, over
+ * the window of the model that answered. No window means no percentage and
+ * therefore nothing to say; a guessed one would be nagging about a number
+ * nobody can check.
+ *
+ * Non-fatal by construction. This runs after the user already has their reply,
+ * so a failure here must never be allowed to obscure it.
+ */
+async function maybeNudgeHandoff(
+  platform: IPlatformAdapter,
+  conversationId: string,
+  info: { contextTokens?: number; model?: string } | undefined
+): Promise<void> {
+  if (!platform.sendStructuredEvent) return;
+  if (info?.contextTokens === undefined) return;
+  const window = contextWindowFor(info.model);
+  if (window === null || window <= 0) return;
+
+  try {
+    const { nudgeAt, handoffAt } = resolveChatsConfig((await loadConfig()).chats);
+    const fraction = info.contextTokens / window;
+    const band = bandFor(fraction, nudgeAt, handoffAt);
+    const previous = nudgeBands.get(conversationId) ?? 'none';
+    // Record every reading, not just the ones that spoke: a fall has to be
+    // remembered for the next rise to count as a crossing.
+    nudgeBands.set(conversationId, band);
+    if (band === 'none' || !shouldAnnounce(previous, band)) return;
+
+    await platform.sendStructuredEvent(conversationId, {
+      type: 'system',
+      content: nudgeMessage(band, fraction),
+    });
+  } catch (error) {
+    getLog().warn({ err: toError(error), conversationId }, 'handoff_nudge_failed');
+  }
 }
 
 /**

@@ -439,6 +439,12 @@ export interface MergedConfig {
     quotaMaxAttempts: number;
     quotaDeadlineMs: number;
   };
+  /**
+   * Chat handoff thresholds, as configured. Carried raw rather than resolved
+   * because `resolveChatsConfig` owns the defaults and the validation, and two
+   * places applying them is two places to disagree about what 0 means.
+   */
+  chats?: ChatsConfig;
   commands: {
     /**
      * Additional command folder to search (relative to repo root)
