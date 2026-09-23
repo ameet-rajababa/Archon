@@ -6,6 +6,12 @@ import type { components } from '@/lib/api.generated';
 
 export interface ListRunsOptions {
   codebaseId?: string;
+  /**
+   * Conversation DB id of the chat that launched the run. Not the platform
+   * conversation id the message/stream routes take, and not the per-run worker
+   * conversation.
+   */
+  parentConversationId?: string;
   status?: RunStatus;
   limit?: number;
 }
@@ -43,6 +49,8 @@ export async function listRuns(
 ): Promise<{ runs: Run[]; counts: RunCounts; total: number }> {
   const qs = new URLSearchParams();
   if (opts.codebaseId !== undefined) qs.set('codebaseId', opts.codebaseId);
+  if (opts.parentConversationId !== undefined)
+    qs.set('parentConversationId', opts.parentConversationId);
   if (opts.status !== undefined) qs.set('status', opts.status);
   if (opts.limit !== undefined) qs.set('limit', opts.limit.toString());
   const url = `/api/dashboard/runs${qs.size > 0 ? `?${qs.toString()}` : ''}`;

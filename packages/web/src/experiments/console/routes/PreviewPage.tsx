@@ -18,6 +18,7 @@ const baseRun: Omit<Run, 'id' | 'workflow' | 'status'> = {
   projectName: 'archon-core',
   costUsd: null,
   conversationId: null,
+  parentConversationId: null,
   conversationPlatformId: null,
   workerPlatformId: null,
   origin: 'cli',

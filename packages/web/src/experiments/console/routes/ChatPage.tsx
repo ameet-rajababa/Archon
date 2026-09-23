@@ -5,6 +5,7 @@ import { ChatComposer } from '../components/ChatComposer';
 import { ProjectViewTabs } from '../components/ProjectViewTabs';
 import { WorkingIndicator } from '../components/WorkingIndicator';
 import { WorkflowDock } from '../components/WorkflowDock';
+import { ChatRunsPanel } from '../components/ChatRunsPanel';
 import { EmptyState } from '../components/EmptyState';
 import { StreamContextProvider } from '../lib/stream-context';
 import { useConversationSSE } from '../lib/sse';
@@ -60,6 +61,15 @@ export function ChatPage(): ReactElement {
     const web = (conversations ?? []).find(c => c.platformType === 'web');
     if (web !== undefined) setActiveConvId(web.id);
   }, [conversations, activeConvId]);
+
+  // `activeConvId` is the PLATFORM conversation id (what the message and stream
+  // routes take); a run's `parent_conversation_id` is the DB uuid. Derived from
+  // the conversation list rather than tracked as second state, so the two can't
+  // drift; null for the moment between creating a chat and the list refetching.
+  const activeConvDbId = useMemo<string | null>(
+    () => (conversations ?? []).find(c => c.id === activeConvId)?.dbId ?? null,
+    [conversations, activeConvId]
+  );
 
   const { data: messages, error: messagesError } = useEntity<Message[]>(
     activeConvId !== null ? K.messages(activeConvId) : 'noop:no-conv',
@@ -296,6 +306,10 @@ export function ChatPage(): ReactElement {
           </button>
         ) : null}
       </div>
+
+      {activeConvDbId !== null ? (
+        <ChatRunsPanel conversationDbId={activeConvDbId} projectId={projectId} />
+      ) : null}
 
       <WorkflowDock projectId={projectId} />
 

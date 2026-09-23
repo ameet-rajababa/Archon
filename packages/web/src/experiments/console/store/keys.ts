@@ -17,6 +17,9 @@ export const K = {
     `workflow:${encodeURIComponent(cwd)}:${encodeURIComponent(name)}`,
   worktrees: (projectId: string): string => `worktrees:${projectId}`,
   runs: (scope: Scope): string => `runs:${scopeKey(scope)}`,
+  // Under the `runs:` prefix on purpose — the dashboard SSE invalidates the
+  // whole prefix, so a chat's list stays live with the project feed.
+  chatRuns: (conversationDbId: string): string => `runs:conversation:${conversationDbId}`,
   run: (id: string): string => `run:${id}`,
   messages: (conversationId: string): string => `messages:${conversationId}`,
   conversations: (projectId: string): string => `conversations:${projectId}`,
