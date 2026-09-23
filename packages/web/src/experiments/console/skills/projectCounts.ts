@@ -19,6 +19,11 @@ import { toConversationSummary } from '../primitives/conversation';
 import { toRun } from '../primitives/run';
 
 export interface ProjectCounts {
+  /**
+   * OPEN chats — the ones still in play. Not every chat the project has ever
+   * had: a finished chat is history, same as a completed run, and this column
+   * means the same kind of thing as the runs column beside it.
+   */
   chats: number;
   /**
    * Runs IN PLAY — running, paused or queued. Not the lifetime total.
@@ -76,9 +81,14 @@ export async function getProjectCounts(projectId: string): Promise<ProjectCounts
   // Both together: neither blocks the other, and a failure in one must not
   // blank the other's number.
   const [chats, runs, issues] = await Promise.allSettled([
-    requestJson<Parameters<typeof toConversationSummary>[0][]>(
-      `/api/conversations?codebaseId=${q}&mine=true&archived=active`
-    ),
+    // `counts` answers the number; the rows are only here for the ids and the
+    // unanswered-question check, so this asks for a page rather than the whole
+    // listing. Measuring the rows would cap the number at whatever the page
+    // held, which is the bug the counts exist to remove.
+    requestJson<{
+      conversations: Parameters<typeof toConversationSummary>[0][];
+      counts: { open: number; done: number; all: number };
+    }>(`/api/conversations?codebaseId=${q}&mine=true&archived=active&limit=50`),
     // `status=paused` narrows the RECORDS without narrowing `counts` — the
     // server computes per-status counts across the filtered set minus the
     // status filter — so one request gives both the in-play numbers and the
@@ -91,7 +101,8 @@ export async function getProjectCounts(projectId: string): Promise<ProjectCounts
     ),
   ]);
 
-  const chatRows = chats.status === 'fulfilled' && Array.isArray(chats.value) ? chats.value : [];
+  const chatPage = chats.status === 'fulfilled' ? chats.value : null;
+  const chatRows = Array.isArray(chatPage?.conversations) ? chatPage.conversations : [];
   // Through the normalizer, not by reaching for the wire fields: which columns
   // carry the platform id and the ask candidate is `primitives/conversation.ts`'s
   // to know.
@@ -122,7 +133,7 @@ export async function getProjectCounts(projectId: string): Promise<ProjectCounts
   const unansweredQuestions = askAwaitingIds(chatSummaries).size;
 
   return {
-    chats: chatSummaries.length,
+    chats: chatPage?.counts.open ?? 0,
     chatIds,
     runs: running + paused + pending,
     running,

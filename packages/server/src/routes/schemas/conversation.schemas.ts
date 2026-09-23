@@ -18,6 +18,11 @@ export const conversationSchema = conversationRowSchema
 
 /** GET /api/conversations query params. */
 export const listConversationsQuerySchema = z.object({
+  // How many rows to return. A caller that only wants the counts — the project
+  // rail draws a number, not a list — asks for few rows and reads `counts`,
+  // rather than paying for a page it will throw away. Omitted takes the
+  // route's own default.
+  limit: z.coerce.number().int().positive().optional(),
   platform: z.string().optional(),
   codebaseId: z.string().optional(),
   // Non-enforcing "mine" filter: 'true' restricts to the caller's own
@@ -34,9 +39,36 @@ export const listConversationsQuerySchema = z.object({
   state: z.enum(['open', 'done', 'all']).optional(),
 });
 
-/** GET /api/conversations response. */
+/**
+ * GET /api/conversations response.
+ *
+ * An envelope rather than a bare array because the listing is capped: the
+ * counts alongside answer for every row the filters match, so a client can
+ * tell a complete list from a truncated one. Finished chats accumulate without
+ * bound, which makes silent truncation a question of when rather than whether.
+ */
 export const conversationListResponseSchema = z
-  .array(conversationSchema)
+  .object({
+    conversations: z.array(
+      conversationSchema.extend({
+        // Listed rows carry the newest assistant message when it might hold an
+        // ask block, so the rail can badge a chat that is waiting on an answer.
+        // Only this route computes it; fetching one conversation does not.
+        ask_candidate: z.string().nullable(),
+      })
+    ),
+    /**
+     * How many chats each lifecycle scope holds under the same filters, with
+     * `state` ignored. `counts[state]` is the total for what was asked, so a
+     * client can tell a complete list from a truncated one; the other two let
+     * a rail label a scope it is not currently showing.
+     */
+    counts: z.object({
+      open: z.number().int(),
+      done: z.number().int(),
+      all: z.number().int(),
+    }),
+  })
   .openapi('ConversationListResponse');
 
 /** Path params for routes with :id (platform conversation ID). */

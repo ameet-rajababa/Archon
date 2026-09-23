@@ -31,7 +31,6 @@ import {
   type LiveSegment,
   type LiveEvent,
 } from '../primitives/live-text';
-import type { ConversationSummary } from '../primitives/conversation';
 
 // While a turn is active, refetch messages on this cadence so streamed replies
 // still surface if a per-conversation SSE event is dropped (cross-origin
@@ -90,19 +89,19 @@ export function ChatPage(): ReactElement {
   // Which lifecycle scope the rail is showing. Part of the cache key, or
   // switching scope would render the previous scope's list.
   const [scope, setScope] = useState<ChatScope>('open');
-  const { data: conversations, error: conversationsError } = useEntity<ConversationSummary[]>(
+  const { data: conversationList, error: conversationsError } = useEntity<skill.ConversationList>(
     projectId !== undefined ? `${K.conversations(projectId)}:${scope}` : 'noop:no-project-convs',
     () =>
-      projectId !== undefined ? skill.listConversations(projectId, scope) : Promise.resolve([])
+      projectId !== undefined
+        ? skill.listConversations(projectId, scope)
+        : Promise.resolve(skill.EMPTY_CONVERSATION_LIST)
   );
-
-  // Counting finished chats needs its own read: the open list cannot know how
-  // many it is leaving out.
-  const { data: doneList } = useEntity<ConversationSummary[]>(
-    projectId !== undefined ? `${K.conversations(projectId)}:done-count` : 'noop:no-done',
-    () =>
-      projectId !== undefined ? skill.listConversations(projectId, 'done') : Promise.resolve([])
-  );
+  const conversations = conversationList?.chats;
+  // Every scope's size arrives with whichever scope is being shown, so the
+  // tabs can be labelled without a second read. Counted server-side rather
+  // than measured here: the listing is capped, and done is the scope that
+  // outgrows any cap.
+  const counts = conversationList?.counts ?? skill.EMPTY_CONVERSATION_LIST.counts;
 
   // Active conversation: most-recent web conversation, else null until first send.
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
@@ -150,7 +149,6 @@ export function ChatPage(): ReactElement {
   const invalidateConversations = (): void => {
     if (projectId === undefined) return;
     invalidate(`${K.conversations(projectId)}:${scope}`);
-    invalidate(`${K.conversations(projectId)}:done-count`);
     invalidate(K.conversations(projectId));
   };
   invalidateConversationsRef.current = invalidateConversations;
@@ -636,6 +634,12 @@ export function ChatPage(): ReactElement {
         // menu all name chats in the project being left.
         key={projectId}
         conversations={conversations ?? []}
+        omitted={
+          conversationList === undefined
+            ? 0
+            : conversationList.total - conversationList.chats.length
+        }
+        openCount={counts.open}
         liveIds={railLiveIds}
         awaitingIds={awaitingIds}
         activeConvId={activeConvId}
@@ -645,7 +649,7 @@ export function ChatPage(): ReactElement {
         onReorder={reorderConversations}
         scope={scope}
         onScopeChange={setScope}
-        doneCount={doneList?.length ?? 0}
+        doneCount={counts.done}
         pendingNew={startingNew && activeConvId === null}
         projectId={projectId}
       />

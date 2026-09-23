@@ -5,7 +5,6 @@ import { ActiveRunCard } from '../components/ActiveRunCard';
 import { EmptyState } from '../components/EmptyState';
 import { ProjectBriefCard } from '../components/ProjectBriefCard';
 import { issueType } from '../primitives/issue-board';
-import type { ConversationSummary } from '../primitives/conversation';
 import { conversationLabel } from '../primitives/conversation';
 import type { Run } from '../primitives/run';
 import { relativeTime } from '../lib/format';
@@ -64,10 +63,11 @@ export function OverviewPage(): ReactElement {
   );
   // Open chats, not every chat: the overview is where you resume, and a
   // finished one is not something to resume.
-  const { data: chats } = useEntity<ConversationSummary[]>(
+  const { data: chatList } = useEntity<skill.ConversationList>(
     `${K.conversations(projectId)}:open`,
     () => skill.listConversations(projectId, 'open')
   );
+  const chats = chatList?.chats;
 
   const runs = feed?.runs ?? [];
   const now = useNow();

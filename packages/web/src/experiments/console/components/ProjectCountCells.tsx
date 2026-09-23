@@ -67,7 +67,7 @@ function ProjectCountCellsImpl({ projectId }: { projectId: string }): ReactEleme
       />
       <Cell
         value={chats}
-        title={chats === null ? 'Chats' : `${chats} active chat${chats === 1 ? '' : 's'}`}
+        title={chats === null ? 'Chats' : `${chats} open chat${chats === 1 ? '' : 's'}`}
       />
       <Cell
         value={data?.issues ?? null}

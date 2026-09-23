@@ -213,25 +213,36 @@ export async function getConversationsByIsolationEnvId(
   return result.rows;
 }
 
+/** Which soft-delete state a listing asks for. */
+export type ConversationArchivedFilter = 'active' | 'archived' | 'all';
+
+/** Where in its lifecycle a listing asks for chats to be. */
+export type ConversationStateFilter = 'open' | 'done' | 'all';
+
 /**
- * List all conversations ordered by recent activity
+ * What a caller may narrow a conversation listing by. An options object rather
+ * than a positional list: every field is optional and independent, and seven
+ * positional arguments could not be read at a call site without counting
+ * `undefined`s.
  */
-export async function listConversations(
-  limit = 50,
-  platformType?: string,
-  codebaseId?: string,
-  excludeEmpty = false,
+export interface ListConversationsOptions {
+  /** Most rows to return. The listing reports counts separately, so a caller
+   *  that hits this limit can tell that it did. */
+  limit?: number;
+  platformType?: string;
+  codebaseId?: string;
+  excludeEmpty?: boolean;
   /**
    * Non-enforcing "mine" filter: when set, restrict to conversations attributed
    * to this user (`user_id = $N`). Absent → all (default visibility stays open).
    */
-  userId?: string,
+  userId?: string;
   /**
    * Which soft-delete state to return. `active` (the default) preserves the
    * historic behaviour exactly; `archived` returns only soft-deleted rows;
    * `all` returns both.
    */
-  archived: 'active' | 'archived' | 'all' = 'active',
+  archived?: ConversationArchivedFilter;
   /**
    * Where the chat is in its lifecycle: `open` has no completion recorded,
    * `done` has one, `all` (the default) does not ask.
@@ -242,8 +253,50 @@ export async function listConversations(
    * default and finished work on request — but the parameter defaults to `all`
    * so every existing caller keeps the rows it already got.
    */
-  state: 'open' | 'done' | 'all' = 'all'
-): Promise<readonly Conversation[]> {
+  state?: ConversationStateFilter;
+}
+
+/**
+ * How many conversations each lifecycle scope holds, under every filter the
+ * caller gave EXCEPT `state` — asking for open chats still reports how many
+ * are done, which is what lets a rail label a scope it is not showing.
+ *
+ * Counted rather than derived from the returned rows. The listing is capped,
+ * and finished chats accumulate without bound, so `rows.length` answers "how
+ * many did I get" and never "how many are there".
+ */
+export interface ConversationCounts {
+  readonly open: number;
+  readonly done: number;
+  readonly all: number;
+}
+
+/** One page of conversations, and the counts the page was drawn from. */
+export interface ConversationPage {
+  readonly rows: readonly Conversation[];
+  readonly counts: ConversationCounts;
+}
+
+const NO_CONVERSATIONS: ConversationPage = {
+  rows: [],
+  counts: { open: 0, done: 0, all: 0 },
+};
+
+/**
+ * List conversations ordered by recent activity, with per-scope counts.
+ */
+export async function listConversations(
+  options: ListConversationsOptions = {}
+): Promise<ConversationPage> {
+  const {
+    limit = 50,
+    platformType,
+    codebaseId,
+    excludeEmpty = false,
+    userId,
+    archived = 'active',
+    state = 'all',
+  } = options;
   const params: unknown[] = [];
   const archivedClause =
     archived === 'active'
@@ -251,22 +304,19 @@ export async function listConversations(
       : archived === 'archived'
         ? 'deleted_at IS NOT NULL'
         : '1 = 1';
-  const stateClause =
-    state === 'open'
-      ? 'completed_at IS NULL'
-      : state === 'done'
-        ? 'completed_at IS NOT NULL'
-        : '1 = 1';
-  let sql = `SELECT * FROM remote_agent_conversations WHERE ${archivedClause} AND ${stateClause} AND (hidden IS NULL OR hidden = false)`;
+  // Everything except the lifecycle filter. The counts answer for all three
+  // scopes at once, so `state` narrows the page and nothing else — a count
+  // that inherited it would report done = 0 whenever you asked for open.
+  let where = `WHERE ${archivedClause} AND (hidden IS NULL OR hidden = false)`;
 
   if (excludeEmpty) {
-    sql +=
+    where +=
       ' AND (title IS NOT NULL OR EXISTS (SELECT 1 FROM remote_agent_messages WHERE conversation_id = remote_agent_conversations.id LIMIT 1))';
   }
 
   if (platformType) {
     params.push(platformType);
-    sql += ` AND platform_type = $${String(params.length)}`;
+    where += ` AND platform_type = $${String(params.length)}`;
   }
 
   if (codebaseId) {
@@ -275,22 +325,52 @@ export async function listConversations(
     // instead, which the route above turns into a 500 — the console showed
     // five of those at once when a URL carried a project name where an id
     // belonged. See `looksLikeRowId`.
-    if (!looksLikeRowId(codebaseId)) return [];
+    if (!looksLikeRowId(codebaseId)) return NO_CONVERSATIONS;
     params.push(codebaseId);
-    sql += ` AND codebase_id = $${String(params.length)}`;
+    where += ` AND codebase_id = $${String(params.length)}`;
   }
 
   if (userId) {
     params.push(userId);
-    sql += ` AND user_id = $${String(params.length)}`;
+    where += ` AND user_id = $${String(params.length)}`;
   }
 
-  sql += ' ORDER BY last_activity_at DESC NULLS LAST';
-  params.push(limit);
-  sql += ` LIMIT $${String(params.length)}`;
+  const stateClause =
+    state === 'open'
+      ? ' AND completed_at IS NULL'
+      : state === 'done'
+        ? ' AND completed_at IS NOT NULL'
+        : '';
 
-  const result = await pool.query<Conversation>(sql, params);
-  return result.rows;
+  const pageParams = [...params, limit];
+  const page = await pool.query<Conversation>(
+    `SELECT * FROM remote_agent_conversations ${where}${stateClause} ORDER BY last_activity_at DESC NULLS LAST LIMIT $${String(pageParams.length)}`,
+    pageParams
+  );
+  // SUM(CASE ...) rather than COUNT(*) FILTER: the filtered-aggregate syntax is
+  // recent in SQLite and this has to mean the same thing on both adapters.
+  const counted = await pool.query<{
+    open_count: string | number | null;
+    done_count: string | number | null;
+    total_count: string | number | null;
+  }>(
+    `SELECT
+       SUM(CASE WHEN completed_at IS NULL THEN 1 ELSE 0 END) AS open_count,
+       SUM(CASE WHEN completed_at IS NOT NULL THEN 1 ELSE 0 END) AS done_count,
+       COUNT(*) AS total_count
+     FROM remote_agent_conversations ${where}`,
+    params
+  );
+  const row = counted.rows[0];
+  return {
+    rows: page.rows,
+    counts: {
+      // SUM over no rows is NULL, not 0.
+      open: Number(row?.open_count ?? 0),
+      done: Number(row?.done_count ?? 0),
+      all: Number(row?.total_count ?? 0),
+    },
+  };
 }
 
 /**

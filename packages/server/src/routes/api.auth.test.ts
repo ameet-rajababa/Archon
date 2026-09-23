@@ -56,15 +56,10 @@ mock.module('@archon/core/db/users', () => ({
 
 // --- List endpoints we assert the filter threading on ---
 const mockListWorkflowRuns = mock(async (_opts?: { userId?: string }) => [] as unknown[]);
-const mockListConversations = mock(
-  async (
-    _limit?: number,
-    _platform?: string,
-    _codebaseId?: string,
-    _excludeEmpty?: boolean,
-    _userId?: string
-  ) => [] as unknown[]
-);
+const mockListConversations = mock(async (_options?: { userId?: string }) => ({
+  rows: [] as unknown[],
+  counts: { open: 0, done: 0, all: 0 },
+}));
 
 mock.module('@archon/core', () => ({
   handleMessage: mock(async () => {}),
@@ -316,8 +311,7 @@ describe('?mine filter — non-enforcing', () => {
     const app = makeApp();
     const res = await app.request('/api/conversations');
     expect(res.status).toBe(200);
-    // listConversations(limit, platform, codebaseId, excludeEmpty, userId)
-    expect(mockListConversations.mock.calls[0]?.[4]).toBeUndefined();
+    expect(mockListConversations.mock.calls[0]?.[0]?.userId).toBeUndefined();
   });
 
   test('conversations: ?mine=true with X-Archon-User header → filters by userId', async () => {
@@ -326,7 +320,7 @@ describe('?mine filter — non-enforcing', () => {
       headers: { 'X-Archon-User': 'bob' },
     });
     expect(res.status).toBe(200);
-    expect(mockListConversations.mock.calls[0]?.[4]).toBe('user-from-bob');
+    expect(mockListConversations.mock.calls[0]?.[0]?.userId).toBe('user-from-bob');
   });
 
   // The headline guarantee of this PR: ?mine is non-enforcing. With no
@@ -345,7 +339,7 @@ describe('?mine filter — non-enforcing', () => {
     const res = await app.request('/api/conversations?mine=true');
     expect(res.status).toBe(200);
     expect(mockFindOrCreateUser).not.toHaveBeenCalled();
-    expect(mockListConversations.mock.calls[0]?.[4]).toBeUndefined();
+    expect(mockListConversations.mock.calls[0]?.[0]?.userId).toBeUndefined();
   });
 
   // Resilience: a Better Auth session lookup that throws (e.g. DB outage) must

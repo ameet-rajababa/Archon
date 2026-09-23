@@ -109,7 +109,19 @@ interface ConversationRailProps {
   /** Which lifecycle scope the list is showing; the rail does not fetch. */
   scope: ChatScope;
   onScopeChange: (scope: ChatScope) => void;
+  /**
+   * How many chats each scope holds, counted server-side. Not `conversations.
+   * length`: that is the list currently shown, which is the wrong set for two
+   * of the three tabs and a capped one for all three.
+   */
+  openCount: number;
   doneCount: number;
+  /**
+   * Chats in this scope the server did not send, because the listing is
+   * capped. Drawn as a line under the last row: a list that quietly stops
+   * short looks exactly like a complete one.
+   */
+  omitted: number;
   /** Which project's manual order to read and write. */
   projectId: string;
   /**
@@ -140,7 +152,9 @@ export function ConversationRail({
   onReorder,
   scope,
   onScopeChange,
+  openCount,
   doneCount,
+  omitted,
   pendingNew,
   projectId,
   liveIds,
@@ -407,7 +421,9 @@ export function ConversationRail({
           //   click it. Open agrees with the list below by construction.
           //   All is not a set you are asking about; it is the absence of a
           //   filter, and its count is the sum of the two beside it.
-          const count = value === 'open' ? conversations.length : value === 'done' ? doneCount : 0;
+          // Both come from the server, not from the rendered list: that list
+          // is one scope's, and a capped one.
+          const count = value === 'open' ? openCount : value === 'done' ? doneCount : 0;
           return (
             <button
               key={value}
@@ -658,6 +674,15 @@ export function ConversationRail({
             </div>
           );
         })}
+
+        {/* The listing is capped server-side, so a long-running project's
+            finished chats eventually outrun it. Say so under the last row:
+            without this the list stops at the cap and looks complete. */}
+        {omitted > 0 ? (
+          <p className="px-2 py-3 text-[11px] text-text-tertiary">
+            {omitted} older {omitted === 1 ? 'chat' : 'chats'} not shown.
+          </p>
+        ) : null}
       </div>
 
       {/* Resize handle, straddling the rail's own border — the project rail's

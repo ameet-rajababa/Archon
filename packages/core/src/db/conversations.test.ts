@@ -509,8 +509,10 @@ describe('conversations', () => {
   describe('listConversations — lifecycle filter', () => {
     const sqlOf = async (state?: 'open' | 'done' | 'all'): Promise<string> => {
       mockQuery.mockClear();
+      // The page query, then the counts query.
       mockQuery.mockResolvedValueOnce(createQueryResult([]));
-      await listConversations(50, undefined, undefined, false, undefined, 'active', state);
+      mockQuery.mockResolvedValueOnce(createQueryResult([]));
+      await listConversations({ archived: 'active', state });
       return String(mockQuery.mock.calls[0]?.[0]);
     };
 
@@ -524,6 +526,52 @@ describe('conversations', () => {
       // the orchestrator, the adapters — predates the column and must not
       // silently start losing finished chats.
       expect(await sqlOf()).not.toContain('completed_at');
+    });
+
+    test('the counts ignore the lifecycle filter', async () => {
+      // Asking for open chats must still report how many are done — that count
+      // is how a rail labels the scope it is not showing. A counts query that
+      // inherited `state` would answer done = 0 for every open listing.
+      mockQuery.mockClear();
+      mockQuery.mockResolvedValueOnce(createQueryResult([]));
+      mockQuery.mockResolvedValueOnce(createQueryResult([]));
+      await listConversations({ archived: 'active', state: 'open' });
+
+      const page = String(mockQuery.mock.calls[0]?.[0]);
+      const counts = String(mockQuery.mock.calls[1]?.[0]);
+      expect(page).toContain('completed_at IS NULL');
+      expect(counts).toContain('COUNT(*)');
+      expect(counts).not.toContain('WHERE deleted_at IS NULL AND completed_at');
+      // Both halves narrow by the same non-lifecycle filters, or the total
+      // would answer for a different set of rows than the page.
+      expect(counts).toContain('deleted_at IS NULL');
+    });
+
+    test('counts come from SQL, not from the returned rows', async () => {
+      // The page is capped. Measuring it would cap the count too, which is the
+      // failure that made every project report the same number.
+      mockQuery.mockClear();
+      mockQuery.mockResolvedValueOnce(createQueryResult([{ id: 'a' }]));
+      mockQuery.mockResolvedValueOnce(
+        createQueryResult([{ open_count: 3, done_count: 112, total_count: 115 }])
+      );
+
+      const page = await listConversations({ limit: 1 });
+      expect(page.rows).toHaveLength(1);
+      expect(page.counts).toEqual({ open: 3, done: 112, all: 115 });
+    });
+
+    test('an empty table counts as zero, not NaN', async () => {
+      // SUM over no rows is NULL in both dialects, and Number(null) is 0 only
+      // because the nullish default catches it first.
+      mockQuery.mockClear();
+      mockQuery.mockResolvedValueOnce(createQueryResult([]));
+      mockQuery.mockResolvedValueOnce(
+        createQueryResult([{ open_count: null, done_count: null, total_count: 0 }])
+      );
+
+      const page = await listConversations({});
+      expect(page.counts).toEqual({ open: 0, done: 0, all: 0 });
     });
 
     test('the two filters are separate clauses on separate columns', async () => {

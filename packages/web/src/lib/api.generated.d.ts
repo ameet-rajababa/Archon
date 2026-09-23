@@ -780,6 +780,7 @@ export interface paths {
     get: {
       parameters: {
         query?: {
+          limit?: number;
           platform?: string;
           codebaseId?: string;
           mine?: 'true' | 'false';
@@ -3494,7 +3495,16 @@ export interface components {
       provider: string | null;
       model?: string | null;
     };
-    ConversationListResponse: components['schemas']['Conversation'][];
+    ConversationListResponse: {
+      conversations: (components['schemas']['Conversation'] & {
+        ask_candidate: string | null;
+      })[];
+      counts: {
+        open: number;
+        done: number;
+        all: number;
+      };
+    };
     Conversation: {
       id: string;
       platform_type: string;

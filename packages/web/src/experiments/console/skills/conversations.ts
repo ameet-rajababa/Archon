@@ -83,6 +83,32 @@ export async function createConversation(
 }
 
 /**
+ * A project's chats, and how many exist in each scope.
+ *
+ * `counts` is not `chats.length`: the route caps what it returns and finished
+ * chats accumulate without bound, so the counts are the difference between a
+ * list that is complete and one that merely looks it. They also carry the
+ * scopes this list is not showing, which is how the rail labels a tab you
+ * would otherwise have to click to learn anything about.
+ */
+export interface ConversationList {
+  chats: ConversationSummary[];
+  counts: { open: number; done: number; all: number };
+  /** Chats in the requested scope, including any the route did not send. */
+  total: number;
+  /** The route had more chats in this scope than it sent. */
+  truncated: boolean;
+}
+
+/** No project selected: nothing listed, and nothing withheld either. */
+export const EMPTY_CONVERSATION_LIST: ConversationList = {
+  chats: [],
+  counts: { open: 0, done: 0, all: 0 },
+  total: 0,
+  truncated: false,
+};
+
+/**
  * A project's chats, filtered by where they are in their lifecycle.
  *
  * `archived=active` is not a choice the console offers any more — it never
@@ -93,11 +119,19 @@ export async function createConversation(
 export async function listConversations(
   projectId: string,
   state: 'open' | 'done' | 'all' = 'open'
-): Promise<ConversationSummary[]> {
-  const raw = await requestJson<Parameters<typeof toConversationSummary>[0][]>(
+): Promise<ConversationList> {
+  const raw = await requestJson<{
+    conversations: Parameters<typeof toConversationSummary>[0][];
+    counts: { open: number; done: number; all: number };
+  }>(
     `/api/conversations?codebaseId=${encodeURIComponent(projectId)}&mine=true&archived=active&state=${state}`
   );
-  return raw.map(toConversationSummary);
+  const chats = raw.conversations.map(toConversationSummary);
+  // The count for the scope that was asked for. The server ignores `state`
+  // when counting, so this picks the one the rows were drawn from rather than
+  // carrying a second number that has to agree with it.
+  const total = raw.counts[state];
+  return { chats, counts: raw.counts, total, truncated: total > chats.length };
 }
 
 /**

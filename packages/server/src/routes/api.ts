@@ -2758,6 +2758,15 @@ export function registerApiRoutes(
     };
   }
 
+  /**
+   * Most conversations one listing returns. Generous rather than tuned: the
+   * rail draws a project's chats, and a project accumulates finished ones
+   * forever, so a limit sized to today's busiest project silently starts
+   * dropping rows in a fortnight. The response carries `total` alongside, so
+   * reaching this number is something a client can see and say.
+   */
+  const CONVERSATION_LIST_LIMIT = 500;
+
   // GET /api/conversations - List conversations
   registerOpenApiRoute(getConversationsRoute, async c => {
     try {
@@ -2782,25 +2791,35 @@ export function registerApiRoutes(
       // lifecycle filter needs: it keeps the rows it already got.
       const stateParam = c.req.query('state');
       const state = stateParam === 'open' || stateParam === 'done' ? stateParam : 'all';
-      const conversations = await conversationDb.listConversations(
-        50,
+      // A caller may ask for fewer rows than the cap, but never more: the cap
+      // is what keeps one request from reading an unbounded table. The query
+      // schema has already refused anything that is not a positive integer,
+      // so what is left to decide here is the absent case and the ceiling.
+      const requested = Number(c.req.query('limit'));
+      const limit =
+        Number.isFinite(requested) && requested > 0
+          ? Math.min(requested, CONVERSATION_LIST_LIMIT)
+          : CONVERSATION_LIST_LIMIT;
+      const { rows, counts } = await conversationDb.listConversations({
+        limit,
         platformType,
         codebaseId,
-        true,
+        excludeEmpty: true,
         userId,
         archived,
-        state
-      );
-      const facts = await lastMessageFacts(conversations);
-      return c.json(
-        conversations.map(row => {
+        state,
+      });
+      const facts = await lastMessageFacts(rows);
+      return c.json({
+        conversations: rows.map(row => {
           const fact = facts.get(row.id);
           return {
             ...toApiConversation(row),
             ask_candidate: fact?.askCandidate ?? null,
           };
-        })
-      );
+        }),
+        counts,
+      });
     } catch (error) {
       getLog().error({ err: error }, 'list_conversations_failed');
       return apiError(c, 500, 'Failed to list conversations');

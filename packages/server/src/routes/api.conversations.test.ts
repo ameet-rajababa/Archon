@@ -26,6 +26,16 @@ const mockSetConversationOrder = mock(async (_ids: readonly string[]) => {});
 const mockUpdateConversationTitle = mock(async (_id: string, _title: string) => {});
 const mockSetConversationCompleted = mock(async (_id: string, _completed: boolean) => {});
 const mockSetConversationArchived = mock(async (_id: string, _archived: boolean) => {});
+const mockListConversations = mock(
+  async (_options?: {
+    limit?: number;
+    state?: 'open' | 'done' | 'all';
+    codebaseId?: string;
+  }): Promise<{
+    rows: unknown[];
+    counts: { open: number; done: number; all: number };
+  }> => ({ rows: [], counts: { open: 0, done: 0, all: 0 } })
+);
 
 const mockGenerateAndSetTitle = mock(async (..._args: unknown[]) => {});
 const mockResolveTitleRequest = mock(async () => ({
@@ -78,7 +88,7 @@ mock.module('@archon/core/db/conversations', () => ({
   setConversationOrder: mockSetConversationOrder,
   setConversationCompleted: mockSetConversationCompleted,
   setConversationArchived: mockSetConversationArchived,
-  listConversations: mock(async () => []),
+  listConversations: mockListConversations,
   getOrCreateConversation: mock(async () => ({
     id: 'internal-uuid-123',
     platform_conversation_id: 'web-test-abc',
@@ -99,6 +109,9 @@ const mockAddMessage = mock(async (_convId: string, _role: string, _content: str
 }));
 mock.module('@archon/core/db/messages', () => ({
   addMessage: mockAddMessage,
+  getLastMessagePerConversation: mock(
+    async (_ids: readonly string[]) => new Map<string, { role: string; content: string }>()
+  ),
 }));
 mock.module('@archon/core/db/codebases', () => ({
   listCodebases: mock(async () => [{ default_cwd: '/tmp/project' }]),
@@ -117,6 +130,96 @@ const MOCK_CONV = {
   deleted_at: null,
   codebase_id: null,
 };
+
+const listApp = (): OpenAPIHono => {
+  const app = new OpenAPIHono();
+  registerApiRoutes(app, {} as WebAdapter, {} as ConversationLockManager);
+  return app;
+};
+
+describe('GET /api/conversations', () => {
+  test('returns the rows and the counts they were drawn from', async () => {
+    mockListConversations.mockImplementationOnce(async () => ({
+      rows: [MOCK_CONV],
+      counts: { open: 3, done: 112, all: 115 },
+    }));
+
+    const response = await listApp().request('/api/conversations');
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      conversations: { platform_conversation_id: string }[];
+      counts: { open: number; done: number; all: number };
+    };
+    expect(body.conversations).toHaveLength(1);
+    expect(body.conversations[0]?.platform_conversation_id).toBe('web-test-abc');
+    expect(body.counts).toEqual({ open: 3, done: 112, all: 115 });
+  });
+
+  test('a truncated page still reports the full count', async () => {
+    // The whole point of the envelope. Returning rows.length as the total
+    // would make a capped list indistinguishable from a complete one, which
+    // is what a client cannot recover from.
+    mockListConversations.mockImplementationOnce(async () => ({
+      rows: [MOCK_CONV],
+      counts: { open: 0, done: 400, all: 400 },
+    }));
+
+    const response = await listApp().request('/api/conversations?state=done');
+    const body = (await response.json()) as {
+      conversations: unknown[];
+      counts: { done: number };
+    };
+    expect(body.conversations.length).toBeLessThan(body.counts.done);
+  });
+
+  test('a caller may ask for fewer rows, but never more than the cap', async () => {
+    mockListConversations.mockClear();
+
+    await listApp().request('/api/conversations?limit=5');
+    expect(mockListConversations.mock.calls[0]?.[0]?.limit).toBe(5);
+
+    await listApp().request('/api/conversations?limit=100000');
+    const capped = mockListConversations.mock.calls[1]?.[0]?.limit ?? 0;
+    expect(capped).toBeLessThan(100000);
+    expect(capped).toBeGreaterThan(0);
+  });
+
+  test('a limit that is not a positive integer is refused, not defaulted', async () => {
+    // Query strings carry text, and 'abc', '0', '-1' and '2.5' are each a
+    // caller asking for something the route cannot do. Rejecting says so;
+    // quietly substituting the default would hand back a page that answers a
+    // different request from the one that was made.
+    for (const value of ['abc', '0', '-1', '2.5']) {
+      mockListConversations.mockClear();
+      const response = await listApp().request(`/api/conversations?limit=${value}`);
+      expect(response.status).toBe(400);
+      expect(mockListConversations).not.toHaveBeenCalled();
+    }
+  });
+
+  test('an omitted limit takes the route cap', async () => {
+    mockListConversations.mockClear();
+    await listApp().request('/api/conversations');
+    expect(mockListConversations.mock.calls[0]?.[0]?.limit).toBeGreaterThan(0);
+  });
+
+  test('the lifecycle scope reaches the database', async () => {
+    mockListConversations.mockClear();
+    await listApp().request('/api/conversations?state=done');
+    expect(mockListConversations.mock.calls[0]?.[0]?.state).toBe('done');
+  });
+
+  test('returns 500 when the listing throws', async () => {
+    mockListConversations.mockImplementationOnce(async () => {
+      throw new Error('DB connection lost');
+    });
+
+    const response = await listApp().request('/api/conversations');
+    expect(response.status).toBe(500);
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toContain('Failed to list conversations');
+  });
+});
 
 describe('GET /api/conversations/:id', () => {
   test('returns conversation JSON by platform conversation ID', async () => {

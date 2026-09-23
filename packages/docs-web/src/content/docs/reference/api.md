@@ -72,8 +72,28 @@ curl http://localhost:3090/api/conversations
 ```
 
 Query parameters:
-- `codebase_id` (optional) -- Filter by codebase
-- `include_deleted` (optional) -- Include soft-deleted conversations
+- `codebaseId` (optional) -- Filter by codebase
+- `platform` (optional) -- Filter by platform type (`web`, `slack`, ...)
+- `mine` (optional) -- `true` narrows to the caller's own conversations when an
+  identity resolves. Non-enforcing: with no identity it still lists everything.
+- `archived` (optional) -- `active` (default), `archived`, or `all`
+- `state` (optional) -- `open`, `done`, or `all` (default). Where the chat is in
+  its lifecycle, which is a separate question from whether it was deleted.
+- `limit` (optional) -- Rows to return, capped by the server
+
+The response is an envelope, not a bare array:
+
+```json
+{
+  "conversations": [{ "id": "...", "platform_conversation_id": "web-...", "...": "..." }],
+  "counts": { "open": 3, "done": 112, "all": 115 }
+}
+```
+
+`counts` applies every filter above **except** `state`, so one request reports
+how many chats each lifecycle scope holds. Because the listing is capped,
+comparing `counts` against the number of rows returned is how a client tells a
+complete list from a truncated one.
 
 ### Create a Conversation
 
