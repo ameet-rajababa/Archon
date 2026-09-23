@@ -599,7 +599,11 @@ describe('PATCH /api/conversations/:id', () => {
 
     const body = (await response.json()) as { success: boolean };
     expect(body.success).toBe(true);
-    expect(mockUpdateConversationTitle).toHaveBeenCalledWith(MOCK_CONV.id, 'Updated Title');
+    // Pinned: a rename through this route is a person choosing the name, and
+    // the pin is what stops automatic re-titling from undoing it.
+    expect(mockUpdateConversationTitle).toHaveBeenCalledWith(MOCK_CONV.id, 'Updated Title', {
+      pinned: true,
+    });
   });
 
   test('truncates title to 255 characters', async () => {

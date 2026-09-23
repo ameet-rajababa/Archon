@@ -1,7 +1,7 @@
 import { describe, test, expect, mock, beforeEach } from 'bun:test';
 import { OpenAPIHono } from '@hono/zod-openapi';
 import type { ConversationLockManager } from '@archon/core';
-import type { WebAdapter } from '../adapters/web';
+import type { ToolInputSnapshot, WebAdapter } from '../adapters/web';
 import {
   makeDiscoverWorkflowsMock,
   makeLoaderMock,
@@ -39,6 +39,9 @@ const mockGetStats = mock(() => ({
   maxConcurrent: 10,
   activeConversationIds: [] as string[],
 }));
+const mockCurrentActivity = mock(
+  () => new Map<string, { name: string; input: ToolInputSnapshot; startedAt: number }>()
+);
 
 mock.module('@archon/core', () => ({
   handleMessage: mock(async () => {}),
@@ -193,6 +196,7 @@ function makeApp(): OpenAPIHono {
     setConversationDbId: mock((_platformId: string, _dbId: string) => {}),
     emitSSE: mock(async () => {}),
     emitLockEvent: mock(async () => {}),
+    currentActivity: mockCurrentActivity,
   } as unknown as WebAdapter;
   const mockLockManager = {
     acquireLock: mock(async (_id: string, fn: () => Promise<void>) => {
@@ -217,6 +221,7 @@ describe('GET /api/health', () => {
     mockIsWSL.mockClear();
     mockGetWSLDistroName.mockClear();
     mockGetSchemaVersion.mockClear();
+    mockCurrentActivity.mockClear(); // preserve the empty-Map base; tests opt in with mockImplementationOnce
   });
 
   test('returns status ok with adapter and concurrency info', async () => {
@@ -250,6 +255,53 @@ describe('GET /api/health', () => {
     expect(body.runningWorkflows).toBe(1);
     expect(typeof body.version).toBe('string');
     expect(body.version.length).toBeGreaterThan(0);
+  });
+
+  // The rail says "Editing ChatPage.tsx" rather than "working" by reading
+  // concurrency.activeTools off this same response. Only chats with a tool in
+  // flight appear there; the rest fall back to the word.
+  test('reports what each active chat is doing', async () => {
+    mockGetStats.mockImplementationOnce(() => ({
+      active: 1,
+      queuedTotal: 0,
+      queuedByConversation: [],
+      maxConcurrent: 10,
+      activeConversationIds: ['conv-1'],
+    }));
+    mockGetRunningWorkflows.mockImplementationOnce(async () => []);
+    mockCurrentActivity.mockImplementationOnce(
+      () =>
+        new Map([
+          ['conv-1', { name: 'Edit', input: { file_path: 'ChatPage.tsx' }, startedAt: 1000 }],
+        ])
+    );
+
+    const app = makeApp();
+    const body = (await (await app.request('/api/health')).json()) as {
+      concurrency: {
+        activeTools: Record<string, { name: string; input: ToolInputSnapshot; startedAt: number }>;
+      };
+    };
+    expect(body.concurrency.activeTools).toEqual({
+      'conv-1': { name: 'Edit', input: { file_path: 'ChatPage.tsx' }, startedAt: 1000 },
+    });
+  });
+
+  test('reports no active tools when nothing is in flight', async () => {
+    mockGetStats.mockImplementationOnce(() => ({
+      active: 0,
+      queuedTotal: 0,
+      queuedByConversation: [],
+      maxConcurrent: 10,
+      activeConversationIds: [],
+    }));
+    mockGetRunningWorkflows.mockImplementationOnce(async () => []);
+
+    const app = makeApp();
+    const body = (await (await app.request('/api/health')).json()) as {
+      concurrency: { activeTools: Record<string, unknown> };
+    };
+    expect(body.concurrency.activeTools).toEqual({});
   });
 
   // Schema vintage (#2316): a bug report needs to be able to state which build
