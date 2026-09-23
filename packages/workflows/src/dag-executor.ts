@@ -122,6 +122,9 @@ import {
   parseWholeOutputRef,
   parseWholeInputsRef,
   substituteInputRefs,
+  OUTPUT_REF_SOURCE,
+  OUTPUT_FIELD_PATH_SOURCE,
+  LOOP_PREV_OUTPUT_REF_SOURCE,
   type JsonValue,
 } from './output-ref';
 import { buildTruncationMarker } from './utils/output-truncation';
@@ -1407,6 +1410,20 @@ function requiredOutputRefError(
  *   decision surface named. Used by `until_bash`; other callers keep the legacy empty
  *   fallback. Field refs remain strict in either mode.
  */
+/**
+ * The runtime substitution patterns, built from the one grammar in output-ref.
+ *
+ * Factories rather than module constants because a `g`-flagged RegExp carries a
+ * mutable `lastIndex`, and these run concurrently across nodes.
+ */
+function nodeOutputRefPattern(): RegExp {
+  return new RegExp(`${OUTPUT_REF_SOURCE}(?:\\.(${OUTPUT_FIELD_PATH_SOURCE}))?`, 'g');
+}
+
+function loopPrevOutputRefPattern(): RegExp {
+  return new RegExp(`${LOOP_PREV_OUTPUT_REF_SOURCE}(?:\\.(${OUTPUT_FIELD_PATH_SOURCE}))?`, 'g');
+}
+
 export function substituteNodeOutputRefs(
   prompt: string,
   nodeOutputs: Map<string, NodeOutput>,
@@ -1415,7 +1432,7 @@ export function substituteNodeOutputRefs(
   requiredContext?: RequiredOutputRefContext
 ): string {
   return prompt.replace(
-    /\$([a-zA-Z_][a-zA-Z0-9_-]*)\.output(?:\.([a-zA-Z_][a-zA-Z0-9_]*))?/g,
+    nodeOutputRefPattern(),
     (match, nodeId: string, field: string | undefined) => {
       const nodeOutput = nodeOutputs.get(nodeId);
       if (!nodeOutput) {
@@ -1590,7 +1607,7 @@ export function substituteLoopPrevRefs(
     return prompt;
   }
   return prompt.replace(
-    /\$LOOP_PREV\.([a-zA-Z_][a-zA-Z0-9_-]*)\.output(?:\.([a-zA-Z_][a-zA-Z0-9_]*))?/g,
+    loopPrevOutputRefPattern(),
     (match, nodeId: string, field: string | undefined) => {
       const nodeOutput = loopPrevOutputs?.get(nodeId);
       if (!nodeOutput || nodeOutput.state === 'skipped' || nodeOutput.state === 'pending') {
