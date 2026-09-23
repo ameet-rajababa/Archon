@@ -33,8 +33,10 @@ import type {
   AssistantDefaultsConfig,
   RawAliasesConfig,
   RawTiersConfig,
+  SafeChatsConfig,
 } from './config-types';
 import { workflowContinuationConfigSchema } from './config-types';
+import { resolveChatsConfig, type ResolvedChatsConfig } from './chats';
 import { createLogger } from '@archon/paths';
 import {
   isRegisteredProvider,
@@ -731,6 +733,13 @@ export async function updateGlobalConfig(
       merged.concurrency = { ...current.concurrency, ...updates.concurrency };
     }
 
+    // Shallow, like `streaming` and `concurrency` above: three independent
+    // scalars, so an absent key preserves whatever is already on file and a
+    // single-field PATCH does not reset the other two.
+    if (updates.chats) {
+      merged.chats = { ...current.chats, ...updates.chats };
+    }
+
     if (updates.workflows) {
       merged.workflows = workflowContinuationConfigSchema.parse({
         ...current.workflows,
@@ -840,5 +849,17 @@ export function toSafeConfig(config: MergedConfig): SafeConfig {
     tiers: config.tiers,
     tierDefaults: tierDefaultsFor(config.assistant),
     aliases: config.aliases,
+    // Resolved, not raw: an unset threshold still has an effective value, and
+    // the editor has to show the number the server will actually act on.
+    chats: toSafeChats(resolveChatsConfig(config.chats)),
+  };
+}
+
+/** The resolved thresholds, narrowed to what a client needs (no fractions). */
+function toSafeChats(resolved: ResolvedChatsConfig): SafeChatsConfig {
+  return {
+    nudgeAtPercent: resolved.nudgeAtPercent,
+    handoffAtPercent: resolved.handoffAtPercent,
+    autoHandoff: resolved.autoHandoff,
   };
 }

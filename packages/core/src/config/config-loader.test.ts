@@ -1055,6 +1055,40 @@ tiers:
       expect(written).not.toMatch(/^tiers:/m);
     });
 
+    test('writes the chat thresholds', async () => {
+      mockFsReadFile.mockResolvedValue('defaultAssistant: claude\n');
+      await updateGlobalConfig({ chats: { handoffAtPercent: 55, autoHandoff: false } });
+      const written = mockFsWriteFile.mock.calls[0]?.[1] as string;
+      expect(written).toContain('handoffAtPercent: 55');
+      expect(written).toContain('autoHandoff: false');
+    });
+
+    test('per-field merge: setting one threshold preserves the others', async () => {
+      // The settings panel PATCHes whole forms, but the CLI and a hand-written
+      // request do not — a single-field update must not silently reset the
+      // other two to their defaults.
+      mockFsReadFile.mockResolvedValue(`
+chats:
+  nudgeAtPercent: 30
+  autoHandoff: false
+`);
+      await updateGlobalConfig({ chats: { handoffAtPercent: 55 } });
+      const written = mockFsWriteFile.mock.calls[0]?.[1] as string;
+      expect(written).toContain('nudgeAtPercent: 30');
+      expect(written).toContain('autoHandoff: false');
+      expect(written).toContain('handoffAtPercent: 55');
+    });
+
+    test('existing chats survive an assistants-only update', async () => {
+      mockFsReadFile.mockResolvedValue(`
+chats:
+  handoffAtPercent: 55
+`);
+      await updateGlobalConfig({ assistants: { claude: { model: 'haiku' } } });
+      const written = mockFsWriteFile.mock.calls[0]?.[1] as string;
+      expect(written).toContain('handoffAtPercent: 55');
+    });
+
     test('existing tiers survive an assistants-only update', async () => {
       mockFsReadFile.mockResolvedValue(`
 tiers:
@@ -1112,6 +1146,48 @@ assistants:
       expect(safe.assistants.claude).toBeDefined();
       expect(safe.assistants.codex).toBeDefined();
       expect(safe.assistants.codex).not.toHaveProperty('additionalDirectories');
+    });
+
+    test('exposes the chat thresholds RESOLVED, so an unset one still has a number', async () => {
+      mockFsReadFile.mockResolvedValue('defaultAssistant: claude');
+      const config = await loadConfig();
+      const safe = toSafeConfig(config);
+      // Unlike `tiers`, which round-trips the raw config, these are what the
+      // engine will act on — a settings field showing blank for a threshold
+      // that is really 40 would be lying about live behaviour.
+      expect(safe.chats).toEqual({
+        nudgeAtPercent: 40,
+        handoffAtPercent: 50,
+        autoHandoff: true,
+      });
+    });
+
+    test('a configured threshold round-trips as a whole number', async () => {
+      mockFsReadFile.mockResolvedValue(`
+chats:
+  nudgeAtPercent: 35
+  handoffAtPercent: 55
+  autoHandoff: false
+`);
+      const config = await loadConfig();
+      const safe = toSafeConfig(config);
+      expect(safe.chats).toEqual({
+        nudgeAtPercent: 35,
+        handoffAtPercent: 55,
+        autoHandoff: false,
+      });
+    });
+
+    test('a threshold the resolver refuses is reported as the default it used', async () => {
+      // Not as the number on file. The editor's whole job is to show what is
+      // live, and 150 is not live — 50 is.
+      mockFsReadFile.mockResolvedValue(`
+chats:
+  handoffAtPercent: 150
+`);
+      const config = await loadConfig();
+      const safe = toSafeConfig(config);
+      expect(safe.chats.handoffAtPercent).toBe(50);
     });
 
     test('exposes configured tiers and computed tierDefaults', async () => {

@@ -339,6 +339,7 @@ import {
   configResponseSchema,
   updateTiersBodySchema,
   updateAliasesBodySchema,
+  updateChatsBodySchema,
   codebaseEnvironmentsResponseSchema,
 } from './schemas/config.schemas';
 import {
@@ -1253,6 +1254,31 @@ const patchAliasesConfigRoute = createRoute({
       description: 'Updated configuration',
     },
     400: jsonError('Invalid alias name, unknown provider, or invalid effort'),
+    500: jsonError('Server error'),
+  },
+});
+
+const patchChatsConfigRoute = createRoute({
+  method: 'patch',
+  path: '/api/config/chats',
+  tags: ['System'],
+  summary: 'Update chat handoff thresholds',
+  description:
+    'Writes the `chats:` config to ~/.archon/config.yaml. Ungated (works on solo ' +
+    'installs). Per-field merge; an absent field keeps its current value. ' +
+    'Install-wide only — `chats` in a repo config is read by nothing.',
+  request: {
+    body: {
+      content: { 'application/json': { schema: updateChatsBodySchema } },
+      required: true,
+    },
+  },
+  responses: {
+    200: {
+      content: { 'application/json': { schema: configResponseSchema } },
+      description: 'Updated configuration',
+    },
+    400: jsonError('Threshold outside 1-99, or a nudge at or above the handoff point'),
     500: jsonError('Server error'),
   },
 });
@@ -5257,6 +5283,40 @@ export function registerApiRoutes(
     } catch (error) {
       getLog().error({ err: error }, 'config.aliases_update_failed');
       return apiError(c, 500, 'Failed to update alias configuration');
+    }
+  });
+
+  // PATCH /api/config/chats - Update handoff thresholds (ungated — solo-OK, like /tiers)
+  registerOpenApiRoute(patchChatsConfigRoute, async c => {
+    try {
+      const body = getValidatedBody(c, updateChatsBodySchema);
+
+      // Checked against the MERGED result, not the body alone: a PATCH that
+      // only raises the nudge has to be compared with the handoff point
+      // already on file, or the pair can be walked into an invalid state one
+      // field at a time.
+      const current = toSafeConfig(await loadConfig()).chats;
+      const nudge = body.nudgeAtPercent ?? current.nudgeAtPercent;
+      const handoff = body.handoffAtPercent ?? current.handoffAtPercent;
+      if (nudge >= handoff) {
+        return apiError(
+          c,
+          400,
+          `Nudge (${String(nudge)}%) must be below the handoff point (${String(handoff)}%) — ` +
+            'otherwise it would suggest wrapping up a chat that has already been handed off.'
+        );
+      }
+
+      await updateGlobalConfig({ chats: body });
+
+      const config = await loadConfig();
+      return c.json({
+        config: toSafeConfig(config),
+        database: getDatabaseType(),
+      });
+    } catch (error) {
+      getLog().error({ err: error }, 'config.chats_update_failed');
+      return apiError(c, 500, 'Failed to update chat configuration');
     }
   });
 

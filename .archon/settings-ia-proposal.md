@@ -75,22 +75,25 @@ it. Three are worse than absent — they are advertised.
 │ commands.autoLoad         │ nothing. Merged at config-loader.ts:613, │ DEAD               │
 │                           │ read by no consumer                      │                    │
 ├───────────────────────────┼──────────────────────────────────────────┼────────────────────┤
-│ chats.autoHandoff         │ nothing. resolveChatsConfig returns it    │ DEAD — its own doc │
-│                           │ (config/chats.ts:41); the one call site   │ comment describes  │
-│                           │ destructures {nudgeAt, handoffAt} only    │ behaviour that     │
-│                           │ (orchestrator-agent.ts:3363)             │ does not exist     │
+│ chats.autoHandoff         │ WIRED SINCE. maybeNudgeHandoff reads it  │ LIVE — resolved    │
+│                           │ and dispatches the handoff tool at a safe │ by implementing it │
+│                           │ boundary, bounded at two attempts         │ (see §5 item 2)    │
 └───────────────────────────┴──────────────────────────────────────────┴────────────────────┘
 ```
 
-**The `chats.autoHandoff` one matters most**, because it is the block that forced
-this question. Its type doc says "Hand off automatically at this fill level, at the
-next safe boundary". Nothing hands off automatically. Both thresholds only send a
-message: `nudgeMessage()` in `handoff-nudge.ts` says "say the word and I'll hand
-off" at 40% and "ask me to, and I'll write the document" at 50%. The feature as
-shipped is two differently-worded suggestions, and `autoHandoff: true` is the
-documented default of a switch with no wire attached.
+**The `chats.autoHandoff` one mattered most**, because it is the block that forced
+this question. Its type doc said "Hand off automatically at this fill level, at the
+next safe boundary" and nothing handed off automatically: both thresholds only sent
+a message.
 
-**Consequence for the layout:** `chats` gets a UI with **two** controls, not three.
+**RESOLVED by taking the first branch of §5 item 2** — the behaviour was implemented
+rather than the field removed. `maybeNudgeHandoff` now asks the chat to call the
+`handoff` tool when it crosses `handoffAtPercent`, at a safe boundary only (end of
+turn, no open ask block, no paused run) and at most twice per chat, counted from a
+durable notice so the bound survives a restart.
+
+**Consequence for the layout:** `chats` gets **three** live controls. The two-control
+version drawn in §4 and mock 3 is superseded.
 
 **Why the three "advertised but dead" ones are the urgent half.** A missing setting
 costs a user one search. A setting in the shipped `config.yaml` template that they
@@ -138,11 +141,19 @@ their project, not a preference.
 │ container.*             │ container isolation  │ see §3c     │ YES    │ op   │ FILE │
 │ workflows.*             │ quota-failure        │ see §3d     │ YES    │ op   │ UI   │
 │                         │ continuation policy  │             │        │      │      │
-│ chats.nudgeAtPercent    │ suggest wrapping up  │ 40          │ YES    │ feel │ UI   │
-│ chats.handoffAtPercent  │ stronger suggestion  │ 50          │ YES    │ feel │ UI   │
-│ chats.autoHandoff       │ NOTHING (§2)         │ true (lie)  │ YES    │ —    │ HOLD │
+│ chats.nudgeAtPercent    │ suggest wrapping up  │ 40          │ no ✗   │ feel │ UI ✓ │
+│ chats.handoffAtPercent  │ say it is time       │ 50          │ no ✗   │ feel │ UI ✓ │
+│ chats.autoHandoff       │ automatic handoff    │ true        │ no ✗   │ feel │ UI ✓ │
 └─────────────────────────┴──────────────────────┴─────────────┴────────┴──────┴──────┘
 ```
+
+**✗ corrects an earlier reading of this table.** All three `chats` keys were listed
+as per-project overridable because `mergeRepoConfig` merges `repo.chats` faithfully.
+It does, and nothing reads the result: `resolveChatsConfig` is handed `loadConfig()`
+with **no repo path**, so only `~/.archon/config.yaml` is ever consulted. A `chats:`
+block in a repository config is a seventh dead setting — the same defect as §2, found
+while building the panel. The Chats panel is therefore install-scoped, with no scope
+toggle.
 
 ### 3b. Repo config — `<repo>/.archon/config.yaml`
 
@@ -299,12 +310,15 @@ SETTINGS
 │   ├─ Provider credentials (keys, subscription login)  …… AgentsPanel, unchanged
 │   └─ GitHub identity                                  …… GithubIdentityPanel, unchanged
 │
-├─ CHATS                                         [This install | This project]
+├─ CHATS                                                     scope: This install
 │   ├─ Suggest wrapping up at ___%          …………… chats.nudgeAtPercent      (40)
-│   └─ Hand off at ___%                     …………… chats.handoffAtPercent    (50)
-│      · autoHandoff omitted until it has a consumer. See §2.
+│   ├─ Hand off at ___%                     …………… chats.handoffAtPercent    (50)
+│   └─ Hand off automatically      (toggle) …………… chats.autoHandoff       (true)
 │      · show the resolved pair with a one-line explanation of what each does,
 │        because 40 and 50 are meaningless without knowing which one speaks.
+│      · BUILT. No project scope: `chats` in a repo config is merged and then
+│        read by nobody — resolveChatsConfig is handed loadConfig() with no repo
+│        path — so the per-project column in §3a is wrong for this key.
 │
 ├─ WORKFLOW RUNS                                 [This install | This project]
 │   ├─ Resume after a quota reset  (off)    …………… workflows.autoResumeOnQuotaReset
@@ -417,9 +431,8 @@ of the layout above.
    rule for the *database*; these are YAML keys with no persistence contract, and
    the loader already strips unknown keys, so removal is safe for old files. Remove
    `streaming` and `concurrency` from `DEFAULT_CONFIG_CONTENT` and from `SafeConfig`.
-2. **Decide `chats.autoHandoff`.** Either implement the automatic handoff its
-   docstring promises, or remove the field and correct the comment. It should not
-   reach a UI in its present state.
+2. ~~**Decide `chats.autoHandoff`.**~~ DONE — implemented rather than removed, and
+   now a live toggle in the Chats panel. See §2.
 3. **A repo-config writer.** `updateRepoConfig` does not exist. Every "This project"
    row in §4 depends on it, plus API routes — the current four (`/api/config`,
    `/config/{aliases,assistants,tiers}`) are all install-scoped.

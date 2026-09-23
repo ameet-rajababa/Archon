@@ -20,9 +20,13 @@ import {
 // Mock setup — must be before dynamic imports
 // ---------------------------------------------------------------------------
 
+const DEFAULT_CHATS = { nudgeAtPercent: 40, handoffAtPercent: 50, autoHandoff: true };
 const mockLoadConfig = mock(async () => ({
   assistants: { claude: { model: 'sonnet' } },
   worktree: { baseBranch: 'main' },
+  // `toSafeConfig` is the identity in this harness, so this is exactly what
+  // PATCH /api/config/chats reads back as the thresholds already on file.
+  chats: { ...DEFAULT_CHATS },
 }));
 const mockGetDatabaseType = mock(() => 'sqlite' as const);
 const mockUpdateGlobalConfig = mock(async (_updates: unknown) => {});
@@ -430,6 +434,100 @@ describe('PATCH /api/config/aliases', () => {
 
   test('is ungated — succeeds with no auth identity', async () => {
     const res = await patch({ '@fast': { provider: 'claude', model: 'haiku' } });
+    expect(res.status).toBe(200);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: PATCH /api/config/chats (ungated — solo-OK; mirrors /tiers)
+// ---------------------------------------------------------------------------
+
+describe('PATCH /api/config/chats', () => {
+  let app: Hono;
+
+  beforeEach(() => {
+    app = makeApp();
+    mockUpdateGlobalConfig.mockClear();
+    mockLoadConfig.mockImplementation(async () => ({
+      assistants: { claude: { model: 'sonnet' } },
+      worktree: { baseBranch: 'main' },
+      chats: { ...DEFAULT_CHATS },
+    }));
+  });
+
+  /** Pretend the file already holds these thresholds. */
+  function onFile(chats: typeof DEFAULT_CHATS): void {
+    mockLoadConfig.mockImplementation(async () => ({
+      assistants: { claude: { model: 'sonnet' } },
+      worktree: { baseBranch: 'main' },
+      chats,
+    }));
+  }
+
+  async function patch(body: unknown): Promise<Response> {
+    return await app.request('/api/config/chats', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  test('sets the thresholds → 200, passed through untouched', async () => {
+    const res = await patch({ nudgeAtPercent: 35, handoffAtPercent: 55, autoHandoff: false });
+    expect(res.status).toBe(200);
+    expect(mockUpdateGlobalConfig).toHaveBeenCalledTimes(1);
+    const arg = mockUpdateGlobalConfig.mock.calls[0]?.[0] as { chats: Record<string, unknown> };
+    expect(arg.chats).toEqual({ nudgeAtPercent: 35, handoffAtPercent: 55, autoHandoff: false });
+  });
+
+  test('a single field is a partial write, not a reset of the other two', async () => {
+    const res = await patch({ autoHandoff: false });
+    expect(res.status).toBe(200);
+    const arg = mockUpdateGlobalConfig.mock.calls[0]?.[0] as { chats: Record<string, unknown> };
+    expect(arg.chats).toEqual({ autoHandoff: false });
+  });
+
+  test('a threshold outside 1-99 → 400, no write', async () => {
+    // `resolveChatsConfig` would silently swap both of these for the default,
+    // so accepting them here stores a number the engine ignores.
+    expect((await patch({ handoffAtPercent: 0 })).status).toBe(400);
+    expect((await patch({ handoffAtPercent: 100 })).status).toBe(400);
+    expect((await patch({ nudgeAtPercent: 12.5 })).status).toBe(400);
+    expect(mockUpdateGlobalConfig).not.toHaveBeenCalled();
+  });
+
+  test('a nudge at or above the handoff point → 400, no write', async () => {
+    const res = await patch({ nudgeAtPercent: 60, handoffAtPercent: 55 });
+    expect(res.status).toBe(400);
+    expect(await res.text()).toContain('must be below the handoff point');
+    expect(mockUpdateGlobalConfig).not.toHaveBeenCalled();
+  });
+
+  test('equal is also refused — the nudge would announce what just happened', async () => {
+    const res = await patch({ nudgeAtPercent: 50, handoffAtPercent: 50 });
+    expect(res.status).toBe(400);
+    expect(mockUpdateGlobalConfig).not.toHaveBeenCalled();
+  });
+
+  test('the order rule is checked against the MERGED pair, not the body alone', async () => {
+    // Raising only the nudge is valid in isolation and invalid against the
+    // handoff point already on file. Checking the body alone would let the
+    // pair be walked into an unusable state one field per request.
+    onFile({ nudgeAtPercent: 40, handoffAtPercent: 50, autoHandoff: true });
+    const res = await patch({ nudgeAtPercent: 70 });
+    expect(res.status).toBe(400);
+    expect(mockUpdateGlobalConfig).not.toHaveBeenCalled();
+  });
+
+  test('a lone nudge below the stored handoff point is allowed', async () => {
+    onFile({ nudgeAtPercent: 40, handoffAtPercent: 80, autoHandoff: true });
+    const res = await patch({ nudgeAtPercent: 70 });
+    expect(res.status).toBe(200);
+    expect(mockUpdateGlobalConfig).toHaveBeenCalledTimes(1);
+  });
+
+  test('is ungated — succeeds with no auth identity', async () => {
+    const res = await patch({ autoHandoff: true });
     expect(res.status).toBe(200);
   });
 });

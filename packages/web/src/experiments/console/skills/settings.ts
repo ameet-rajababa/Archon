@@ -13,6 +13,8 @@ import type { components } from '@/lib/api.generated';
 
 export type SafeConfig = components['schemas']['SafeConfig'];
 export type ConfigResponse = components['schemas']['ConfigResponse'];
+export type ChatsConfig = components['schemas']['ChatsConfig'];
+export type UpdateChatsBody = components['schemas']['UpdateChatsBody'];
 export type UpdateAssistantConfigBody = components['schemas']['UpdateAssistantConfigBody'];
 export type HealthResponse = components['schemas']['HealthResponse'];
 export type UpdateCheckResponse = components['schemas']['UpdateCheckResponse'];
@@ -23,6 +25,21 @@ export function getConfig(): Promise<ConfigResponse> {
 
 export function updateAssistantConfig(body: UpdateAssistantConfigBody): Promise<ConfigResponse> {
   return requestJson<ConfigResponse>('/api/config/assistants', {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * Write the chat handoff thresholds to ~/.archon/config.yaml.
+ *
+ * Install-wide with no per-project counterpart: `chats` in a repo config is
+ * merged and then read by nobody, because `resolveChatsConfig` is handed
+ * `loadConfig()` without a repo path. Offering a project scope here would be
+ * a switch with no wire.
+ */
+export function updateChats(body: UpdateChatsBody): Promise<ConfigResponse> {
+  return requestJson<ConfigResponse>('/api/config/chats', {
     method: 'PATCH',
     body: JSON.stringify(body),
   });

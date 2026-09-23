@@ -34,4 +34,25 @@ describe('resolveChatsConfig', () => {
     expect(c.handoffAt).toBeCloseTo(0.45);
     expect(c.autoHandoff).toBe(false);
   });
+
+  test('the percentages come back exact, not reconstructed from the fraction', () => {
+    // The settings editor reads these. `0.4 * 100` is 40.00000000000001 in
+    // floating point, so a caller converting back would put that in a form
+    // field — hence toBe, not toBeCloseTo. This is the assertion that would
+    // catch someone "simplifying" these away into a multiplication.
+    const c = resolveChatsConfig({ nudgeAtPercent: 40, handoffAtPercent: 55 });
+    expect(c.nudgeAtPercent).toBe(40);
+    expect(c.handoffAtPercent).toBe(55);
+  });
+
+  test('a refused percentage reports the default it fell back to, not the input', () => {
+    // Both representations describe the same decision, so they cannot
+    // disagree: showing 70 in the editor while nudging at 40 is the dead
+    // setting again, one field down.
+    const c = resolveChatsConfig({ nudgeAtPercent: 70, handoffAtPercent: 50 });
+    expect(c.nudgeAtPercent).toBe(40);
+    expect(c.nudgeAt).toBeCloseTo(c.nudgeAtPercent / 100);
+    expect(c.handoffAtPercent).toBe(50);
+    expect(c.handoffAt).toBeCloseTo(c.handoffAtPercent / 100);
+  });
 });

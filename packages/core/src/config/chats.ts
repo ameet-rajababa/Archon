@@ -14,6 +14,17 @@ export interface ResolvedChatsConfig {
   handoffAt: number;
   /** Whether crossing `handoffAt` acts, or only reports. */
   autoHandoff: boolean;
+  /**
+   * The same two thresholds as whole percentages.
+   *
+   * Both representations because both are read: the nudge divides a token
+   * count and wants a fraction, while the config file and the settings editor
+   * speak in percent. Derived here rather than converted back at the reader —
+   * `0.4 * 100` is not 40 in floating point, and a settings field that shows
+   * `40.00000000000001` is the kind of defect nobody thinks to look for.
+   */
+  nudgeAtPercent: number;
+  handoffAtPercent: number;
 }
 
 const DEFAULT_NUDGE_PERCENT = 40;
@@ -39,6 +50,8 @@ export function resolveChatsConfig(config: ChatsConfig | undefined): ResolvedCha
     nudgeAt: nudgePercent / 100,
     handoffAt: handoffPercent / 100,
     autoHandoff: config?.autoHandoff ?? true,
+    nudgeAtPercent: nudgePercent,
+    handoffAtPercent: handoffPercent,
   };
 }
 

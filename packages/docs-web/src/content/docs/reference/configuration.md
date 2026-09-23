@@ -115,9 +115,20 @@ tiers:
 aliases:
   '@reasoning': { provider: claude, model: opus, effort: max }
 
+# When a chat has grown enough to be worth moving out of. Percentages of the
+# answering model's context window, not token counts — the same conversation is
+# half full on one model and a tenth full on another. A chat whose model has no
+# known window is never acted on.
+chats:
+  nudgeAtPercent: 40 # suggest wrapping up, once
+  handoffAtPercent: 50 # say it is time to hand off; must be above the nudge
+  autoHandoff: true # act at that point instead of asking
+
 ```
 
-The `tiers:` block above is no longer hand-edit-only -- you can also set the `small`/`medium`/`large` presets from the console **AI Settings** -> **Model Tiers** panel, or from the CLI with [`archon ai tier set`](/reference/cli/#ai). Connecting your own provider API key or subscription is covered in [Per-user credentials and AI Settings](/getting-started/ai-assistants/#per-user-credentials-and-ai-settings).
+`autoHandoff` acts only at a safe boundary — the end of a turn, with no open question and no run waiting on your approval — and at most twice per chat. Set it to `false` to have the threshold report instead of act. `chats:` is read from `~/.archon/config.yaml` only; a `chats:` block in a repository config is not consulted.
+
+The `tiers:` block above is no longer hand-edit-only -- you can also set the `small`/`medium`/`large` presets from the console **AI Settings** -> **Model Tiers** panel, or from the CLI with [`archon ai tier set`](/reference/cli/#ai). The `chats:` thresholds are editable from the console **AI Settings** -> **Chats** panel. Connecting your own provider API key or subscription is covered in [Per-user credentials and AI Settings](/getting-started/ai-assistants/#per-user-credentials-and-ai-settings).
 
 These files are persistent layers. For one invocation, use repeatable [`workflow run --model <name>=<spec>`](/reference/cli/#workflow-run-name-message), [`workflow run --config <path>`](/reference/cli/#per-run-config-files), or the run API's inline `config`, `tiers`, and `aliases` fields. Each run layer is sparse and sits above user, repository, global, and built-in values without editing a persistent config file.
 

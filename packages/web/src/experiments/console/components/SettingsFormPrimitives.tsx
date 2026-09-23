@@ -2,7 +2,8 @@ import type { ReactElement, ReactNode } from 'react';
 
 /**
  * Shared form primitives for the console settings panels (ModelTiersPanel,
- * AliasesPanel, AssistantConfigPanel, AgentCredentialCard, ModelPickerField).
+ * AliasesPanel, AssistantConfigPanel, ChatsPanel, AgentCredentialCard,
+ * ModelPickerField).
  *
  * Design v5 (.set-input / .set-select): mono fields on the page surface with a
  * magenta focus ring. Tokens only — colors come from the console theme vars.
@@ -57,5 +58,54 @@ export function SelectShell({
         </svg>
       </span>
     </span>
+  );
+}
+
+/**
+ * The design's pill switch (`.sw` in the settings mockup), as a real control.
+ *
+ * A `button` with `role="switch"`, not a styled `div`: the mockup's version is
+ * a div with an `aria-checked` attribute and a click listener, which is
+ * unreachable by keyboard and invisible to a screen reader as a control. The
+ * appearance is the part worth copying.
+ */
+export function Switch({
+  label,
+  checked,
+  onChange,
+  disabled = false,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+}): ReactElement {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => {
+        onChange(!checked);
+      }}
+      className="relative h-[22px] w-[38px] shrink-0 rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+      // Inline because the console scope's wildcard border-color rule repaints
+      // Tailwind border utilities (see theme.css).
+      style={{
+        background: checked ? 'var(--accent)' : 'var(--surface-bright, var(--surface-hover))',
+        borderColor: checked ? 'var(--accent)' : 'var(--border-bright)',
+      }}
+    >
+      <span
+        aria-hidden
+        className="absolute top-[2px] h-[16px] w-[16px] rounded-full transition-all"
+        style={{
+          left: checked ? '18px' : '2px',
+          background: checked ? 'oklch(.99 0 0)' : 'var(--text-secondary)',
+        }}
+      />
+    </button>
   );
 }

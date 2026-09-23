@@ -486,4 +486,26 @@ export interface SafeConfig {
   tierDefaults?: RawTiersConfig;
   /** Configured @custom model aliases (merged repo > global). Not secrets. */
   aliases?: RawAliasesConfig;
+  /**
+   * Chat handoff thresholds with defaults already applied — always three
+   * values, never absent.
+   *
+   * RESOLVED rather than raw, unlike `tiers` above, because there is nothing
+   * useful to show for an unset threshold: a percentage field either has a
+   * number in it or is lying about what the server will do. Resolving on this
+   * side also keeps `40` and `50` in `resolveChatsConfig` alone, instead of
+   * restating them in a web bundle that cannot import it.
+   *
+   * Install-wide. `chats` in a repo `.archon/config.yaml` is merged and then
+   * read by nobody — `resolveChatsConfig` is handed `loadConfig()` with no
+   * repo path — so there is no per-project value to show here.
+   */
+  chats: SafeChatsConfig;
+}
+
+/** The effective chat thresholds, in the percentages the config file uses. */
+export interface SafeChatsConfig {
+  nudgeAtPercent: number;
+  handoffAtPercent: number;
+  autoHandoff: boolean;
 }

@@ -42,6 +42,44 @@ export const updateTiersBodySchema = z
   })
   .openapi('UpdateTiersBody');
 
+/**
+ * A fill threshold, as a whole percentage of the answering model's context
+ * window.
+ *
+ * 1–99 rather than 0–100 because neither end means what it looks like: 0 hands
+ * off on the first turn and 100 can never fire. `resolveChatsConfig` already
+ * falls back to the default for both, so accepting them here would store a
+ * number the engine then ignores — the dead-setting failure, written by the
+ * editor that exists to show what is live.
+ */
+const thresholdPercentSchema = z.number().int().min(1).max(99);
+
+/** The effective chat thresholds — resolved, so every field is present. */
+export const chatsConfigSchema = z
+  .object({
+    nudgeAtPercent: thresholdPercentSchema,
+    handoffAtPercent: thresholdPercentSchema,
+    autoHandoff: z.boolean(),
+  })
+  .openapi('ChatsConfig');
+
+/**
+ * PATCH /api/config/chats body — each field optional, absent keys preserved.
+ *
+ * The cross-field rule is checked here rather than left to the resolver: a
+ * nudge at or above the handoff point would announce a suggestion the system
+ * had already acted on, and the resolver's response is to silently substitute
+ * the default. Silent substitution is right for a config file written by hand
+ * and wrong for a form that just told someone their change was saved.
+ */
+export const updateChatsBodySchema = z
+  .object({
+    nudgeAtPercent: thresholdPercentSchema.optional(),
+    handoffAtPercent: thresholdPercentSchema.optional(),
+    autoHandoff: z.boolean().optional(),
+  })
+  .openapi('UpdateChatsBody');
+
 export const safeConfigSchema = z
   .object({
     botName: z.string(),
@@ -64,6 +102,8 @@ export const safeConfigSchema = z
     tierDefaults: tiersConfigSchema.optional(),
     // Configured @custom model aliases (merged repo > global). Not secrets.
     aliases: z.record(z.string(), tierEntrySchema).optional(),
+    // Resolved, so always present — see SafeConfig.chats in config-types.ts.
+    chats: chatsConfigSchema,
   })
   .openapi('SafeConfig');
 

@@ -2997,6 +2997,67 @@ export interface paths {
     };
     trace?: never;
   };
+  '/api/config/chats': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    /**
+     * Update chat handoff thresholds
+     * @description Writes the `chats:` config to ~/.archon/config.yaml. Ungated (works on solo installs). Per-field merge; an absent field keeps its current value. Install-wide only — `chats` in a repo config is read by nothing.
+     */
+    patch: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          'application/json': components['schemas']['UpdateChatsBody'];
+        };
+      };
+      responses: {
+        /** @description Updated configuration */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'application/json': components['schemas']['ConfigResponse'];
+          };
+        };
+        /** @description Threshold outside 1-99, or a nudge at or above the handoff point */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'application/json': components['schemas']['Error'];
+          };
+        };
+        /** @description Server error */
+        500: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'application/json': components['schemas']['Error'];
+          };
+        };
+      };
+    };
+    trace?: never;
+  };
   '/api/providers': {
     parameters: {
       query?: never;
@@ -4327,6 +4388,7 @@ export interface components {
       aliases?: {
         [key: string]: components['schemas']['TierEntry'];
       };
+      chats: components['schemas']['ChatsConfig'];
     };
     ProviderDefaults: {
       [key: string]: unknown;
@@ -4335,6 +4397,11 @@ export interface components {
       small?: components['schemas']['TierEntry'];
       medium?: components['schemas']['TierEntry'];
       large?: components['schemas']['TierEntry'];
+    };
+    ChatsConfig: {
+      nudgeAtPercent: number;
+      handoffAtPercent: number;
+      autoHandoff: boolean;
     };
     UpdateAssistantConfigBody: {
       assistant?: string;
@@ -4353,6 +4420,11 @@ export interface components {
       aliases: {
         [key: string]: components['schemas']['TierEntry'] & unknown;
       };
+    };
+    UpdateChatsBody: {
+      nudgeAtPercent?: number;
+      handoffAtPercent?: number;
+      autoHandoff?: boolean;
     };
     ProviderListResponse: {
       providers: components['schemas']['ProviderInfo'][];
