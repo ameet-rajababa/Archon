@@ -225,6 +225,15 @@
     [
       "src/orchestrator/prompt-builder.test.ts",
       "src/schemas/index.test.ts"
+    ],
+    [
+      "src/config/chats.test.ts",
+      "src/db/codebases.row-id.test.ts",
+      "src/orchestrator/context-window.test.ts",
+      "src/orchestrator/handoff-nudge.test.ts",
+      "src/orchestrator/handoff-tool.test.ts",
+      "src/orchestrator/handoff.test.ts",
+      "src/orchestrator/update-project-brief-tool.test.ts"
     ]
   ]
 }
