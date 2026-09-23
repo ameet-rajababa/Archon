@@ -9,6 +9,7 @@ import { RunsPage } from './routes/RunsPage';
 import { ProjectLayout } from './routes/ProjectLayout';
 import { RunDetailPage } from './routes/RunDetailPage';
 import { ChatPage } from './routes/ChatPage';
+import { FilesPage } from './routes/FilesPage';
 import { IssuesPage } from './routes/IssuesPage';
 import { OverviewPage } from './routes/OverviewPage';
 import { PreviewPage } from './routes/PreviewPage';
@@ -126,6 +127,7 @@ export function ConsoleApp(): ReactElement {
               <Route path="p/:projectId" element={<RunsPage />} />
               <Route path="p/:projectId/chat" element={<ChatPage />} />
               <Route path="p/:projectId/issues" element={<IssuesPage />} />
+              <Route path="p/:projectId/files" element={<FilesPage />} />
               <Route path="p/:projectId/overview" element={<OverviewPage />} />
               <Route path="p/:projectId/r/:runId" element={<RunDetailPage />} />
             </Route>

@@ -27,6 +27,13 @@ export const K = {
   pendingRuns: 'pendingRuns' as const,
   envVars: (projectId: string): string => `envVars:${projectId}`,
   artifacts: (runId: string): string => `artifacts:${runId}`,
+  // One key per directory, which is what makes the tree lazy: expanding a
+  // folder is a cache miss on that folder alone, and collapsing it keeps what
+  // was already read. Both parts are encoded — a path may contain `:`.
+  files: (projectId: string, path: string): string =>
+    `files:${encodeURIComponent(projectId)}:${encodeURIComponent(path)}`,
+  fileContent: (projectId: string, path: string): string =>
+    `file:${encodeURIComponent(projectId)}:${encodeURIComponent(path)}`,
   // Installation-wide settings surfaces (static keys — one row each).
   config: 'config' as const,
   // Health has two consumers — the Settings SystemPanel and the IDE docker-check.

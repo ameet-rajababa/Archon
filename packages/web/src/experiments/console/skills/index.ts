@@ -15,6 +15,7 @@ export * from './presentation';
 export * from './projects';
 export * from './workflows';
 export * from './worktrees';
+export * from './files';
 export * from './runs';
 export * from './startRun';
 export * from './messages';

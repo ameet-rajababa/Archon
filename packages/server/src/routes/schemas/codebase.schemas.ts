@@ -59,3 +59,48 @@ export const codebaseEnvVarParamsSchema = z.object({
 export const envVarMutationResponseSchema = z
   .object({ success: z.boolean() })
   .openapi('EnvVarMutationResponse');
+
+// =========================================================================
+// Files tab — reading a project's checkout (#23)
+// =========================================================================
+
+/**
+ * `?path=` rather than a wildcard route. A wildcard is not representable in
+ * OpenAPI, which is why the artifact route had to drop out of the generated
+ * types; a query parameter keeps these two endpoints on the typed path and in
+ * `api.generated.d.ts`.
+ *
+ * Empty means the project root. The server owns validation — a path is
+ * caller-supplied input, so nothing here is trusted beyond "it is a string".
+ */
+export const codebaseFilePathQuerySchema = z.object({ path: z.string().optional() });
+
+/**
+ * One directory entry. `size` is null for anything that is not a regular file,
+ * because a directory's byte size answers a question nobody asked.
+ */
+export const codebaseFileEntrySchema = z
+  .object({
+    name: z.string(),
+    kind: z.enum(['file', 'dir', 'other']),
+    size: z.number().nullable(),
+  })
+  .openapi('CodebaseFileEntry');
+
+/** Response for GET /api/codebases/:id/files — one directory level, never a walk. */
+export const codebaseFilesResponseSchema = z
+  .object({
+    /** Normalised path of the directory listed, relative to the project root. */
+    path: z.string(),
+    entries: z.array(codebaseFileEntrySchema),
+  })
+  .openapi('CodebaseFilesResponse');
+
+/** Response for GET /api/codebases/:id/file — one file's text. */
+export const codebaseFileResponseSchema = z
+  .object({
+    path: z.string(),
+    content: z.string(),
+    size: z.number(),
+  })
+  .openapi('CodebaseFileResponse');

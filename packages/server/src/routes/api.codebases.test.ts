@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach } from 'bun:test';
+import { describe, test, expect, mock, beforeEach, beforeAll, afterAll } from 'bun:test';
 import { OpenAPIHono } from '@hono/zod-openapi';
 import type { ConversationLockManager } from '@archon/core';
 import type { WebAdapter } from '../adapters/web';
@@ -168,6 +168,10 @@ mock.module('@archon/core/utils/commands', () => ({
 
 // Import the module under test AFTER all mock.module() calls
 import { registerApiRoutes } from './api';
+import { removeTempTree } from '@archon/paths/test-utils';
+import { mkdir, mkdtemp, symlink, writeFile } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -708,5 +712,161 @@ describe('DELETE /api/codebases/:id', () => {
 
     const body = (await response.json()) as { error: string };
     expect(body.error).toContain('Failed to delete codebase');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: the Files tab endpoints (#23)
+//
+// Against a REAL temp tree, not a mocked fs. The whole point of these two
+// routes is what the filesystem does with a path — symlink resolution above
+// all — and a mocked fs would prove only that the mock agrees with itself.
+// ---------------------------------------------------------------------------
+
+describe('Files tab — GET /api/codebases/:id/files and /file', () => {
+  let root: string;
+  let outside: string;
+
+  const asCodebase = (over: Record<string, unknown>): never =>
+    ({ ...MOCK_CODEBASE, ...over }) as never;
+
+  beforeAll(async () => {
+    root = await mkdtemp(join(tmpdir(), 'archon-files-root-'));
+    outside = await mkdtemp(join(tmpdir(), 'archon-files-outside-'));
+
+    await mkdir(join(root, 'src'), { recursive: true });
+    await mkdir(join(root, 'src', 'nested'), { recursive: true });
+    await writeFile(join(root, 'README.md'), '# Title\n');
+    await writeFile(join(root, 'src', 'index.ts'), 'export const x = 1;\n');
+    await writeFile(join(root, 'src', 'nested', 'deep.ts'), 'export const deep = true;\n');
+    // A NUL byte is the binary tell the read route refuses on.
+    await writeFile(join(root, 'logo.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x0d]));
+    await writeFile(join(root, 'huge.txt'), 'x'.repeat(1024 * 1024 + 1));
+
+    // The case that makes lexical containment insufficient: a link that is
+    // inside the root and points out of it. Ordinary in a real repo.
+    await writeFile(join(outside, 'secret.txt'), 'private key material\n');
+    await symlink(join(outside, 'secret.txt'), join(root, 'escape.txt'));
+  });
+
+  afterAll(async () => {
+    await removeTempTree(root);
+    await removeTempTree(outside);
+  });
+
+  beforeEach(() => {
+    mockGetCodebase.mockReset();
+  });
+
+  const listing = async (path = ''): Promise<Response> => {
+    mockGetCodebase.mockImplementationOnce(async () => asCodebase({ default_cwd: root }));
+    return makeApp().request(
+      `/api/codebases/codebase-uuid-1/files?path=${encodeURIComponent(path)}`
+    );
+  };
+  const read = async (path: string): Promise<Response> => {
+    mockGetCodebase.mockImplementationOnce(async () => asCodebase({ default_cwd: root }));
+    return makeApp().request(
+      `/api/codebases/codebase-uuid-1/file?path=${encodeURIComponent(path)}`
+    );
+  };
+
+  test('lists one directory, directories first', async () => {
+    const response = await listing('');
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      path: string;
+      entries: { name: string; kind: string; size: number | null }[];
+    };
+    expect(body.path).toBe('');
+    const names = body.entries.map(e => e.name);
+    expect(names).toContain('src');
+    expect(names).toContain('README.md');
+    // Directories lead, so the tree reads without being scanned.
+    expect(body.entries[0]?.name).toBe('src');
+    expect(body.entries.find(e => e.name === 'src')?.kind).toBe('dir');
+    expect(body.entries.find(e => e.name === 'README.md')?.size).toBe(8);
+    expect(body.entries.find(e => e.name === 'src')?.size).toBeNull();
+  });
+
+  test('a directory listing is one level, never a walk', async () => {
+    // The lazy invariant, proved by what the response CANNOT contain: no
+    // nested name, and no separator in any entry.
+    const body = (await (await listing('')).json()) as { entries: { name: string }[] };
+    expect(body.entries.map(e => e.name)).not.toContain('deep.ts');
+    expect(body.entries.every(e => !e.name.includes('/'))).toBe(true);
+
+    const nested = (await (await listing('src')).json()) as {
+      path: string;
+      entries: { name: string }[];
+    };
+    expect(nested.path).toBe('src');
+    expect(nested.entries.map(e => e.name)).toEqual(['nested', 'index.ts']);
+  });
+
+  test('nothing is filtered out of a listing', async () => {
+    // Including the symlink. A tree that hides part of the disk is lying; the
+    // read path is where an escape is refused, not the listing.
+    const body = (await (await listing('')).json()) as { entries: { name: string }[] };
+    expect(body.entries.map(e => e.name)).toContain('escape.txt');
+  });
+
+  test('reads a file', async () => {
+    const response = await read('src/index.ts');
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { path: string; content: string; size: number };
+    expect(body.content).toBe('export const x = 1;\n');
+    expect(body.path).toBe('src/index.ts');
+    expect(body.size).toBe(20);
+  });
+
+  test('a .. traversal is rejected, on both endpoints', async () => {
+    expect((await read('../secret.txt')).status).toBe(400);
+    expect((await read('src/../../secret.txt')).status).toBe(400);
+    expect((await listing('..')).status).toBe(400);
+  });
+
+  test('a symlink pointing outside the project root is refused', async () => {
+    // The link resolves; containment is what refuses it. Reported as 404 —
+    // an attacker learns nothing about what is out there.
+    const response = await read('escape.txt');
+    expect(response.status).toBe(404);
+    const body = (await response.json()) as { error: string };
+    expect(body.error).not.toContain('private key');
+  });
+
+  test('a binary file is refused rather than mangled into JSON', async () => {
+    const response = await read('logo.png');
+    expect(response.status).toBe(415);
+    expect(((await response.json()) as { error: string }).error).toContain('Binary');
+  });
+
+  test('a file over the size ceiling is refused whole, not truncated', async () => {
+    const response = await read('huge.txt');
+    expect(response.status).toBe(413);
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toContain('bytes');
+  });
+
+  test('a folder-kind project resolves its root like a repo one', async () => {
+    mockGetCodebase.mockImplementationOnce(async () =>
+      asCodebase({ kind: 'folder', repository_url: null, default_cwd: root })
+    );
+    const response = await makeApp().request('/api/codebases/codebase-uuid-1/files?path=src');
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { entries: { name: string }[] };
+    expect(body.entries.map(e => e.name)).toContain('index.ts');
+  });
+
+  test('an unknown project is 404, not a read of nothing', async () => {
+    mockGetCodebase.mockImplementationOnce(async () => null);
+    const response = await makeApp().request('/api/codebases/nope/files');
+    expect(response.status).toBe(404);
+  });
+
+  test('a missing file is 404 and a directory is not read as a file', async () => {
+    expect((await read('src/nope.ts')).status).toBe(404);
+    expect((await read('src')).status).toBe(400);
   });
 });

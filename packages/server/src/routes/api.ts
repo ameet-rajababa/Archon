@@ -342,6 +342,9 @@ import {
   setEnvVarBodySchema,
   codebaseEnvVarParamsSchema,
   envVarMutationResponseSchema,
+  codebaseFilePathQuerySchema,
+  codebaseFilesResponseSchema,
+  codebaseFileResponseSchema,
 } from './schemas/codebase.schemas';
 import {
   updateAssistantConfigBodySchema,
@@ -448,6 +451,66 @@ function isPathInside(parent: string, candidate: string): boolean {
   const normalisedCandidate = normalize(candidate);
   const parentPrefix = normalisedParent.endsWith(sep) ? normalisedParent : normalisedParent + sep;
   return normalisedCandidate === normalisedParent || normalisedCandidate.startsWith(parentPrefix);
+}
+
+/**
+ * Why a caller-supplied path was refused. The caller maps these to its own
+ * status codes and wording, because "not found" and "you may not ask that" are
+ * the same answer to an attacker and different answers to a UI.
+ */
+type ContainmentFailure = 'invalid' | 'missing' | 'escaped' | 'symlink-escape' | 'error';
+
+type ContainedPath =
+  | { ok: true; realRoot: string; realPath: string; relative: string }
+  | { ok: false; reason: ContainmentFailure; err?: unknown };
+
+/**
+ * Resolve a caller-supplied relative path inside a fenced root, and prove it
+ * stayed there.
+ *
+ * The chain, in order, because each step is defeated by the one before it:
+ *   1. reject NUL bytes and `..` segments on the RAW input, before normalise
+ *      can quietly collapse them;
+ *   2. normalise and strip any leading separator, so the path is relative;
+ *   3. join and check containment lexically;
+ *   4. `realpath` BOTH sides and check again — every read follows symlinks, and
+ *      a symlink inside a repo pointing at `~/.ssh` is ordinary, not exotic.
+ *
+ * Step 4 is why this returns a resolved path rather than a boolean: the caller
+ * must read the path that was checked, not re-derive one that was not (#3160).
+ */
+async function resolveContainedPath(root: string, rawRelative: string): Promise<ContainedPath> {
+  if (rawRelative.includes('\0') || rawRelative.split(/[/\\]/).some(seg => seg === '..')) {
+    return { ok: false, reason: 'invalid' };
+  }
+
+  const relative = normalize(rawRelative).replace(/^[/\\]+/, '');
+  const candidate = relative === '' || relative === '.' ? root : join(root, relative);
+
+  if (!isPathInside(root, candidate)) {
+    return { ok: false, reason: 'escaped' };
+  }
+
+  let realRoot: string;
+  let realPath: string;
+  try {
+    realRoot = await realpath(root);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { ok: false, reason: 'missing' };
+    return { ok: false, reason: 'error', err };
+  }
+  try {
+    realPath = await realpath(candidate);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { ok: false, reason: 'missing' };
+    return { ok: false, reason: 'error', err };
+  }
+
+  if (!isPathInside(realRoot, realPath)) {
+    return { ok: false, reason: 'symlink-escape' };
+  }
+
+  return { ok: true, realRoot, realPath, relative: relative === '.' ? '' : relative };
 }
 
 // =========================================================================
@@ -774,6 +837,42 @@ const getCodebaseRoute = createRoute({
       description: 'Codebase',
     },
     404: jsonError('Not found'),
+    500: jsonError('Server error'),
+  },
+});
+
+const listCodebaseFilesRoute = createRoute({
+  method: 'get',
+  path: '/api/codebases/{id}/files',
+  tags: ['Codebases'],
+  summary: "List one directory of a codebase's checkout",
+  request: { params: codebaseIdParamsSchema, query: codebaseFilePathQuerySchema },
+  responses: {
+    200: {
+      content: { 'application/json': { schema: codebaseFilesResponseSchema } },
+      description: 'Directory listing',
+    },
+    400: jsonError('Bad request'),
+    404: jsonError('Not found'),
+    500: jsonError('Server error'),
+  },
+});
+
+const readCodebaseFileRoute = createRoute({
+  method: 'get',
+  path: '/api/codebases/{id}/file',
+  tags: ['Codebases'],
+  summary: "Read one text file from a codebase's checkout",
+  request: { params: codebaseIdParamsSchema, query: codebaseFilePathQuerySchema },
+  responses: {
+    200: {
+      content: { 'application/json': { schema: codebaseFileResponseSchema } },
+      description: 'File contents',
+    },
+    400: jsonError('Bad request'),
+    404: jsonError('Not found'),
+    413: jsonError('File too large'),
+    415: jsonError('Unsupported media type'),
     500: jsonError('Server error'),
   },
 });
@@ -1670,7 +1769,11 @@ export function registerApiRoutes(
 
   function apiError(
     c: Context,
-    status: 400 | 401 | 404 | 422 | 500 | 503,
+    // 413/415 are here for the Files tab's two honest refusals — a file over
+    // the size ceiling, and a binary that must not be streamed down a text
+    // route. Both are the correct code for what happened; neither is
+    // representable as one of the others without lying about the reason.
+    status: 400 | 401 | 404 | 413 | 415 | 422 | 500 | 503,
     message: string,
     detail?: string
   ): Response {
@@ -3261,6 +3364,177 @@ export function registerApiRoutes(
   });
 
   // GET /api/codebases/:id - Codebase detail
+  // =======================================================================
+  // Files tab (#23) — read a project's checkout, one directory at a time.
+  //
+  // The fence is the project root itself, NOT ARCHON_HOME: a checkout sits
+  // outside ARCHON_HOME by design, so isInsideArchonHome() would refuse every
+  // legitimate read here. Containment is proved by resolveContainedPath, the
+  // same chain the artifact route uses.
+  //
+  // Nothing is filtered out of a listing — `.git` and dotfiles included. A
+  // file explorer that silently hides part of the tree is lying about what is
+  // on disk, and the read path refuses binaries anyway.
+  // =======================================================================
+
+  /** Text only. A binary served down a text route is corruption with a 200 on it. */
+  const MAX_FILE_BYTES = 1024 * 1024;
+
+  /**
+   * Resolve a project's root for either kind. `default_cwd` is the tree its
+   * runs operate on, which is exactly the tree the Files tab must show.
+   */
+  const codebaseRoot = async (id: string): Promise<string | null> => {
+    const codebase = await codebaseDb.getCodebase(id);
+    return codebase?.default_cwd ?? null;
+  };
+
+  registerOpenApiRoute(listCodebaseFilesRoute, async c => {
+    const id = c.req.param('id') ?? '';
+    const rawPath = c.req.query('path') ?? '';
+    try {
+      const root = await codebaseRoot(id);
+      if (root === null) {
+        return apiError(c, 404, 'Codebase not found');
+      }
+
+      const contained = await resolveContainedPath(root, rawPath);
+      if (!contained.ok) {
+        if (contained.reason === 'invalid' || contained.reason === 'escaped') {
+          getLog().warn({ codebaseId: id, path: rawPath }, 'codebase_files.path_escape_blocked');
+          return apiError(c, 400, 'Invalid path');
+        }
+        if (contained.reason === 'symlink-escape') {
+          getLog().warn({ codebaseId: id, path: rawPath }, 'codebase_files.symlink_escape_blocked');
+          return apiError(c, 404, 'Directory not found');
+        }
+        if (contained.reason === 'missing') {
+          return apiError(c, 404, 'Directory not found');
+        }
+        getLog().error(
+          { err: contained.err, codebaseId: id, path: rawPath },
+          'codebase_files.list_failed'
+        );
+        return apiError(c, 500, 'Failed to list directory');
+      }
+
+      const dirents = await readdir(contained.realPath, { withFileTypes: true });
+      const entries = await Promise.all(
+        dirents.map(async dirent => {
+          // A symlink's own dirent says nothing about what it points at, so the
+          // kind comes from stat — which follows it. A broken link stats ENOENT
+          // and is reported as 'other' rather than removed from the listing:
+          // it is on disk, and pretending otherwise is the same lie as filtering.
+          let kind: 'file' | 'dir' | 'other';
+          let size: number | null = null;
+          if (dirent.isDirectory()) {
+            kind = 'dir';
+          } else if (dirent.isFile()) {
+            kind = 'file';
+          } else {
+            kind = 'other';
+          }
+          try {
+            const info = await stat(join(contained.realPath, dirent.name));
+            kind = info.isDirectory() ? 'dir' : info.isFile() ? 'file' : 'other';
+            size = info.isFile() ? info.size : null;
+          } catch {
+            // Broken symlink, or a file that vanished between readdir and stat.
+            // Neither is an error worth failing the whole listing over.
+          }
+          return { name: dirent.name, kind, size };
+        })
+      );
+
+      // Directories first, then files, each case-insensitively by name — the
+      // order every file tree uses, so the list reads without being scanned.
+      entries.sort((a, b) => {
+        if (a.kind !== b.kind) {
+          if (a.kind === 'dir') return -1;
+          if (b.kind === 'dir') return 1;
+        }
+        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+      });
+
+      return c.json({ path: contained.relative, entries });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOTDIR') {
+        return apiError(c, 400, 'Not a directory');
+      }
+      getLog().error({ err: error, codebaseId: id }, 'codebase_files.list_failed');
+      return apiError(c, 500, 'Failed to list directory');
+    }
+  });
+
+  registerOpenApiRoute(readCodebaseFileRoute, async c => {
+    const id = c.req.param('id') ?? '';
+    const rawPath = c.req.query('path') ?? '';
+    try {
+      if (rawPath === '') {
+        return apiError(c, 400, 'Invalid path');
+      }
+      const root = await codebaseRoot(id);
+      if (root === null) {
+        return apiError(c, 404, 'Codebase not found');
+      }
+
+      const contained = await resolveContainedPath(root, rawPath);
+      if (!contained.ok) {
+        if (contained.reason === 'invalid' || contained.reason === 'escaped') {
+          getLog().warn({ codebaseId: id, path: rawPath }, 'codebase_files.path_escape_blocked');
+          return apiError(c, 400, 'Invalid path');
+        }
+        if (contained.reason === 'symlink-escape') {
+          getLog().warn({ codebaseId: id, path: rawPath }, 'codebase_files.symlink_escape_blocked');
+          return apiError(c, 404, 'File not found');
+        }
+        if (contained.reason === 'missing') {
+          return apiError(c, 404, 'File not found');
+        }
+        getLog().error(
+          { err: contained.err, codebaseId: id, path: rawPath },
+          'codebase_files.read_failed'
+        );
+        return apiError(c, 500, 'Failed to read file');
+      }
+
+      const info = await stat(contained.realPath);
+      if (info.isDirectory()) {
+        return apiError(c, 400, 'Path is a directory');
+      }
+      if (!info.isFile()) {
+        return apiError(c, 415, 'Not a regular file');
+      }
+      if (info.size > MAX_FILE_BYTES) {
+        // Refused whole, never truncated: half a file rendered as if it were
+        // the file is worse than being told the file is too big to show.
+        return apiError(
+          c,
+          413,
+          `File is ${String(info.size)} bytes; the viewer shows files up to ${String(MAX_FILE_BYTES)}`
+        );
+      }
+
+      const buffer = await readFile(contained.realPath);
+      // A NUL byte is the practical binary tell, and it is the byte that would
+      // corrupt a JSON string body. Checked over the whole buffer rather than a
+      // prefix — the file is already bounded by MAX_FILE_BYTES.
+      if (buffer.includes(0)) {
+        return apiError(c, 415, 'Binary file — not shown');
+      }
+
+      // File CONTENTS are never logged, here or in any branch above.
+      return c.json({
+        path: contained.relative,
+        content: buffer.toString('utf-8'),
+        size: info.size,
+      });
+    } catch (error) {
+      getLog().error({ err: error, codebaseId: id }, 'codebase_files.read_failed');
+      return apiError(c, 500, 'Failed to read file');
+    }
+  });
+
   registerOpenApiRoute(getCodebaseRoute, async c => {
     try {
       const codebase = await codebaseDb.getCodebase(c.req.param('id') ?? '');
@@ -5066,16 +5340,11 @@ export function registerApiRoutes(
       return apiError(c, 400, 'Invalid filename');
     }
 
-    // Block path traversal: reject if any segment is ".." or contains null bytes
-    if (
-      !rawFilename ||
-      rawFilename.includes('\0') ||
-      rawFilename.split('/').some(s => s === '..')
-    ) {
+    // An empty name addresses the directory itself, which is not a file.
+    // Everything else about the path is judged by resolveContainedPath.
+    if (!rawFilename) {
       return apiError(c, 400, 'Invalid filename');
     }
-
-    // Normalize and ensure relative (no leading slash)
     const filename = normalize(rawFilename).replace(/^[/\\]+/, '');
     if (!filename) {
       return apiError(c, 400, 'Invalid filename');
@@ -5115,43 +5384,27 @@ export function registerApiRoutes(
       );
       return apiError(c, 400, 'Invalid artifact path');
     }
-    const filePath = join(artifactDir, filename);
-
-    // Final safety check: ensure resolved path stays within artifact directory
-    if (!isPathInside(artifactDir, filePath)) {
-      getLog().warn({ runId, filename, filePath, artifactDir }, 'artifacts.path_escape_blocked');
-      return apiError(c, 400, 'Invalid filename');
-    }
-
-    // readFile follows symlinks, so contain the resolved target within the
-    // resolved artifact directory and read that checked path (#3160).
-    let realArtifactDir: string;
-    try {
-      realArtifactDir = await realpath(artifactDir);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        return apiError(c, 404, 'Artifact file not found');
+    // readFile follows symlinks, so the target is contained and the CHECKED
+    // path is what gets read (#3160). Shared with the Files tab endpoints —
+    // one guard chain, fixed in one place.
+    const contained = await resolveContainedPath(artifactDir, filename);
+    if (!contained.ok) {
+      switch (contained.reason) {
+        case 'invalid':
+        case 'escaped':
+          getLog().warn({ runId, filename, artifactDir }, 'artifacts.path_escape_blocked');
+          return apiError(c, 400, 'Invalid filename');
+        case 'symlink-escape':
+          getLog().warn({ runId, filename, artifactDir }, 'artifacts.symlink_escape_blocked');
+          return apiError(c, 404, 'Artifact file not found');
+        case 'missing':
+          return apiError(c, 404, 'Artifact file not found');
+        default:
+          getLog().error({ err: contained.err, runId, filename }, 'artifacts.read_failed');
+          return apiError(c, 500, 'Failed to read artifact file');
       }
-      getLog().error({ err, runId, artifactDir }, 'artifacts.read_failed');
-      return apiError(c, 500, 'Failed to read artifact file');
     }
-    let realFilePath: string;
-    try {
-      realFilePath = await realpath(filePath);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        return apiError(c, 404, 'Artifact file not found');
-      }
-      getLog().error({ err, runId, filename }, 'artifacts.read_failed');
-      return apiError(c, 500, 'Failed to read artifact file');
-    }
-    if (!isPathInside(realArtifactDir, realFilePath)) {
-      getLog().warn(
-        { runId, filename, realFilePath, realArtifactDir },
-        'artifacts.symlink_escape_blocked'
-      );
-      return apiError(c, 404, 'Artifact file not found');
-    }
+    const realFilePath = contained.realPath;
 
     let content: string;
     try {

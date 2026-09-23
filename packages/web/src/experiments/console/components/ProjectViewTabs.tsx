@@ -3,15 +3,15 @@ import * as skill from '../skills';
 import { useEntity } from '../store/cache';
 import { K } from '../store/keys';
 import { Link } from 'react-router';
-import { writeProjectView } from '../lib/project-view';
+import { writeProjectView, type ProjectView } from '../lib/project-view';
 
 interface ProjectViewTabsProps {
   projectId: string;
-  active: 'overview' | 'runs' | 'chat' | 'issues';
+  active: ProjectView;
 }
 
 const TABS: readonly {
-  key: 'overview' | 'runs' | 'chat' | 'issues';
+  key: ProjectView;
   label: string;
   suffix: string;
 }[] = [
@@ -21,6 +21,9 @@ const TABS: readonly {
   { key: 'runs', label: 'Runs', suffix: '' },
   { key: 'chat', label: 'Chat', suffix: '/chat' },
   { key: 'issues', label: 'Issues', suffix: '/issues' },
+  // Files last: it is the surface you go to deliberately, not the one you
+  // land on to find out what happened.
+  { key: 'files', label: 'Files', suffix: '/files' },
 ];
 
 /**
