@@ -275,6 +275,9 @@ export const dashboardRunsQuerySchema = z.object({
   // z.string() — handler validates the enum value and ignores invalid values
   status: z.string().optional(),
   codebaseId: z.string().optional(),
+  // Conversation DB id of the originating chat (`parent_conversation_id`), not
+  // the per-run worker conversation.
+  parentConversationId: z.string().optional(),
   search: z.string().optional(),
   after: z.string().optional(),
   before: z.string().optional(),

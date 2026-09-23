@@ -33,6 +33,9 @@ export const listDashboardRunsOptionsSchema = z.object({
     .union([workflowRunStatusSchema, z.tuple([workflowRunStatusSchema], workflowRunStatusSchema)])
     .optional(),
   codebaseId: z.string().optional(),
+  /** Conversation DB id of the chat that launched the run — `parent_conversation_id`,
+   *  not the per-run worker `conversation_id`. */
+  parentConversationId: z.string().optional(),
   search: z.string().optional(),
   after: z.string().optional(),
   before: z.string().optional(),

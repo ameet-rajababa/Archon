@@ -3641,6 +3641,7 @@ export function registerApiRoutes(
           ? (rawStatus as DashboardRunStatus)
           : undefined;
       const codebaseId = c.req.query('codebaseId') ?? undefined;
+      const parentConversationId = c.req.query('parentConversationId') ?? undefined;
       const search = c.req.query('search')?.trim() || undefined;
       const after = c.req.query('after') ?? undefined;
       const before = c.req.query('before') ?? undefined;
@@ -3652,6 +3653,7 @@ export function registerApiRoutes(
       const result = await workflowDb.listDashboardRuns({
         status,
         codebaseId,
+        parentConversationId,
         search,
         after,
         before,

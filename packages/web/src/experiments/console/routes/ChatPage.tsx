@@ -5,6 +5,7 @@ import { ChatComposer } from '../components/ChatComposer';
 import { ProjectViewTabs } from '../components/ProjectViewTabs';
 import { WorkingIndicator } from '../components/WorkingIndicator';
 import { WorkflowDock } from '../components/WorkflowDock';
+import { ChatRunsPanel } from '../components/ChatRunsPanel';
 import { EmptyState } from '../components/EmptyState';
 import { StreamContextProvider } from '../lib/stream-context';
 import { useConversationSSE } from '../lib/sse';
@@ -13,7 +14,7 @@ import { K } from '../store/keys';
 import * as skill from '../skills';
 import type { Project } from '../primitives/project';
 import type { Message } from '../primitives/message';
-import type { ConversationSummary } from '../primitives/conversation';
+import { resolveConversationDbId, type ConversationSummary } from '../primitives/conversation';
 
 // While a turn is active, refetch messages on this cadence so streamed replies
 // still surface if a per-conversation SSE event is dropped (cross-origin
@@ -60,6 +61,13 @@ export function ChatPage(): ReactElement {
     const web = (conversations ?? []).find(c => c.platformType === 'web');
     if (web !== undefined) setActiveConvId(web.id);
   }, [conversations, activeConvId]);
+
+  // Derived rather than tracked as second state, so the platform id and the DB
+  // uuid can't drift apart.
+  const activeConvDbId = useMemo<string | null>(
+    () => resolveConversationDbId(conversations ?? [], activeConvId),
+    [conversations, activeConvId]
+  );
 
   const { data: messages, error: messagesError } = useEntity<Message[]>(
     activeConvId !== null ? K.messages(activeConvId) : 'noop:no-conv',
@@ -296,6 +304,10 @@ export function ChatPage(): ReactElement {
           </button>
         ) : null}
       </div>
+
+      {activeConvDbId !== null ? (
+        <ChatRunsPanel conversationDbId={activeConvDbId} projectId={projectId} />
+      ) : null}
 
       <WorkflowDock projectId={projectId} />
 

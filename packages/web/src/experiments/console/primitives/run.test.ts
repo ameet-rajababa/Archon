@@ -165,6 +165,42 @@ describe('toRun — provenance', () => {
     expect(bare.workerPlatformId).toBeNull();
   });
 
+  test('maps parent_conversation_id without conflating it with the worker conversation', () => {
+    const chatLaunched = toRun(
+      raw({
+        id: 'r1',
+        workflow_name: 'implement',
+        status: 'running',
+        conversation_id: 'worker-conv-db-id',
+        parent_conversation_id: 'chat-conv-db-id',
+      })
+    );
+    expect(chatLaunched.parentConversationId).toBe('chat-conv-db-id');
+    expect(chatLaunched.conversationId).toBe('worker-conv-db-id');
+  });
+
+  test('a run with no originating chat maps to null, not undefined (#2008 CLI runs)', () => {
+    const cliLaunched = toRun(
+      raw({
+        id: 'r2',
+        workflow_name: 'implement',
+        status: 'completed',
+        conversation_id: 'cli-conv-db-id',
+      })
+    );
+    expect(cliLaunched.parentConversationId).toBeNull();
+
+    const explicitNull = toRun(
+      raw({
+        id: 'r3',
+        workflow_name: 'implement',
+        status: 'completed',
+        parent_conversation_id: null,
+      })
+    );
+    expect(explicitNull.parentConversationId).toBeNull();
+  });
+
   test("normalizes the transient 'pending' status to running", () => {
     const r = toRun(raw({ id: 'r1', workflow_name: 'plan', status: 'pending' }));
     expect(r.status).toBe('running');

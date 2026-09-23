@@ -1666,6 +1666,43 @@ describe('GET /api/dashboard/runs', () => {
     expect(callArgs?.codebaseId).toBe('cb-1');
   });
 
+  test('filters by parentConversationId query param', async () => {
+    mockListDashboardRuns.mockImplementationOnce(async () => makeDashboardRunsResult());
+
+    const { app } = makeApp();
+    await app.request('/api/dashboard/runs?parentConversationId=chat-conv-db-id');
+
+    const [callArgs] = mockListDashboardRuns.mock.calls[0] ?? [];
+    expect(callArgs?.parentConversationId).toBe('chat-conv-db-id');
+  });
+
+  test('composes the chat filter with status and pagination', async () => {
+    mockListDashboardRuns.mockImplementationOnce(async () => makeDashboardRunsResult());
+
+    const { app } = makeApp();
+    await app.request(
+      '/api/dashboard/runs?parentConversationId=chat-conv-db-id&status=completed&limit=2&offset=2'
+    );
+
+    const [callArgs] = mockListDashboardRuns.mock.calls[0] ?? [];
+    expect(callArgs).toMatchObject({
+      parentConversationId: 'chat-conv-db-id',
+      status: 'completed',
+      limit: 2,
+      offset: 2,
+    });
+  });
+
+  test('omits the chat filter when the query param is absent — CLI runs stay listed', async () => {
+    mockListDashboardRuns.mockImplementationOnce(async () => makeDashboardRunsResult());
+
+    const { app } = makeApp();
+    await app.request('/api/dashboard/runs');
+
+    const [callArgs] = mockListDashboardRuns.mock.calls[0] ?? [];
+    expect(callArgs?.parentConversationId).toBeUndefined();
+  });
+
   test('filters by search query param', async () => {
     mockListDashboardRuns.mockImplementationOnce(async () => makeDashboardRunsResult());
 
