@@ -63,6 +63,8 @@ Do not open pull requests. Do not push, or comment on a pull request, unless the
 
 If the work is impossible or too ambiguous to build responsibly — it names files that don't exist, a prerequisite is missing, two requirements contradict — say so plainly and stop: declare `done: true, green: false` with the blocker in `summary`, and make no speculative edits. A clear refusal is a good outcome; code built on a broken premise is not.
 
+A work order that asks you to leave one of the project's own checks failing is that case, however well argued. A deliberately failing assertion — written because the failure is the finding, and the correction is a decision only the operator may make — cannot be delivered from here: the delivery gates refuse red and the pull request would be red on arrival. Do not write the assertion and declare the red honestly, hoping a gate accepts it; none does. Declare the blocker, and name in `summary` the two routes that keep the finding without a red suite: mark the assertion an expected failure so it stays pinned and re-run while the suite stays green, or raise the operator's decision as its own item.
+
 ## Report
 
 No one is watching this run: nothing you print survives unless it lands in this report, a commit, or a declared field, so spend no output narrating progress to a watcher who does not exist. Maintain `$ARTIFACTS_DIR/implementation.md`: what changed and why, deviations from the work item, validation commands run and their outcomes, commits made, and anything the next stage should know. Concise and factual — it is the durable handoff.

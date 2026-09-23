@@ -15,6 +15,18 @@
  * ready while its real CI is not green. So this fails on `introduced` and lets
  * `inherited` and `environment` through with the claim recorded.
  *
+ * Red the work order asked for is still red the change introduced, and it is refused
+ * here with the rest. That is a decision, not an omission: this tail does not carry
+ * red to a pull request, so there is no honest cause meaning "the failure is the
+ * deliverable" — the only thing separating one from ordinary introduced red would be
+ * a label the declaring agent wrote about its own work, and the same downstream CI
+ * would refuse the flip anyway. What was missing was the tail saying so. The refusal
+ * below names that reading and the routes that keep the finding: an expected-failure
+ * marker, which pins it and re-runs it while the suite stays green, or a separate item
+ * for a change only the operator may make. Triage refuses the shape before a run
+ * spends on it (`sdlc/triage/commands/triage.md`); this is the backstop for a delivery
+ * launched without one. See `.shared/verdict.ts` for the vocabulary's ownership.
+ *
  * The record is this node's own result. Its node declares `output_type: green-gate`,
  * so the engine keeps the JSON below as a typed artifact under `nodes/`, one file per
  * gate, and every later reader — the pull-request body, the terminal report — finds
@@ -41,12 +53,27 @@ const cause = trimmed(process.env.INPUTS_RED_CAUSE);
 const summary = trimmed(process.env.INPUTS_SUMMARY);
 const stage = trimmed(process.env.INPUTS_STAGE) || 'The work';
 
+/**
+ * Appended to every refusal that stops a red delivery, because the run that most
+ * needs it is the one whose red was intended: without this, the refusal describes a
+ * defect that is not there and the operator learns nothing about what to do instead.
+ */
+const DELIBERATE_RED =
+  ' If this red is the deliverable — an assertion written to fail because the failure ' +
+  'is the finding — the answer is the same, and this is the tail saying so: delivery ' +
+  'never carries red to a pull request, so no red_cause means "the failure is the ' +
+  'point". Keep the finding without a red suite: mark the assertion an expected ' +
+  'failure, which leaves it pinned and re-run while the suite stays green, or raise ' +
+  'the change only the operator may make as its own item. Then restate the work order ' +
+  'before running delivery again.';
+
 if (green === 'true') {
   emit({ gate: 'green', red_cause: '', stage, summary: '' });
 } else if (cause === '') {
   refuse(
     `${stage} is red and declared no red_cause. Red that nobody explained is red this ` +
-      'gate refuses — its summary says what happened.'
+      'gate refuses — its summary says what happened.' +
+      DELIBERATE_RED
   );
 } else if (!passesRed(cause)) {
   refuse(
@@ -54,7 +81,8 @@ if (green === 'true') {
       (cause === 'interaction'
         ? `The separately green changes fail when composed; hold this combination. ${summary} `
         : 'The change has no accepted non-introduced-red evidence. ') +
-      'Refusing to open or advance a pull request on red work.'
+      'Refusing to open or advance a pull request on red work.' +
+      DELIBERATE_RED
   );
 } else if (summary === '') {
   // The label is not the claim. A pass on non-introduced red is worth exactly the

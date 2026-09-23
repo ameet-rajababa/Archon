@@ -37,6 +37,8 @@ A run cannot recover from a premise that was never stated, so before choosing a 
 
 Then check the delivery preconditions the outcome actually depends on: an existing primitive or owner, a data shape or typed seam, a persistence model, the observability needed to verify the result. A refactor of code the work must already touch is issue-owned enabling work, not a blocker. A missing foundation with its own outcome, broader owners, or a separate product decision is a prerequisite that must land first — report it with the same weight whether or not anyone has logged it. Treat alignment with current direction as part of readiness.
 
+One acceptance shape is not deliverable and must be caught here rather than four-fifths of the way through a run: an item whose completed state leaves one of the project's own checks failing. A deliberately failing assertion — written because the failure is the finding, often because correcting the code is a decision only the operator may make — is real, useful work, and delivery still cannot carry it: the tail refuses red at its gates and its pull request would be red on arrival. Declare `NEEDS_CONTRACT_WORK` and propose the contract that keeps the finding without a red suite — mark the assertion an expected failure so it stays pinned and re-run while the suite stays green, and raise the operator's decision as its own item. Do not route it to `deliver` on the strength of an otherwise sound contract.
+
 Declare exactly one contract verdict:
 
 - `READY` — the six elements are present and agree with each other and with current direction, and the repository has a coherent place for the change, including any enabling work this item owns. This does not claim the solution is designed.

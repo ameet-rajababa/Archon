@@ -9,7 +9,10 @@ description: |
 
   Use when: decided work should become a reviewed, ready-to-merge PR —
   "deliver this plan", "take this to a PR", "build and ship this".
-  NOT for: deciding what to build, or merging (always human).
+  NOT for: deciding what to build, or merging (always human). NOT for work whose
+  completed state leaves one of the project's own checks failing — a deliberately
+  failing assertion has no cause this tail accepts, by decision rather than by
+  omission, and triage refuses that shape before a run spends on it.
 
 # Review establishes the first verdict. When blockers remain, a bounded static
 # body repeats fix → light review, so every correction is independently checked
