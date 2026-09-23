@@ -62,6 +62,7 @@ mock.module('@archon/paths', () => ({
 import { loadCommandPrompt } from './executor-shared';
 import type { WorkflowDeps } from './deps';
 import { formatPackagedResourceReference } from './packaged-workflow';
+import { honorArchonHomeEnv } from '@archon/paths/test-utils';
 
 // Minimal deps stub — loadCommandPrompt only calls loadConfig.
 function makeDeps(loadDefaultCommands = true): WorkflowDeps {
@@ -69,6 +70,10 @@ function makeDeps(loadDefaultCommands = true): WorkflowDeps {
     loadConfig: async () => ({ defaults: { loadDefaultCommands } }),
   } as unknown as WorkflowDeps;
 }
+
+// This file points ARCHON_HOME at a temp directory; without this the
+// container's Docker signals make getArchonHome() ignore it.
+honorArchonHomeEnv();
 
 describe('loadCommandPrompt — home-scope resolution', () => {
   let archonHome: string;

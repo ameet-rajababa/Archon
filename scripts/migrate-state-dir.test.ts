@@ -73,7 +73,7 @@
  */
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { mkdtemp, mkdir, writeFile, readFile, readdir } from 'fs/promises';
-import { removeTempTree } from '@archon/paths/test-utils';
+import { SCRATCH_REGISTRY_ENV, removeTempTree } from '@archon/paths/test-utils';
 import { getLogLevel, setLogLevel } from '@archon/paths';
 import { SqliteAdapter } from '@archon/core/db/adapters/sqlite';
 import { tmpdir } from 'os';
@@ -162,7 +162,7 @@ function childEnv(
     ...process.env,
     ARCHON_HOME: ctx.archonHome,
     LOG_LEVEL: 'silent',
-    DATABASE_URL: '',
+    ...SCRATCH_REGISTRY_ENV,
     ...extraEnv,
   };
 }

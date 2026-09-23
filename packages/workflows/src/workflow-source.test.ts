@@ -45,7 +45,7 @@ import { loadCommandPrompt } from './executor-shared';
 import { withCapturedSource } from './executor';
 import { discoverWorkflows } from './workflow-discovery';
 import type { WorkflowDeps } from './deps';
-import { trackTempRoots } from '@archon/paths/test-utils';
+import { honorArchonHomeEnv, trackTempRoots } from '@archon/paths/test-utils';
 
 /** One test's paths. Created by the test, never shared with another. */
 interface Sandbox {
@@ -123,6 +123,10 @@ const deps = {
   loadConfig: () =>
     Promise.resolve({} as unknown as Awaited<ReturnType<WorkflowDeps['loadConfig']>>),
 } satisfies Pick<WorkflowDeps, 'loadConfig'>;
+
+// This file points ARCHON_HOME at a temp directory; without this the
+// container's Docker signals make getArchonHome() ignore it.
+honorArchonHomeEnv();
 
 describe('captureWorkflowSource', () => {
   test('freezes commands and scripts so the target never needs them', async () => {

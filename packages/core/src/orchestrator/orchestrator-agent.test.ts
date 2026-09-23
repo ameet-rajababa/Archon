@@ -160,6 +160,9 @@ const mockUpdateConversation = mock<typeof ConversationDb.updateConversation>(()
 const mockSetConversationArchived = mock<typeof ConversationDb.setConversationArchived>(() =>
   Promise.resolve()
 );
+const mockSetConversationCompleted = mock<typeof ConversationDb.setConversationCompleted>(() =>
+  Promise.resolve()
+);
 const mockGetConversationByPlatformId = mock<typeof ConversationDb.getConversationByPlatformId>(
   () => Promise.resolve(null)
 );
@@ -169,6 +172,7 @@ mock.module('../db/conversations', () => ({
   updateConversation: mockUpdateConversation,
   touchConversation: mock(() => Promise.resolve()),
   setConversationArchived: mockSetConversationArchived,
+  setConversationCompleted: mockSetConversationCompleted,
 }));
 
 const mockListCodebases = mock<typeof CodebaseDb.listCodebases>(() => Promise.resolve([]));
@@ -6848,6 +6852,7 @@ describe('handoff relay', () => {
     mockSendQuery.mockClear();
     mockAddMessage.mockClear();
     mockSetConversationArchived.mockClear();
+    mockSetConversationCompleted.mockClear();
     mockGetOrCreateConversation.mockReset();
     mockDiscoverWorkflowsWithConfig.mockReset();
     mockDiscoverWorkflowsWithConfig.mockImplementation(() =>
@@ -6937,7 +6942,11 @@ describe('handoff relay', () => {
     await handleMessage(makePlatform(), 'conv-1', 'hand this off');
 
     expect(results[0]).toContain('Handed off');
-    expect(mockSetConversationArchived).toHaveBeenCalled();
+    // Completed, not archived: a handoff marks the predecessor DONE, which is
+    // reversible from the successor, rather than soft-deleting it. Asserting the
+    // archive call let the real setConversationCompleted run against whatever
+    // database the environment happened to point at.
+    expect(mockSetConversationCompleted).toHaveBeenCalled();
   });
 });
 

@@ -6,6 +6,7 @@ import { discoverWorkflows } from './workflow-discovery';
 import { COMPILED_LOOP_COMMAND, type LoopWithCompiledCommand } from './compiled-command';
 import { isLoopGroupNode, isLoopNode } from './schemas';
 import type { DagNode } from './schemas';
+import { honorArchonHomeEnv } from '@archon/paths/test-utils';
 
 const tempDirectories: string[] = [];
 
@@ -14,6 +15,10 @@ afterEach(async () => {
     tempDirectories.splice(0).map(directory => rm(directory, { recursive: true, force: true }))
   );
 });
+
+// This file points ARCHON_HOME at a temp directory; without this the
+// container's Docker signals make getArchonHome() ignore it.
+honorArchonHomeEnv();
 
 describe('discoverWorkflows — nested included command compilation', () => {
   test('pre-resolves command files for a compose-only target', async () => {

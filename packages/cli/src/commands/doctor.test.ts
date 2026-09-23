@@ -13,7 +13,7 @@ import { join } from 'path';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'fs';
 import * as git from '@archon/git';
 import { canonicalizeProjectPath } from '@archon/paths';
-import { removeTempTree } from '@archon/paths/test-utils';
+import { honorArchonHomeEnv, removeTempTree } from '@archon/paths/test-utils';
 import { copyArchonSkill } from './skill';
 import {
   checkClaudeBinary,
@@ -40,6 +40,10 @@ import {
 } from './doctor';
 import * as doctorModule from './doctor';
 import type { MergedConfig } from '@archon/core';
+
+// This file points ARCHON_HOME at a temp directory; without this the
+// container's Docker signals make getArchonHome() ignore it.
+honorArchonHomeEnv();
 
 describe('checkClaudeBinary', () => {
   let execSpy: ReturnType<typeof spyOn<typeof git, 'execFileAsync'>>;

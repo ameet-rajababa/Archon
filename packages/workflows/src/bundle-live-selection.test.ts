@@ -2,7 +2,7 @@ import { afterAll, beforeEach, expect, mock, spyOn, test } from 'bun:test';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { removeTempTree } from '@archon/paths/test-utils';
+import { honorArchonHomeEnv, removeTempTree } from '@archon/paths/test-utils';
 import { registerBuiltinProviders } from '@archon/providers';
 import type { WorkflowDeps } from './deps';
 
@@ -81,6 +81,10 @@ afterAll(async () => {
   else process.env.ARCHON_HOME = originalHome;
   await removeTempTree(root);
 });
+
+// This file points ARCHON_HOME at a temp directory; without this the
+// container's Docker signals make getArchonHome() ignore it.
+honorArchonHomeEnv();
 
 test('live source catalogs exclude unindexed bundled packs while retaining project and home packs', async () => {
   const result = await discoverWorkflows(project);

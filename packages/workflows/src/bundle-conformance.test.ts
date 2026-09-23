@@ -2,7 +2,7 @@ import { afterAll, expect, spyOn, test } from 'bun:test';
 import { mkdtemp, mkdir, readdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { removeTempTree } from '@archon/paths/test-utils';
+import { honorArchonHomeEnv, removeTempTree } from '@archon/paths/test-utils';
 import * as defaults from './defaults/bundled-defaults';
 import { captureWorkflowSource } from './workflow-source';
 import { readBundleIndex } from './defaults/bundle-inventory';
@@ -25,6 +25,10 @@ async function files(root: string, prefix = ''): Promise<Record<string, string>>
   }
   return result;
 }
+
+// This file points ARCHON_HOME at a temp directory; without this the
+// container's Docker signals make getArchonHome() ignore it.
+honorArchonHomeEnv();
 
 test('source and binary captures contain exactly the same bundled files and bytes', async () => {
   const project = join(root, 'project');

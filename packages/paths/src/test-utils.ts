@@ -121,7 +121,12 @@ export function trackTempRoots(): (root: string) => string {
  *
  * `isDocker()` reads `ARCHON_DOCKER` and `WORKSPACE_PATH` from `process.env` on
  * every call — the two that all three of its checks rest on — so
- * clearing them once per file is enough. Call this from any file that points
+ * clearing them once per file is enough. This registers `beforeAll`, so it
+ * cannot help a file that resolves a path at module scope — a top-level
+ * `await import` of the database runs before any hook, and such a file must
+ * clear the two variables inline and restore them itself.
+ *
+ * Call this from any file that points
  * `ARCHON_HOME` somewhere and expects to be believed. Do NOT call it from a test
  * about Docker detection itself — that test owns these variables.
  */

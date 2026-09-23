@@ -3,7 +3,7 @@ import * as fs from 'fs/promises';
 import { mkdir, mkdtemp, readFile, readdir, stat, utimes, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { dirname, join } from 'path';
-import { removeTempTree } from '@archon/paths/test-utils';
+import { honorArchonHomeEnv, removeTempTree } from '@archon/paths/test-utils';
 import type { BundledScriptPack } from './defaults/bundled-script-pack';
 import type { ScriptDefinition } from './script-discovery';
 
@@ -75,6 +75,10 @@ async function execute(script: ScriptDefinition, target: string): Promise<string
   if (script.runtime === 'bun') expect(stderr).toBe('');
   return stdout.trim();
 }
+
+// This file points ARCHON_HOME at a temp directory; without this the
+// container's Docker signals make getArchonHome() ignore it.
+honorArchonHomeEnv();
 
 describe('pack shared modules across source and binary distributions (#3251)', () => {
   let root: string;

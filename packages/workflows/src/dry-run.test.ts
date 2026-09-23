@@ -19,6 +19,7 @@ import { expandWorkflowIncludes } from './include-expander';
 import type { ResolvedWorkflow, WorkflowDefinition } from './schemas';
 import { captureWorkflowSource, capturedSourceRoots, loadWorkflowSource } from './workflow-source';
 import { readBundleIndex } from './defaults/bundle-inventory';
+import { honorArchonHomeEnv } from '@archon/paths/test-utils';
 
 // These fixtures read only project files. Avoid copying the repository's bundled
 // defaults into every capture; the materialization suite covers bundled content.
@@ -112,6 +113,10 @@ function composedReviewWorkflow(gateNodes: unknown[], includeWhen?: string): Res
   });
   return makeTestComposedWorkflow([block, parent], 'parent');
 }
+
+// This file points ARCHON_HOME at a temp directory; without this the
+// container's Docker signals make getArchonHome() ignore it.
+honorArchonHomeEnv();
 
 describe('loadDryRunStubs', () => {
   test('loads scalar and structured node outputs', async () => {

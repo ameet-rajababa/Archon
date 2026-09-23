@@ -1075,7 +1075,11 @@ describe('POST /api/workflows/:name/run', () => {
     const invalidConfigs = [
       [{ configPath: '/etc/passwd' }, 'configPath is not supported'],
       [{ config: null }, "Invalid run config at 'document'"],
-      [{ config: { paths: { worktrees: '/tmp/other' } } }, "Run config key 'paths' cannot apply"],
+      // A key that exists but cannot apply at run dispatch — distinct from the
+      // unknown-key row below, which is a different refusal. `paths` served this
+      // until it stopped being a config key at all (e74b423a), at which point it
+      // silently became a second unknown-key case.
+      [{ config: { worktree: { baseBranch: 'other' } } }, "Run config key 'worktree' cannot apply"],
       [{ config: { unknown: true } }, "Unknown run config key 'unknown'"],
     ] as const;
     for (const [payload, expectedError] of invalidConfigs) {

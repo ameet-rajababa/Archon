@@ -7,9 +7,19 @@ import { removeTempTree } from '@archon/paths/test-utils';
 
 const originalArchonHome = process.env.ARCHON_HOME;
 const originalDatabaseUrl = process.env.DATABASE_URL;
+const originalArchonDocker = process.env.ARCHON_DOCKER;
+const originalWorkspacePath = process.env.WORKSPACE_PATH;
 const archonHome = await mkdtemp(join(tmpdir(), 'archon-github-check-signal-'));
 process.env.ARCHON_HOME = archonHome;
 delete process.env.DATABASE_URL;
+delete process.env.ARCHON_DOCKER;
+delete process.env.WORKSPACE_PATH;
+// getArchonHome() checks isDocker() BEFORE ARCHON_HOME and returns a hardcoded
+// /.archon, so inside a container the temp home above was ignored and this test
+// seeded its conversation into the operator's real database — passing the first
+// time and failing every later run on the unique constraint its own leftover row
+// created. Cleared here rather than through `honorArchonHomeEnv` because the
+// database module is imported below at module scope, before any hook runs.
 
 const { GitHubAdapter } = await import('./adapter');
 const {
@@ -29,6 +39,10 @@ afterAll(async () => {
   else process.env.ARCHON_HOME = originalArchonHome;
   if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
   else process.env.DATABASE_URL = originalDatabaseUrl;
+  if (originalArchonDocker === undefined) delete process.env.ARCHON_DOCKER;
+  else process.env.ARCHON_DOCKER = originalArchonDocker;
+  if (originalWorkspacePath === undefined) delete process.env.WORKSPACE_PATH;
+  else process.env.WORKSPACE_PATH = originalWorkspacePath;
 });
 
 describe('GitHub completed-check workflow signal — real SQLite', () => {
