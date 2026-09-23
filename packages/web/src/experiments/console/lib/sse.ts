@@ -32,6 +32,104 @@ function parse(raw: string): ParsedEvent | null {
 }
 
 /**
+ * The slice of `EventSource` {@link recoverOnReconnect} touches: a writable
+ * `onopen` slot. Narrow enough that a test can drive the open lifecycle
+ * directly, which matters here — the console has no DOM under the test runner.
+ */
+export interface OpenableStream {
+  onopen: ((ev: Event) => void) | null;
+}
+
+/**
+ * Refetch the cache keys a stream keeps live, once that stream has reconnected.
+ *
+ * A reconnect is a hole in the record. EventSource replays nothing, so every
+ * event the server emitted while the socket was down is gone, and no cache
+ * entry knows it missed any — the view goes on showing what it last heard,
+ * indefinitely and confidently. Refetching what the stream feeds is the only
+ * honest response to a gap.
+ *
+ * The FIRST open is skipped: the mount that opened the stream already fetched
+ * these keys, and invalidating there would double every request on page load.
+ *
+ * A plain function rather than a hook, so the skip-first-open lifecycle is
+ * unit-testable — the same extraction shape as `subscribeKey` in store/cache.
+ */
+export function recoverOnReconnect(es: OpenableStream, keys: readonly string[]): void {
+  let opened = false;
+  es.onopen = (): void => {
+    if (!opened) {
+      opened = true;
+      return;
+    }
+    for (const key of keys) invalidate(key);
+  };
+}
+
+/**
+ * What each stream event changes, named per stream rather than as a cache key.
+ *
+ * `onmessage` marks the targets of the event it just received, and the stream's
+ * reconnect key list is the union of the same table's targets resolved through
+ * the same per-stream key map. The live-event path and the recovery path
+ * therefore cannot name different keys: an event type added to a table is
+ * recovered on reconnect for free, and a target added to a union is a type error
+ * until {@link conversationStreamTargetKeys} / {@link runStreamTargetKeys} give
+ * it a key. Restating the union by hand is how a reconnect silently
+ * under-invalidates.
+ */
+type ConversationTarget = 'messages';
+type RunTarget = ConversationTarget | 'run';
+
+const CONVERSATION_EVENT_TARGETS = new Map<string, readonly ConversationTarget[]>([
+  ['text', ['messages']],
+  ['tool_call', ['messages']],
+  ['tool_result', ['messages']],
+]);
+
+const RUN_EVENT_TARGETS = new Map<string, readonly RunTarget[]>([
+  ['text', ['messages']],
+  ['tool_call', ['messages', 'run']],
+  ['tool_result', ['messages', 'run']],
+  ['workflow_status', ['run']],
+  ['workflow_tool_activity', ['run']],
+  ['dag_node', ['run']],
+  ['workflow_step', ['run']],
+  ['workflow_artifact', ['run']],
+  ['workflow_dispatch', ['run']],
+]);
+
+function conversationStreamTargetKeys(
+  conversationPlatformId: string
+): Record<ConversationTarget, string> {
+  return { messages: K.messages(conversationPlatformId) };
+}
+
+function runStreamTargetKeys(
+  conversationPlatformId: string,
+  runId: string
+): Record<RunTarget, string> {
+  return { messages: K.messages(conversationPlatformId), run: K.run(runId) };
+}
+
+function liveKeys<T extends string>(
+  eventTargets: ReadonlyMap<string, readonly T[]>,
+  targetKeys: Readonly<Record<T, string>>
+): string[] {
+  return [...new Set([...eventTargets.values()].flat())].map(target => targetKeys[target]);
+}
+
+/** The cache keys {@link useConversationSSE} keeps live. */
+export function conversationStreamKeys(conversationPlatformId: string): string[] {
+  return liveKeys(CONVERSATION_EVENT_TARGETS, conversationStreamTargetKeys(conversationPlatformId));
+}
+
+/** The cache keys {@link useRunStreamSSE} keeps live. */
+export function runStreamKeys(conversationPlatformId: string, runId: string): string[] {
+  return liveKeys(RUN_EVENT_TARGETS, runStreamTargetKeys(conversationPlatformId, runId));
+}
+
+/**
  * Subscribe to the dashboard SSE stream and invalidate the runs feed on any
  * lifecycle change. Safe to mount from more than one route — RunsPage and the
  * ChatPage WorkflowDock both do; each opens an independent connection and the
@@ -96,8 +194,8 @@ export function useRunStreamSSE(conversationPlatformId: string | null, runId: st
       `${SSE_BASE_URL}/api/stream/${encodeURIComponent(conversationPlatformId)}`
     );
 
-    let messagesDirty = false;
-    let runDirty = false;
+    const targetKeys = runStreamTargetKeys(conversationPlatformId, runId);
+    const dirty = new Set<RunTarget>();
     let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
     // Coalesce bursts. Streamed text can arrive at >10Hz; we don't want a
@@ -107,14 +205,8 @@ export function useRunStreamSSE(conversationPlatformId: string | null, runId: st
       if (flushTimer !== null) return;
       flushTimer = setTimeout(() => {
         flushTimer = null;
-        if (messagesDirty) {
-          invalidate(K.messages(conversationPlatformId));
-          messagesDirty = false;
-        }
-        if (runDirty) {
-          invalidate(K.run(runId));
-          runDirty = false;
-        }
+        for (const target of dirty) invalidate(targetKeys[target]);
+        dirty.clear();
       }, 100);
     };
 
@@ -122,30 +214,15 @@ export function useRunStreamSSE(conversationPlatformId: string | null, runId: st
       const ev = parse(e.data);
       if (ev?.type === undefined || ev.type === 'heartbeat') return;
 
-      switch (ev.type) {
-        case 'text':
-          messagesDirty = true;
-          break;
-        case 'tool_call':
-        case 'tool_result':
-          messagesDirty = true;
-          runDirty = true;
-          break;
-        case 'workflow_status':
-        case 'workflow_tool_activity':
-        case 'dag_node':
-        case 'workflow_step':
-        case 'workflow_artifact':
-        case 'workflow_dispatch':
-          runDirty = true;
-          break;
-        // Other event types (system_status, retract, etc.) don't change
-        // persisted state we render — ignore.
-        default:
-          return;
-      }
+      // An event absent from the table (system_status, retract, etc.) doesn't
+      // change persisted state we render.
+      const targets = RUN_EVENT_TARGETS.get(ev.type);
+      if (targets === undefined) return;
+      for (const target of targets) dirty.add(target);
       scheduleFlush();
     };
+
+    recoverOnReconnect(es, runStreamKeys(conversationPlatformId, runId));
 
     es.onerror = (): void => {
       if (es.readyState === EventSource.CLOSED) {
@@ -180,17 +257,16 @@ export function useConversationSSE(
       `${SSE_BASE_URL}/api/stream/${encodeURIComponent(conversationPlatformId)}`
     );
 
-    let messagesDirty = false;
+    const targetKeys = conversationStreamTargetKeys(conversationPlatformId);
+    const dirty = new Set<ConversationTarget>();
     let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
     const scheduleFlush = (): void => {
       if (flushTimer !== null) return;
       flushTimer = setTimeout(() => {
         flushTimer = null;
-        if (messagesDirty) {
-          invalidate(K.messages(conversationPlatformId));
-          messagesDirty = false;
-        }
+        for (const target of dirty) invalidate(targetKeys[target]);
+        dirty.clear();
       }, 100);
     };
 
@@ -198,21 +274,22 @@ export function useConversationSSE(
       const ev = parse(e.data);
       if (ev?.type === undefined || ev.type === 'heartbeat') return;
 
-      switch (ev.type) {
-        case 'text':
-        case 'tool_call':
-        case 'tool_result':
-          messagesDirty = true;
-          scheduleFlush();
-          break;
-        case 'conversation_lock':
-          if (typeof ev.locked === 'boolean') onLockChange?.(ev.locked);
-          break;
-        // No run-detail cache here; ignore workflow_* and everything else.
-        default:
-          return;
+      // The lock drives the composer directly and has no cache entry, so it
+      // stays out of the target table — and out of reconnect recovery with it.
+      if (ev.type === 'conversation_lock') {
+        if (typeof ev.locked === 'boolean') onLockChange?.(ev.locked);
+        return;
       }
+
+      // No run-detail cache here; an event absent from the table (workflow_*
+      // and everything else) changes nothing this stream renders.
+      const targets = CONVERSATION_EVENT_TARGETS.get(ev.type);
+      if (targets === undefined) return;
+      for (const target of targets) dirty.add(target);
+      scheduleFlush();
     };
+
+    recoverOnReconnect(es, conversationStreamKeys(conversationPlatformId));
 
     es.onerror = (): void => {
       if (es.readyState === EventSource.CLOSED) {

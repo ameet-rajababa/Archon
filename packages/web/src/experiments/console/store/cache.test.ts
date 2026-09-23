@@ -1,8 +1,14 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, afterEach, setSystemTime } from 'bun:test';
 import { subscribeKey, versionOf, get, set, invalidate } from './cache';
 
 // The store's Maps are module-level, so every test uses its own unique key —
 // no cross-test state to reset.
+
+// Tests that exercise the staleness window pin the clock. Reset it for every
+// test so a pinned one can never leak into the next; a no-op otherwise.
+afterEach(() => {
+  setSystemTime();
+});
 
 function flush(): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, 0));
@@ -11,6 +17,8 @@ function flush(): Promise<void> {
 describe('subscribeKey — per-key Map lifecycle (#1933)', () => {
   test('last unsubscribe prunes versions; cache is retained for warm remount', async () => {
     const key = 'test:prune-versions';
+    // Frozen so the remount below is unambiguously inside the staleness window.
+    setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
     let loads = 0;
     const unsubscribe = subscribeKey(
       key,
@@ -30,7 +38,8 @@ describe('subscribeKey — per-key Map lifecycle (#1933)', () => {
     expect(versionOf(key)).toBe(0); // counter released
     expect(get(key)).toBe('v1'); // cached value deliberately retained
 
-    // Remount reads warm: ensureLoad short-circuits on the cached value.
+    // Remount inside the window reads warm: ensureLoad short-circuits on the
+    // still-fresh cached value.
     const unsubscribe2 = subscribeKey(
       key,
       () => {},
@@ -253,5 +262,161 @@ describe('subscribeKey — resubscribe during an abandoned in-flight load (#2101
     expect(versionOf(key)).toBe(1); // no extra notify — A's error was not surfaced
 
     unsubB();
+  });
+});
+
+describe('subscribeKey — staleness window on resubscribe', () => {
+  const START = new Date('2026-01-01T00:00:00.000Z');
+
+  function at(offsetMs: number): void {
+    setSystemTime(new Date(START.getTime() + offsetMs));
+  }
+
+  test('a resubscribe inside the window serves the warm value without reloading', async () => {
+    const key = 'test:fresh-resubscribe';
+    setSystemTime(START);
+
+    let loads = 0;
+    const unsubscribe = subscribeKey(
+      key,
+      () => {},
+      () => {
+        loads += 1;
+        return Promise.resolve('v1');
+      }
+    );
+    await flush();
+    expect(get(key)).toBe('v1');
+    expect(loads).toBe(1);
+    unsubscribe();
+
+    at(1_999); // still inside the 2s window
+    const unsubscribe2 = subscribeKey(
+      key,
+      () => {},
+      () => {
+        loads += 1;
+        return Promise.resolve('v2');
+      }
+    );
+    await flush();
+
+    expect(loads).toBe(1); // loader not re-invoked
+    expect(get(key)).toBe('v1');
+    unsubscribe2();
+  });
+
+  test('a resubscribe past the window revalidates without blanking the cached value', async () => {
+    const key = 'test:stale-resubscribe';
+    setSystemTime(START);
+
+    let loads = 0;
+    const unsubscribe = subscribeKey(
+      key,
+      () => {},
+      () => {
+        loads += 1;
+        return Promise.resolve('v1');
+      }
+    );
+    await flush();
+    expect(get(key)).toBe('v1');
+    unsubscribe();
+
+    at(2_000); // the value is now as old as the window allows
+    let resolveSecond: (v: string) => void = () => {};
+    const unsubscribe2 = subscribeKey(
+      key,
+      () => {},
+      () => {
+        loads += 1;
+        return new Promise<string>(resolve => {
+          resolveSecond = resolve;
+        });
+      }
+    );
+
+    expect(loads).toBe(2); // the resubscribe issued its own request
+
+    // Stale-while-revalidate: the previous value is still on screen while the
+    // refetch is in flight — never blanked to undefined, never a loading flash.
+    expect(get(key)).toBe('v1');
+
+    resolveSecond('v2');
+    await flush();
+    expect(get(key)).toBe('v2');
+
+    unsubscribe2();
+  });
+
+  test('the window is measured from the last load, not from the last subscribe', async () => {
+    const key = 'test:window-origin';
+    setSystemTime(START);
+
+    let loads = 0;
+    const loader = (): Promise<string> => {
+      loads += 1;
+      return Promise.resolve(`v${loads.toString()}`);
+    };
+
+    const unsubscribe = subscribeKey(key, () => {}, loader);
+    await flush();
+    expect(loads).toBe(1);
+    unsubscribe();
+
+    // Three subscribes spread across the window: the value's age keeps growing
+    // because none of them reloaded, so only the one past 2s refetches.
+    at(800);
+    subscribeKey(key, () => {}, loader)();
+    at(1_600);
+    subscribeKey(key, () => {}, loader)();
+    await flush();
+    expect(loads).toBe(1);
+
+    at(2_400);
+    const unsubscribe4 = subscribeKey(key, () => {}, loader);
+    await flush();
+    expect(loads).toBe(2);
+    expect(get(key)).toBe('v2');
+    unsubscribe4();
+  });
+
+  test('a key warmed only by set() always reloads on subscribe, then joins the window', async () => {
+    const key = 'test:pushed-value-subscribe';
+    setSystemTime(START);
+
+    // An SSE push or an optimistic skill-layer write. Nothing stamps its age,
+    // so the window cannot apply to it and the first subscriber is owed a load.
+    set(key, 'pushed');
+
+    let loads = 0;
+    const unsubscribe = subscribeKey(
+      key,
+      () => {},
+      () => {
+        loads += 1;
+        return Promise.resolve('loaded');
+      }
+    );
+
+    expect(loads).toBe(1);
+    expect(get(key)).toBe('pushed'); // still on screen while that load is in flight
+    await flush();
+    expect(get(key)).toBe('loaded');
+    unsubscribe();
+
+    // One load converges it: the value now has an age, so the window applies.
+    const unsubscribe2 = subscribeKey(
+      key,
+      () => {},
+      () => {
+        loads += 1;
+        return Promise.resolve('again');
+      }
+    );
+    await flush();
+    expect(loads).toBe(1);
+    expect(get(key)).toBe('loaded');
+    unsubscribe2();
   });
 });
