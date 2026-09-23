@@ -32,6 +32,51 @@ function parse(raw: string): ParsedEvent | null {
 }
 
 /**
+ * The slice of `EventSource` {@link recoverOnReconnect} touches: a writable
+ * `onopen` slot. Narrow enough that a test can drive the open lifecycle
+ * directly, which matters here — the console has no DOM under the test runner.
+ */
+export interface OpenableStream {
+  onopen: ((ev: Event) => void) | null;
+}
+
+/**
+ * Refetch the cache keys a stream keeps live, once that stream has reconnected.
+ *
+ * A reconnect is a hole in the record. EventSource replays nothing, so every
+ * event the server emitted while the socket was down is gone, and no cache
+ * entry knows it missed any — the view goes on showing what it last heard,
+ * indefinitely and confidently. Refetching what the stream feeds is the only
+ * honest response to a gap.
+ *
+ * The FIRST open is skipped: the mount that opened the stream already fetched
+ * these keys, and invalidating there would double every request on page load.
+ *
+ * A plain function rather than a hook, so the skip-first-open lifecycle is
+ * unit-testable — the same extraction shape as `subscribeKey` in store/cache.
+ */
+export function recoverOnReconnect(es: OpenableStream, keys: readonly string[]): void {
+  let opened = false;
+  es.onopen = (): void => {
+    if (!opened) {
+      opened = true;
+      return;
+    }
+    for (const key of keys) invalidate(key);
+  };
+}
+
+/** The cache keys {@link useConversationSSE} keeps live. */
+export function conversationStreamKeys(conversationPlatformId: string): string[] {
+  return [K.messages(conversationPlatformId)];
+}
+
+/** The cache keys {@link useRunStreamSSE} keeps live. */
+export function runStreamKeys(conversationPlatformId: string, runId: string): string[] {
+  return [K.messages(conversationPlatformId), K.run(runId)];
+}
+
+/**
  * Subscribe to the dashboard SSE stream and invalidate the runs feed on any
  * lifecycle change. Safe to mount from more than one route — RunsPage and the
  * ChatPage WorkflowDock both do; each opens an independent connection and the
@@ -147,6 +192,8 @@ export function useRunStreamSSE(conversationPlatformId: string | null, runId: st
       scheduleFlush();
     };
 
+    recoverOnReconnect(es, runStreamKeys(conversationPlatformId, runId));
+
     es.onerror = (): void => {
       if (es.readyState === EventSource.CLOSED) {
         console.warn('[console-sse] conversation stream closed', { conversationPlatformId });
@@ -213,6 +260,8 @@ export function useConversationSSE(
           return;
       }
     };
+
+    recoverOnReconnect(es, conversationStreamKeys(conversationPlatformId));
 
     es.onerror = (): void => {
       if (es.readyState === EventSource.CLOSED) {
