@@ -481,7 +481,16 @@ export async function findWorkflowRunsByIdPrefix(
   if (idPrefix.length === 0 || !/^[0-9a-fA-F-]+$/.test(idPrefix)) return [];
   try {
     const result = await pool.query<WorkflowRun>(
-      'SELECT * FROM remote_agent_workflow_runs WHERE codebase_id = $1 AND id LIKE $2 LIMIT 2',
+      // CAST, and not a bare `id LIKE`: on Postgres `id` is a uuid column and
+      // there is no `uuid ~~ text` operator, so the uncast comparison is
+      // rejected at parse time on EVERY call — this never matched even a full,
+      // exact uuid, which left `get`, `cancel`, `abandon`, `resume`, `approve`,
+      // `reject` and `respond` unreachable by short id. `CAST(... AS TEXT)` is
+      // standard SQL and means the same thing on SQLite, so neither backend
+      // needs a dialect branch. The cast is injection-safe because `idPrefix` is
+      // already constrained to the UUID charset above, which is what keeps `%`
+      // and `_` out.
+      'SELECT * FROM remote_agent_workflow_runs WHERE codebase_id = $1 AND CAST(id AS TEXT) LIKE $2 LIMIT 2',
       [codebaseId, `${idPrefix}%`]
     );
     return result.rows.map(normalizeWorkflowRun);
