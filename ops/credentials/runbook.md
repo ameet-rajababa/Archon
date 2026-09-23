@@ -164,6 +164,21 @@ On the Business account, in the 1Password web UI:
 > there is no unattended way to renew one, so an expiry guarantees the
 > interruption this plan exists to remove.
 
+### Item titles must not contain a colon
+
+A `op://vault/item/field` reference **rejects `:`** — `invalid character in
+secret reference: ':'`. 1Password's own auto-generated service-account items are
+titled `Service Account Auth Token: <name>`, which therefore cannot be addressed
+by reference at all; they can only be fetched by UUID with `op item get`.
+
+Since Phase 4 resolves everything through `op://` references in
+`/opt/archon/.env`, **every item this plan creates uses a colon-free title**, e.g.
+`Service Account Token - archon-automation`. Rename any auto-generated item
+before referencing it.
+
+Verified 2026-09-23. This is a silent trap: the reference fails at resolution
+time, not at write time, so a bad title looks fine until a boot fails.
+
 **On rotation.** Vault *access* is immutable, but the *token* is not: rotating
 issues a replacement with identical permissions while the old one stays valid for
 a chosen overlap. Redistribution is therefore a planned cutover, not a scramble.
