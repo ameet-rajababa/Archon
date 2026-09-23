@@ -2,6 +2,8 @@ import type { ReactElement } from 'react';
 import { useLocation, useParams } from 'react-router';
 import { ProjectViewTabs } from './ProjectViewTabs';
 import { ProjectStateChip } from './ProjectStateChip';
+import { Glyph } from '../lib/glyph';
+import { useProjectIdentity } from '../lib/project-identity';
 import { useEntity } from '../store/cache';
 import { K } from '../store/keys';
 import * as skill from '../skills';
@@ -29,11 +31,19 @@ interface FeedShape {
  * Its height is fixed in every state on purpose: name, path, tabs. A header
  * that grows or shrinks between screens shifts everything below it, which is
  * the thing being fixed here rather than a detail of it.
+ *
+ * The mark and the name are the rail row's, drawn larger. The rail is a list
+ * you scan and the header answers "where am I", so the same identity has to
+ * appear in both — the header carried only the name, which left the icon
+ * looking like a property of the list rather than of the project.
  */
 export function ProjectHeader(): ReactElement {
   const { projectId } = useParams<{ projectId?: string }>();
   const { pathname } = useLocation();
   const scope = projectId ?? 'all';
+  // Seeded by the project id, so the mark is already correct on the first
+  // frame — waiting for the fetch would pop an icon in beside the name.
+  const { identity, color } = useProjectIdentity(projectId ?? '');
 
   // Same cache keys the pages use, so this is a read of data already fetched
   // rather than a second request per navigation.
@@ -59,7 +69,12 @@ export function ProjectHeader(): ReactElement {
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <span className="flex min-w-0 items-center gap-2.5">
-            <h1 className="truncate text-base font-medium text-text-primary">
+            {projectId !== undefined ? (
+              <span aria-hidden className="flex shrink-0 items-center">
+                <Glyph seed={projectId} glyph={identity.glyph} color={color} size={24} />
+              </span>
+            ) : null}
+            <h1 className="truncate text-xl font-semibold text-text-primary">
               {projectId === undefined ? 'All projects' : (project?.name ?? 'Project')}
             </h1>
             {/* Whether this project wants something. Beside the name because

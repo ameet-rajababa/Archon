@@ -1,8 +1,8 @@
 import { IdentityPicker } from './IdentityPicker';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { Glyph } from '../lib/glyph';
 import { openInIde, useIdeEnv } from '../lib/health';
-import { getIdentity, resolveColor, setIdentity } from '../lib/project-identity';
+import { setIdentity, useProjectIdentity } from '../lib/project-identity';
 import { pushIdentity } from '../lib/presentation-sync';
 import { ProjectCountCells } from './ProjectCountCells';
 import { RowMenu } from './RowMenu';
@@ -56,20 +56,9 @@ export function ProjectRow({
   onDragBegin,
   onDragEnd,
 }: ProjectRowProps): ReactElement {
-  /** Bumped when the identity changes, to re-read it from localStorage. */
-  const [identityTick, setIdentityTick] = useState(0);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
-  // localStorage is invisible to React, so the tick is what makes this re-read
-  // after the picker writes. Referenced inside the factory rather than only in
-  // the dependency list, so it is a real input and not a lint exception.
-  const identity = useMemo(() => {
-    // The tick is a cache-buster, not an input: localStorage is invisible to
-    // React, so something has to tell this to re-read after the picker writes.
-    void identityTick;
-    return getIdentity(project.id);
-  }, [project.id, identityTick]);
-  const color = resolveColor(project.id, identity);
+  const { identity, color } = useProjectIdentity(project.id);
   const displayName = useDisplayName(project.id, project.name);
   // Group headers already show the owner — strip it from the row label
   // unless the user renamed the project (then show their name verbatim).
@@ -396,7 +385,6 @@ export function ProjectRow({
             setIdentity(project.id, patch);
             // Once per gesture, not once per frame of a color drag.
             if (settled) pushIdentity(project.id);
-            setIdentityTick(t => t + 1);
           }}
           onClose={() => {
             setPickerOpen(false);

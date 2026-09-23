@@ -18,6 +18,7 @@
  * The identity vocabulary itself — the type, the presets, the resolution rules
  * — lives in `identity.ts`, shared with the assistant's identity.
  */
+import { useSyncExternalStore } from 'react';
 import { UNSET, resolveIdentityColor, type Identity } from './identity';
 
 const KEY = 'archon.console.projectIdentity';
@@ -45,6 +46,30 @@ function write(store: Store): void {
   }
 }
 
+const listeners = new Set<() => void>();
+
+/**
+ * A version counter, not the store itself: `useSyncExternalStore` compares
+ * snapshots by identity, and `read()` hands back a fresh object every call.
+ */
+let version = 0;
+function snapshot(): number {
+  return version;
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return (): void => {
+    listeners.delete(listener);
+  };
+}
+
+/** Every surface painting this project is stale the moment it changes. */
+function announce(): void {
+  version++;
+  for (const listener of listeners) listener();
+}
+
 /** The stored identity for a project, or an all-null one when nothing is set. */
 export function getIdentity(projectId: string): Identity {
   return read()[projectId] ?? UNSET;
@@ -55,6 +80,7 @@ export function setIdentity(projectId: string, next: Partial<Identity>): void {
   const current = store[projectId] ?? UNSET;
   store[projectId] = { ...current, ...next };
   write(store);
+  announce();
 }
 
 export function clearIdentity(projectId: string): void {
@@ -62,9 +88,24 @@ export function clearIdentity(projectId: string): void {
   // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- keys are project ids
   delete store[projectId];
   write(store);
+  announce();
 }
 
 /** The color to paint a project with. Never null — see `resolveIdentityColor`. */
 export function resolveColor(projectId: string, identity?: Identity): string {
   return resolveIdentityColor(projectId, identity ?? getIdentity(projectId));
+}
+
+/**
+ * What to paint a project with, re-rendering the caller when it changes.
+ *
+ * The rail row and the page header draw the same mark from the same store, so
+ * a write has to reach both — they are siblings, and neither re-renders the
+ * other. localStorage is invisible to React, which is what this subscription
+ * is for.
+ */
+export function useProjectIdentity(projectId: string): { identity: Identity; color: string } {
+  useSyncExternalStore(subscribe, snapshot, snapshot);
+  const identity = getIdentity(projectId);
+  return { identity, color: resolveColor(projectId, identity) };
 }
