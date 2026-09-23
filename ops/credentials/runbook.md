@@ -21,54 +21,135 @@ environment, never the one used to make the change.
 
 ---
 
-## Phase 0 — Migrate to 1Password Business
+## Phase 0 — Link the Families account, then move the work vaults
 
 **Operator only. Nothing else in this runbook may start until this is done**, or
-the vault and service account created later will be discarded and rebuilt.
+the vault and service accounts created later will be discarded and rebuilt.
 
-1. Create a new 1Password Business account. This is a new account with a new
-   sign-in address, not a conversion of the existing one.
-2. Create the vaults the Business account needs. `Personal` (757 items) stays on
-   the existing account — 1Password's own guidance is to keep work and personal
-   accounts separate, and nothing in this plan needs it.
-3. Move the work-related vaults: `Development`, `Adina`, `Shared-Adina`, and the
-   client vaults if they belong on the business account.
-4. Confirm every item arrived before decommissioning anything on the old account.
+The Business account already exists (`ameet@rajababa.io`), as does a Families
+account on the same address. Being signed into both at once is supported; there
+is no conflict and no urgency to remove either.
 
-**Verification.** Sign in to the new account on 1password.com and confirm the
-item counts match what was moved.
+### 0a — Link the Families account and stop paying for it
 
-> **Expect every existing service-account token to stop working.** They belong to
-> the old account. The `production` service account is not migrated — it is
-> replaced in Phase 1 and revoked in Phase 8.
+1Password Business includes a **free 1Password Families membership**, and it can
+be applied to the *existing* family account rather than a new one.
+
+In the Business account, under the free-families benefit, choose **Apply to
+existing account**, sign in to the Families account, and select **Apply**.
+
+Remaining subscription time is credited and carries forward to future invoices if
+the accounts are ever unlinked. Only subscription status links — no vault data is
+shared between the two accounts.
+
+> **Do not close the Families account.** It is where personal life stays, and
+> linking makes it free. Closing it would discard a benefit already paid for.
+
+### 0b — Move only the work vaults
+
+157 items move. 805 stay.
+
+| Vault | Items | Destination | Reason |
+|---|---|---|---|
+| `Personal` | 757 | **stays on Families** | personal life, not the company |
+| `Bhanu` | 48 | **stays on Families** | family, not staff |
+| `Development` | 60 | → Business | work |
+| `Adina` | 52 | → Business | the automation runtime's credentials |
+| `Shared-Adina` | 28 | → Business | work |
+| `Wodify` | 9 | → Business | client |
+| `PROJ-Wix` | 8 | → Business | client |
+| `Automation` + `Automation-GitHub` | new | → Business | created in Phase 1; nothing to move |
+
+Create each destination vault on the Business account first, then move items
+into it. Confirm every item arrived before removing anything from the source.
+
+**`Personal` must not move.** Beyond 1Password's own work/personal separation
+guidance: personal credentials should not depend on a business subscription
+remaining current, Business accounts carry admin recovery that is unwanted the
+day another admin exists, and a company that restructures or changes hands should
+not have personal logins entangled in it.
+
+### 0c — Drop Adina's user seat
+
+Adina is an automation identity, not a person who signs into the 1Password app.
+Her access is served by a service account (Phase 1), so a user seat costs a
+licence and grants app access nothing uses. Remove the seat once `adina-runtime`
+is verified working.
+
+### Verification
+
+Sign in to the Business account on 1password.com and confirm the item count in
+each moved vault matches the table above. Confirm the Families account still
+shows `Personal` and `Bhanu`, and that its billing now reads as included.
+
+> **Every existing service-account token stops working.** They belong to the old
+> account. `production` is not migrated — it is replaced in Phase 1 and revoked
+> in Phase 8.
 
 ---
 
-## Phase 1 — Create the `Automation` vault and its service account
+## Phase 1 — Create the vaults and the two service accounts
 
 **Operator only.** A service account cannot create a vault; that is an
 account-level action.
 
-On the new Business account, in the 1Password web UI:
+### Why three vaults, not one
 
-1. Create a vault named exactly `Automation`.
-2. Create a service account named `archon-automation`.
-   - Grant it access to `Automation` **only**.
-   - Grant **read and write** — it must create and update items.
-   - Do **not** set an expiry. Omitting `--expires-in` is what makes the token
-     permanent, and there is no unattended way to renew an expired one.
-3. Copy the token. **1Password shows it once, at creation, and never again.**
-4. Immediately file it as an item in `Automation` so any host with a working `op`
-   can bootstrap another. Record the item's UUID.
+`op` reads exactly **one** `OP_SERVICE_ACCOUNT_TOKEN`, so a host holds exactly
+one service account. And a service account's grant is **per vault** — there is no
+item-level scoping. Those two facts together decide the vault layout:
 
-> Vault access on this service account is **immutable**. It cannot be widened
-> later. Confirm the vault name is right before creating it.
+- archon needs the GitHub credentials, the AI keys and Healthchecks.
+- adina needs the AI keys and Healthchecks, plus its own out-of-scope secrets in
+  `Adina` and `Shared-Adina` — Supabase writer DSNs, Todoist, Google Workspace.
+- adina has no GitHub role at all.
 
----
+A single `Automation` vault would therefore force adina's token to be able to
+read the GitHub App private key, for no reason. Splitting the shared material
+from the GitHub material costs one extra vault and keeps the App key reachable
+from one host only.
 
-## Phase 2 — Distribute the bootstrap token
+| Vault | Contents | `archon-automation` | `adina-runtime` |
+|---|---|---|---|
+| `Automation` | Anthropic, Gemini, Healthchecks | read | read |
+| `Automation-GitHub` | App private key + app id, narrow classic PAT | read | **no access** |
+| `Adina` | adina's operational credentials | **no access** | read |
+| `Shared-Adina` | adina's shared credentials | **no access** | read |
 
-The one long-lived secret per host. Everything else derives from it.
+### Steps
+
+On the Business account, in the 1Password web UI:
+
+1. Create vaults `Automation` and `Automation-GitHub`. (`Adina` and
+   `Shared-Adina` arrive in Phase 0b.)
+2. Create service account **`archon-automation`** — `Automation` and
+   `Automation-GitHub`, **read and write** (it creates and updates items), **no
+   expiry**.
+3. Create service account **`adina-runtime`** — `Automation`, `Adina` and
+   `Shared-Adina`, **read only** unless something genuinely writes back, **no
+   expiry**.
+4. Copy each token. **1Password shows a token once, at creation, and never
+   again.**
+5. File both tokens as items in `Automation` so any host with a working `op` can
+   bootstrap another. Record the item UUIDs.
+
+> Vault access on both accounts is **immutable**. It cannot be widened later —
+> that requires minting a new account and redistributing its token. Confirm the
+> vault names and the grid above before creating either one.
+
+> Omitting `--expires-in` is what makes a token permanent. Do not set an expiry:
+> there is no unattended way to renew one, so an expiry guarantees the
+> interruption this plan exists to remove.
+
+**On rotation.** Vault *access* is immutable, but the *token* is not: rotating
+issues a replacement with identical permissions while the old one stays valid for
+a chosen overlap. Redistribution is therefore a planned cutover, not a scramble.
+
+## Phase 2 — Distribute the bootstrap tokens
+
+**One long-lived secret per host**, and only one — `op` reads a single
+`OP_SERVICE_ACCOUNT_TOKEN`. archon receives `archon-automation`; adina receives
+`adina-runtime`. Everything else on each host derives from its own token.
 
 **On `archon`** — write the token to the mounted volume, not to `/opt/archon/.env`:
 
@@ -173,8 +254,8 @@ references rather than values:
 ```
 ANTHROPIC_API_KEY=op://Automation/Anthropic API Key/credential
 GEMINI_API_KEY=op://Automation/Gemini API Key/credential
-GITHUB_APP_ID=op://Automation/GitHub App - archon/app_id
-GITHUB_APP_PRIVATE_KEY=op://Automation/GitHub App - archon/private_key
+GITHUB_APP_ID=op://Automation-GitHub/GitHub App - archon/app_id
+GITHUB_APP_PRIVATE_KEY=op://Automation-GitHub/GitHub App - archon/private_key
 ```
 
 Change the container's entrypoint to start the server under `op run`, so the
@@ -239,7 +320,8 @@ Install it **twice**: on `rajababa-io` (all repositories, including future ones)
 and on `ameet-rajababa`.
 
 Generate a private key and **file it directly into 1Password** — item
-`GitHub App - archon` in `Automation`, with fields `app_id` and `private_key`.
+`GitHub App - archon` in **`Automation-GitHub`**, with fields `app_id` and
+`private_key`. That vault is unreachable from adina by design.
 The downloaded `.pem` is deleted immediately; it must not remain on any disk.
 
 **Verification.** Mint an installation token and confirm write access without
@@ -276,10 +358,15 @@ Only after Phase 7 has been verified (D16).
 
 1. Mint a **new** classic PAT with the minimum scopes for third-party repository
    work — `public_repo` is sufficient for issues and pull requests on public
-   repositories. File it in `Automation`.
+   repositories. File it in `Automation-GitHub`.
 2. Revoke the fine-grained PAT `archon-all-repos`.
 3. Revoke the 21-scope classic PAT.
 4. Revoke the `production` service account.
+
+> **`adina-runtime` must be verified working before `production` is revoked.**
+> adina's out-of-scope automation — hc-selfheal, the Supabase writers, the
+> workspace-mcp units — reads through `production` today. Revoking it first takes
+> those down silently, and they are exactly the jobs nobody is watching.
 
 **Then hunt the copies.** Revocation at the source leaves copies that nothing
 enumerates (issue #12). Known locations:

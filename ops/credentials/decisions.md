@@ -115,13 +115,22 @@ two stores that silently disagree.
 **Rejected — Archon's store as truth with a read API for other hosts.** That is
 building a secrets service, and each host would still need a credential to call it.
 
-### D5 — One dedicated `Automation` vault; the service account is scoped to it alone
+### D5 — Purpose-built automation vaults; each service account scoped to exactly what its host needs
 
 **Why.** 1Password service account vault access is **immutable**. It cannot be
 edited after creation; changing it means minting a new service account and
-redistributing the token. Items, however, can be added to a vault indefinitely.
-Scoping to a single purpose-built vault is therefore permanently sufficient while
-keeping the automation account unable to read the 757 items in `Personal`.
+redistributing the token. Items, however, can be added to a vault indefinitely,
+so purpose-built vaults are permanently sufficient while keeping automation
+unable to read the 757 items in `Personal`.
+
+**Two mechanics force the exact layout.** `op` reads a single
+`OP_SERVICE_ACCOUNT_TOKEN`, so a host holds exactly one service account; and a
+grant is per vault, with no item-level scoping. adina needs the AI keys and
+Healthchecks but has no GitHub role, so a single shared vault would force adina's
+token to be able to read the GitHub App private key for no reason. Hence
+`Automation` (shared: Anthropic, Gemini, Healthchecks) and `Automation-GitHub`
+(App key and classic PAT, archon only) — one extra vault to keep the App key
+reachable from one host.
 
 **Rejected — keeping access to all seven vaults.** No migration work, but the
 automation account retains read access to personal banking and identity records
@@ -131,19 +140,44 @@ for no operational benefit.
 multiplies the service accounts and host files that must be kept current. Client
 credentials are out of scope (see Scope) and can get their own decision later.
 
-### D6 — Migrate to 1Password Business before building anything
+**A second service account is required, and is not a compromise of this
+decision.** adina runs unattended work reading out-of-scope secrets — Supabase
+writer DSNs, Todoist, Google Workspace — that live in `Adina` and `Shared-Adina`.
+Those reads are served by `production` today, so revoking it without a
+replacement takes them down silently. `adina-runtime` is scoped to those two
+vaults, read-only, and to nothing else. Two accounts with different jobs and
+different blast radii is the correct shape; one account spanning both would have
+to reach every vault.
+
+### D6 — Move to the Business account first; link Families rather than closing it
 
 **Why.** Business raises the account-wide ceiling from 1,000 read+write per day
-to 50,000, which removes rate limiting as a design constraint entirely.
+to 50,000, which removes rate limiting as a design constraint entirely. It must
+happen first: an `Automation` vault and service accounts created beforehand would
+be discarded, since vault access is immutable.
 
-**This is a migration, not an upgrade.** 1Password's documented path from a
-Families account is to create a *new* Business account and move items across.
-That means a new sign-in address, every service-account token re-minted, and
-items moved by hand. It must happen first: an `Automation` vault and service
-account created beforehand would be discarded and rebuilt.
+**This is a move between two accounts, not an upgrade in place.** 1Password's
+documented path from Families is a separate Business account. Both already exist
+on `ameet@rajababa.io` and can be signed into simultaneously.
 
-**Rejected — skip the upgrade and cache aggressively.** Viable, and cheaper, but
-was declined in favour of removing the ceiling permanently.
+**The Families account is linked, not closed.** 1Password Business includes a
+free Families membership that can be applied to an *existing* family account;
+remaining subscription time is credited forward. Only subscription status links —
+no vault data is shared. Closing it would discard a benefit already paid for.
+
+**Only work vaults move — 157 items, not 962.** `Personal` (757) and `Bhanu` (48)
+stay on Families. `Personal` must not move: personal credentials should not
+depend on a business subscription remaining current, Business carries admin
+recovery that is unwanted the day a second admin exists, and a company that
+restructures should not have personal logins entangled in it.
+
+**Rejected — closing the Families account and consolidating everything.** Pays a
+per-seat business licence for a family member, entangles personal life with the
+company, and throws away the free Families membership.
+
+**Rejected — skip the upgrade and cache aggressively.** Viable and cheaper, but
+declined in favour of removing the ceiling permanently.
+
 
 ### D7 — The bootstrap token lives in a file on the mounted volume
 
@@ -244,6 +278,10 @@ from scratch with minimum scopes.
 2026-09-23 decision to keep the 21-scope classic token as-is, which was taken
 before this architecture existed.
 
+**Adina's 1Password user seat is also dropped.** Adina is an automation identity
+reached through the CLI, not a person signing into the 1Password app. A seat
+costs a licence and grants app access nothing uses; `adina-runtime` replaces it.
+
 ## Constraints discovered during design
 
 These are facts about the systems involved, not choices. They are recorded
@@ -303,4 +341,5 @@ because each one invalidated an approach that looked reasonable beforehand.
 | #1467 — a broad token in a node environment is readable by any agent Bash call. Closed `not planned` upstream. | D9 removes the token from node environments entirely. | This plan |
 | #3036 — Archon has no model for which credential a run may use for which repository. Stopped at an architecture gate upstream. | Not solved here. Broad App permissions sharpen the question rather than answering it. | Upstream |
 | #1988 — workflow nodes run with the executor's full ambient authority. | Not solved here. D9 reduces what is available to steal. | Upstream |
-| The Business migration is a hand migration of 962 items. | Sequenced first (D6) so nothing is built twice. | Operator |
+| Moving accounts is a hand migration. Scoped down to **157 items** once `Personal` and `Bhanu` are excluded. | Sequenced first (D6) so nothing is built twice. | Operator |
+| Revoking `production` breaks adina's out-of-scope automation, which nobody is watching. | `adina-runtime` is created in Phase 1 and must be verified before Phase 8 revokes anything. | This plan |
