@@ -38,6 +38,7 @@ export const K = {
   /** Rail row numbers. Its own key — see the note in skills/projectCounts.ts. */
   projectCounts: (projectId: string): string => `projectCounts:${projectId}`,
   issues: (projectId: string): string => `issues:${projectId}`,
+  issue: (projectId: string, number: number): string => `issue:${projectId}:${String(number)}`,
   presentation: (projectId: string): string => `presentation:${projectId}`,
   providerConnections: 'provider-connections' as const,
   userAiPrefs: 'user-ai-prefs' as const,

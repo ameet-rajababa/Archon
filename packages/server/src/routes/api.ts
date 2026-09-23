@@ -16,6 +16,16 @@ import { normalize, join, sep, basename, dirname, resolve } from 'path';
 import { randomUUID } from 'crypto';
 import type { Context } from 'hono';
 import { cleanupUploads } from './upload-cleanup';
+import {
+  ISSUE_DETAIL_QUERY,
+  ISSUE_LIST_QUERY,
+  githubGraphQl,
+  isIssueReadFailure,
+  repoSlug,
+  resolveIssueSource,
+  toIssue,
+  toIssueDetail,
+} from './github-issues';
 import type {
   ConversationLockManager,
   AttachedFile,
@@ -64,8 +74,6 @@ import {
   setUserTiers,
   setUserAliases,
   setUserDefault,
-  isGitHubAppModeActive,
-  resolveBotGitHubToken,
 } from '@archon/core';
 import type { UserTiersPatch, UserAliasesPatch, AliasesPatch } from '@archon/core';
 import { parseWorkflowRunConfig } from '@archon/core/config';
@@ -4879,7 +4887,7 @@ export function registerApiRoutes(
   // Path traversal is blocked: any segment containing ".." is rejected.
 
   /**
-   * GET /api/projects/:projectId/issues — the project's GitHub issues.
+   * The GitHub reader behind the console's issue board and issue dialog.
    *
    * The browser cannot call GitHub directly for a private repo, and a token
    * does not belong in the browser. Everything underneath this already
@@ -4893,110 +4901,64 @@ export function registerApiRoutes(
    * of GitHub's own model and pinning it in the OpenAPI schema would make every
    * field GitHub adds a schema change.
    */
+
+  /** GET /api/projects/:projectId/issues — the project's GitHub issues. */
   app.get('/api/projects/:projectId/issues', async c => {
     const projectId = c.req.param('projectId');
-    const project = await codebaseDb.getCodebase(projectId);
-    if (project === null) return c.json({ error: 'Project not found' }, 404);
+    const src = await resolveIssueSource(projectId);
+    if (src === null) return c.json({ error: 'Project not found' }, 404);
+    if (isIssueReadFailure(src)) return c.json({ issues: [], ...src });
 
-    const url = project.repository_url;
-    if (url === null || url === undefined || url === '') {
-      // A folder-kind project is not an error; it simply has no issues.
-      return c.json({ issues: [], repo: null, reason: 'no-repository' });
-    }
-    const m = /github\.com[/:]([^/]+)\/([^/.]+)/.exec(url);
-    if (m === null) {
-      return c.json({ issues: [], repo: null, reason: 'not-github' });
-    }
-    const [, owner, repo] = m;
-
-    // App mode mints a fresh installation token per repository and is asked
-    // first, through the same resolver the workflow engine uses — a board that
-    // disagreed with a run about which token speaks for a repository would be
-    // the harder bug. PAT and solo installs fall back to the env var, which is
-    // exactly the behaviour before App mode existed.
-    const token =
-      (await resolveBotGitHubToken(owner, repo)) ??
-      process.env.GITHUB_TOKEN ??
-      process.env.GH_TOKEN;
-    if (token === undefined || token === '') {
-      // Two different people fix these. In App mode the App is simply not
-      // installed on this repository; otherwise nobody configured a token.
-      const reason = isGitHubAppModeActive() ? 'app-not-installed' : 'no-token';
-      return c.json({ issues: [], repo: `${owner}/${repo}`, reason });
-    }
-
-    // One query for everything the board needs. `closedByPullRequestsReferences`
-    // is what distinguishes "open" from "in review" without asking GitHub twice.
-    const query = `
-      query($owner:String!,$repo:String!){
-        repository(owner:$owner,name:$repo){
-          issues(first:100, states:[OPEN,CLOSED], orderBy:{field:UPDATED_AT,direction:DESC}){
-            nodes{
-              number title state stateReason url updatedAt
-              issueType{ name }
-              labels(first:20){ nodes{ name color } }
-              assignees(first:5){ nodes{ login } }
-              closedByPullRequestsReferences(first:5, includeClosedPrs:true){ nodes{ number state } }
-            }
-          }
-        }
-      }`;
-
+    const slug = repoSlug(src);
     try {
-      const res = await fetch('https://api.github.com/graphql', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'User-Agent': 'archon-console',
-        },
-        body: JSON.stringify({ query, variables: { owner, repo } }),
+      const out = await githubGraphQl(src, ISSUE_LIST_QUERY, {
+        owner: src.owner,
+        repo: src.repo,
       });
-      if (!res.ok) {
-        return c.json({ issues: [], repo: `${owner}/${repo}`, reason: `github-${res.status}` });
-      }
-      const body = (await res.json()) as {
-        data?: { repository?: { issues?: { nodes?: unknown[] } } };
-        errors?: { message?: string }[];
-      };
-      if (body.errors !== undefined && body.errors.length > 0) {
-        return c.json({
-          issues: [],
-          repo: `${owner}/${repo}`,
-          reason: body.errors[0]?.message ?? 'github-error',
-        });
-      }
-      const nodes = body.data?.repository?.issues?.nodes ?? [];
-      const issues = nodes.map(raw => {
-        const n = raw as Record<string, never>;
-        const labels = ((n.labels as { nodes?: { name: string; color: string }[] } | undefined)
-          ?.nodes ?? []) as { name: string; color: string }[];
-        const prs = ((
-          n.closedByPullRequestsReferences as
-            | { nodes?: { number: number; state: string }[] }
-            | undefined
-        )?.nodes ?? []) as { number: number; state: string }[];
-        return {
-          number: n.number as unknown as number,
-          title: n.title as unknown as string,
-          state: n.state as unknown as string,
-          stateReason: (n.stateReason as unknown as string | null) ?? null,
-          url: n.url as unknown as string,
-          updatedAt: n.updatedAt as unknown as string,
-          type: (n.issueType as { name?: string } | null | undefined)?.name ?? null,
-          labels: labels.map(l => ({ name: l.name, color: l.color })),
-          assignees: (
-            ((n.assignees as { nodes?: { login: string }[] } | undefined)?.nodes ?? []) as {
-              login: string;
-            }[]
-          ).map(a => a.login),
-          openPr: prs.some(pr => pr.state === 'OPEN'),
-        };
-      });
-      return c.json({ issues, repo: `${owner}/${repo}`, reason: null });
+      if ('reason' in out) return c.json({ issues: [], repo: slug, reason: out.reason });
+      const { repository } = out.data as { repository?: { issues?: { nodes?: unknown[] } } };
+      const nodes = repository?.issues?.nodes ?? [];
+      return c.json({ issues: nodes.map(toIssue), repo: slug, reason: null });
     } catch (err) {
       getLog().warn({ err, projectId }, 'issues.fetch_failed');
-      return c.json({ issues: [], repo: `${owner}/${repo}`, reason: 'unreachable' });
+      return c.json({ issues: [], repo: slug, reason: 'unreachable' });
+    }
+  });
+
+  /**
+   * GET /api/projects/:projectId/issues/:number — one issue, with its body and
+   * comment thread, so the console can show an issue without sending you to
+   * github.com. github.com serves `x-frame-options: deny`, so an iframe was
+   * never on the table; this returns the markdown and the client renders it.
+   */
+  app.get('/api/projects/:projectId/issues/:number', async c => {
+    const projectId = c.req.param('projectId');
+    const number = Number(c.req.param('number'));
+    if (!Number.isInteger(number) || number <= 0) {
+      return c.json({ issue: null, repo: null, reason: 'bad-issue-number' }, 400);
+    }
+    const src = await resolveIssueSource(projectId);
+    if (src === null) return c.json({ error: 'Project not found' }, 404);
+    if (isIssueReadFailure(src)) return c.json({ issue: null, ...src });
+
+    const slug = repoSlug(src);
+    try {
+      const out = await githubGraphQl(src, ISSUE_DETAIL_QUERY, {
+        owner: src.owner,
+        repo: src.repo,
+        number,
+      });
+      if ('reason' in out) return c.json({ issue: null, repo: slug, reason: out.reason });
+      const { repository } = out.data as { repository?: { issue?: unknown } };
+      const raw = repository?.issue;
+      // A number nobody has used is not a failure of the reader.
+      if (raw === null || raw === undefined) {
+        return c.json({ issue: null, repo: slug, reason: 'no-such-issue' });
+      }
+      return c.json({ issue: toIssueDetail(raw), repo: slug, reason: null });
+    } catch (err) {
+      getLog().warn({ err, projectId, number }, 'issue.fetch_failed');
+      return c.json({ issue: null, repo: slug, reason: 'unreachable' });
     }
   });
 

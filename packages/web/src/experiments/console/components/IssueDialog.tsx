@@ -1,0 +1,284 @@
+import { ExternalLink, MessageSquare, X } from 'lucide-react';
+import { useEffect, useRef, type ReactElement } from 'react';
+import { Markdown } from './Markdown';
+import { IssueTypeChip } from './IssueTypeChip';
+import { useNow } from '../lib/clock';
+import { relativeTime } from '../lib/format';
+import { issueReasonText } from '../lib/issue-reason';
+import {
+  COLUMN_REASON,
+  ISSUE_COLUMNS,
+  issueType,
+  type IssueColumn,
+} from '../primitives/issue-board';
+import * as skill from '../skills';
+import type { GithubIssue, GithubIssueDetail, IssueComment, IssueDetailResponse } from '../skills';
+import { useEntity } from '../store/cache';
+import { K } from '../store/keys';
+
+interface IssueDialogProps {
+  projectId: string;
+  /** The board's copy. Renders immediately, so opening never starts blank. */
+  issue: GithubIssue;
+  /** Where the board put it, passed in so the dialog cannot disagree with it. */
+  column: IssueColumn;
+  onClose: () => void;
+}
+
+/**
+ * One GitHub issue, read inside the console.
+ *
+ * An iframe of github.com was the obvious idea and it is impossible: GitHub
+ * serves `x-frame-options: deny`, and a frame is a separate document our CSS
+ * cannot reach anyway — it would arrive wearing GitHub's styling, which is the
+ * opposite of the point. So the server returns the markdown and this renders
+ * it with the same components the chat uses.
+ *
+ * Read-only, deliberately. There is no comment box and no state control,
+ * because there is no route behind them; the link to github.com is where
+ * interacting starts.
+ */
+export function IssueDialog({ projectId, issue, column, onClose }: IssueDialogProps): ReactElement {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const now = useNow();
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return (): void => {
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [onClose]);
+
+  // Move focus into the dialog, so Escape and the scroll keys reach it rather
+  // than the board still sitting behind.
+  useEffect(() => {
+    panelRef.current?.focus();
+  }, []);
+
+  const { data, loading, error } = useEntity<IssueDetailResponse>(
+    K.issue(projectId, issue.number),
+    () => skill.getIssue(projectId, issue.number)
+  );
+
+  const col = ISSUE_COLUMNS.find(c => c.key === column);
+  const type = issueType(issue);
+  const detail = data?.issue ?? null;
+
+  return (
+    <div
+      role="presentation"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-6 backdrop-blur-[6px]"
+      onMouseDown={onClose}
+    >
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Issue #${String(issue.number)}: ${issue.title}`}
+        tabIndex={-1}
+        onMouseDown={e => {
+          e.stopPropagation();
+        }}
+        className="relative my-auto w-full max-w-[760px] overflow-hidden rounded-2xl border bg-surface-elevated text-text-primary shadow-[0_30px_80px_-24px_rgba(0,0,0,0.8)] outline-none"
+        // Inline because the console scope's wildcard border-color rule
+        // repaints Tailwind border utilities (see theme.css).
+        style={{ borderColor: 'var(--border-bright)' }}
+      >
+        <span aria-hidden className="brand-bar absolute left-0 right-0 top-0 h-[2px] opacity-90" />
+
+        <header className="flex items-start gap-3 px-[22px] pb-3 pt-[20px]">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-[15.5px] font-medium leading-[1.35] text-text-primary">
+              {issue.title}
+            </h2>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {col !== undefined ? (
+                <span
+                  title={COLUMN_REASON[column]}
+                  className="inline-flex h-[19px] items-center gap-1.5 rounded-full border px-[9px] text-[10.5px] text-text-secondary"
+                  style={{ borderColor: col.color }}
+                >
+                  <span
+                    aria-hidden
+                    className="h-[6px] w-[6px] rounded-full"
+                    style={{ background: col.color }}
+                  />
+                  {col.label}
+                </span>
+              ) : null}
+              <span className="font-mono text-[10.5px] text-text-tertiary">#{issue.number}</span>
+              {type !== null ? <IssueTypeChip name={type.name} derived={type.derived} /> : null}
+              {issue.labels.map(l => (
+                <span
+                  key={l.name}
+                  className="inline-flex h-[17px] items-center rounded-full border px-[7px] text-[10px]"
+                  style={{ borderColor: `#${l.color}`, color: 'var(--text-secondary)' }}
+                >
+                  {l.name}
+                </span>
+              ))}
+              {issue.assignees.length > 0 ? (
+                <span className="text-[10.5px] text-text-tertiary">
+                  assigned to {issue.assignees.join(', ')}
+                </span>
+              ) : null}
+            </div>
+          </div>
+          <a
+            href={issue.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Open on github.com — the only place you can reply or change it"
+            className="rail-ibtn shrink-0"
+          >
+            <ExternalLink className="h-[13px] w-[13px]" />
+          </a>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            title="Close (Esc)"
+            className="rail-ibtn shrink-0"
+          >
+            <X className="h-[13px] w-[13px]" />
+          </button>
+        </header>
+
+        <div
+          className="max-h-[70vh] overflow-y-auto border-t px-[22px] py-4"
+          style={{ borderColor: 'var(--border)' }}
+        >
+          {error !== undefined ? (
+            <Note>{`Could not read this issue. ${error.message}`}</Note>
+          ) : data?.reason !== null && data?.reason !== undefined ? (
+            <Note>{issueReasonText(data.reason)}</Note>
+          ) : detail === null ? (
+            <Note>{loading ? 'Reading GitHub…' : 'Nothing came back for this issue.'}</Note>
+          ) : (
+            <IssueThread detail={detail} url={issue.url} now={now} />
+          )}
+        </div>
+
+        <footer
+          className="flex items-center gap-2 border-t px-[22px] py-2.5"
+          style={{ borderColor: 'var(--border)' }}
+        >
+          <MessageSquare aria-hidden className="h-[12px] w-[12px] text-text-tertiary" />
+          <span className="text-[11px] text-text-tertiary">
+            {detail === null
+              ? 'read-only'
+              : `${String(detail.comments.length + detail.moreComments)} comment${
+                  detail.comments.length + detail.moreComments === 1 ? '' : 's'
+                } · read-only · updated ${relativeTime(issue.updatedAt, now)}`}
+          </span>
+          <a
+            href={issue.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="ml-auto text-[11px] text-text-secondary underline underline-offset-2 transition-colors hover:text-accent-bright"
+          >
+            Open on github.com
+          </a>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The issue's description followed by its comments — the part worth reading.
+ *
+ * Split out from the dialog and exported so it can be rendered without a
+ * fetch: everything above it is chrome and loading state, and a test that had
+ * to stand up the cache to assert on a comment count would be testing the
+ * wrong thing.
+ */
+export function IssueThread({
+  detail,
+  url,
+  now,
+}: {
+  detail: GithubIssueDetail;
+  url: string;
+  now: number;
+}): ReactElement {
+  return (
+    <>
+      <Entry
+        author={detail.author}
+        at={detail.createdAt}
+        now={now}
+        body={detail.body}
+        emptyText="No description."
+      />
+      {detail.comments.map(c => (
+        <Comment key={c.id} comment={c} now={now} />
+      ))}
+      {detail.moreComments > 0 ? (
+        <p className="mt-3 text-[11.5px] text-text-tertiary">
+          {detail.moreComments} more comment{detail.moreComments === 1 ? '' : 's'} on{' '}
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline underline-offset-2 hover:text-accent-bright"
+          >
+            github.com
+          </a>
+          .
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+function Note({ children }: { children: string }): ReactElement {
+  return <p className="py-6 text-center text-[12.5px] text-text-tertiary">{children}</p>;
+}
+
+function Comment({ comment, now }: { comment: IssueComment; now: number }): ReactElement {
+  return (
+    <div className="mt-3 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
+      <Entry
+        author={comment.author}
+        at={comment.createdAt}
+        now={now}
+        body={comment.body}
+        emptyText="Empty comment."
+      />
+    </div>
+  );
+}
+
+interface EntryProps {
+  author: string | null;
+  at: string;
+  now: number;
+  body: string;
+  emptyText: string;
+}
+
+/** One authored block — the issue's description, or one comment. */
+function Entry({ author, at, now, body, emptyText }: EntryProps): ReactElement {
+  return (
+    <article>
+      <div className="mb-1.5 flex items-baseline gap-2">
+        {/* GitHub's own word for an account that no longer exists. */}
+        <span className="text-[12px] font-medium text-text-secondary">{author ?? 'ghost'}</span>
+        <span className="font-mono text-[10.5px] text-text-tertiary">
+          {at === '' ? '' : relativeTime(at, now)}
+        </span>
+      </div>
+      {body.trim() === '' ? (
+        <p className="text-[12.5px] italic text-text-tertiary">{emptyText}</p>
+      ) : (
+        <div className="max-w-none text-[13.5px] leading-[1.62] text-text-primary">
+          <Markdown>{body}</Markdown>
+        </div>
+      )}
+    </article>
+  );
+}

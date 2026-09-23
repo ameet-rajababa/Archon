@@ -20,6 +20,8 @@ const FIXED: Readonly<Record<string, string>> = {
   'app-not-installed':
     'Archon’s GitHub App is not installed on this repository. Install it there, or give the server a token.',
   unreachable: 'GitHub could not be reached.',
+  'no-such-issue': 'GitHub has no issue with that number in this repository.',
+  'bad-issue-number': 'That is not an issue number.',
 };
 
 /**

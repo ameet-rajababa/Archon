@@ -17,47 +17,72 @@ import { invalidate, useEntity } from '../store/cache';
 import { K } from '../store/keys';
 import { useParams } from 'react-router';
 import { IssueTypeChip } from '../components/IssueTypeChip';
+import { IssueDialog } from '../components/IssueDialog';
 import { useNow } from '../lib/clock';
 import { relativeTime } from '../lib/format';
 import { issueReasonText } from '../lib/issue-reason';
 import { RowMenu } from '../components/RowMenu';
 
-function Card({ issue, column }: { issue: GithubIssue; column: IssueColumn }): ReactElement {
+function Card({
+  issue,
+  column,
+  onOpen,
+}: {
+  issue: GithubIssue;
+  column: IssueColumn;
+  onOpen: () => void;
+}): ReactElement {
   const type = issueType(issue);
   const areas = issueAreas(issue);
   return (
-    // The card IS the link. GitHub owns this issue and Archon is a view of it,
-    // so the obvious click goes to the source rather than to a local copy that
-    // would then have to be kept honest.
-    <a
-      href={issue.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      title={`${COLUMN_REASON[column]}\nOpens on github.com`}
-      className="group block rounded-[9px] border border-border bg-surface px-3 py-2.5 transition-colors hover:border-border-bright hover:bg-surface-hover"
-    >
-      <div className="text-[13px] leading-[1.4] text-text-primary">{issue.title}</div>
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        <span className="font-mono text-[10.5px] text-text-tertiary">#{issue.number}</span>
-        {type !== null ? (
-          <IssueTypeChip
-            name={type.name}
-            derived={type.derived}
-            title={type.derived ? 'Derived from a label — no GitHub type set' : 'GitHub issue type'}
-          />
-        ) : null}
-        {areas.map(a => (
-          <span
-            key={a.name}
-            className="inline-flex h-[17px] items-center rounded-full border px-[7px] text-[10px]"
-            style={{ borderColor: a.color, color: 'var(--text-secondary)' }}
-          >
-            {a.name}
-          </span>
-        ))}
-        <ExternalLink className="ml-auto h-3 w-3 shrink-0 text-text-tertiary opacity-0 transition-opacity group-hover:opacity-100" />
-      </div>
-    </a>
+    // The card opens the issue HERE. GitHub still owns it, so the link out
+    // stays — as its own control rather than as the whole card, because
+    // leaving the application to read one issue was the thing worth fixing.
+    // It cannot be nested inside the button: an <a> inside a <button> is
+    // invalid, and browsers disagree about which one a click reaches.
+    <div className="group relative">
+      <button
+        type="button"
+        onClick={onOpen}
+        title={`${COLUMN_REASON[column]}\nOpens here`}
+        className="block w-full rounded-[9px] border border-border bg-surface px-3 py-2.5 text-left transition-colors hover:border-border-bright hover:bg-surface-hover"
+      >
+        <div className="text-[13px] leading-[1.4] text-text-primary">{issue.title}</div>
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <span className="font-mono text-[10.5px] text-text-tertiary">#{issue.number}</span>
+          {type !== null ? (
+            <IssueTypeChip
+              name={type.name}
+              derived={type.derived}
+              title={
+                type.derived ? 'Derived from a label — no GitHub type set' : 'GitHub issue type'
+              }
+            />
+          ) : null}
+          {areas.map(a => (
+            <span
+              key={a.name}
+              className="inline-flex h-[17px] items-center rounded-full border px-[7px] text-[10px]"
+              style={{ borderColor: a.color, color: 'var(--text-secondary)' }}
+            >
+              {a.name}
+            </span>
+          ))}
+          {/* Reserves the row's end so the link below never lands on a chip. */}
+          <span aria-hidden className="ml-auto h-3 w-3 shrink-0" />
+        </div>
+      </button>
+      <a
+        href={issue.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={`Open issue #${String(issue.number)} on github.com`}
+        title="Open on github.com"
+        className="absolute bottom-[11px] right-3 text-text-tertiary opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 hover:text-text-primary"
+      >
+        <ExternalLink className="h-3 w-3" />
+      </a>
+    </div>
   );
 }
 
@@ -78,6 +103,9 @@ export function IssuesPage(): ReactElement {
   const [columnsEl, setColumnsEl] = useState<HTMLElement | null>(null);
   const now = useNow();
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
+  // The card's own copy of the issue, so the dialog's header renders before
+  // the detail read comes back.
+  const [open, setOpen] = useState<{ issue: GithubIssue; column: IssueColumn } | null>(null);
 
   const { data, loading, error, fetchedAt } = useEntity<IssuesResponse>(K.issues(projectId), () =>
     skill.listIssues(projectId)
@@ -292,13 +320,33 @@ export function IssuesPage(): ReactElement {
                         : '—'}
                   </p>
                 ) : (
-                  items.map(i => <Card key={i.number} issue={i} column={col.key} />)
+                  items.map(i => (
+                    <Card
+                      key={i.number}
+                      issue={i}
+                      column={col.key}
+                      onOpen={() => {
+                        setOpen({ issue: i, column: col.key });
+                      }}
+                    />
+                  ))
                 )}
               </div>
             </section>
           );
         })}
       </div>
+
+      {open !== null ? (
+        <IssueDialog
+          projectId={projectId}
+          issue={open.issue}
+          column={open.column}
+          onClose={() => {
+            setOpen(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
