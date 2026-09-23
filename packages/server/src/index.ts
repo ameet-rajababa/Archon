@@ -122,6 +122,7 @@ import {
   captureArchonActive,
   getSourceWebDistDir,
 } from '@archon/paths';
+import { registerPublicFiles } from './routes/public-files';
 import { selectGitHubAuthMode, parseGitCredentialPath } from './github-auth-bootstrap';
 import { isDiscordMentionRequired } from './discord-mention';
 import {
@@ -854,6 +855,10 @@ export async function startServer(opts: ServerOptions = {}): Promise<void> {
     const { active, queuedTotal, maxConcurrent } = lockManager.getStats();
     return c.json({ status: 'ok', active, queuedTotal, maxConcurrent });
   });
+
+  // Published files from ARCHON_HOME. Registered before the SPA catch-all
+  // and outside the production-only block below — see the note in the module.
+  await registerPublicFiles(app);
 
   // Serve web UI static files in production
   if (process.env.NODE_ENV === 'production' || !process.env.WEB_UI_DEV) {

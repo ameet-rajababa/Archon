@@ -13,6 +13,7 @@ import {
   getWSLDistroName,
   getArchonHome,
   getArchonTempPath,
+  getArchonPublicPath,
   getArchonWorkspacesPath,
   ensureArchonWorkspacesPath,
   getArchonWorktreesPath,
@@ -320,6 +321,35 @@ describe('archon-paths', () => {
       delete process.env.ARCHON_DOCKER;
       process.env.ARCHON_HOME = '/custom/archon';
       expect(getArchonTempPath()).toBe(join('/custom/archon', 'temp'));
+    });
+  });
+
+  describe('getArchonPublicPath', () => {
+    test('returns ~/.archon/public by default', () => {
+      delete process.env.ARCHON_HOME;
+      delete process.env.ARCHON_DOCKER;
+      expect(getArchonPublicPath()).toBe(join(homedir(), '.archon', 'public'));
+    });
+
+    test('uses ARCHON_HOME when set', () => {
+      delete process.env.ARCHON_DOCKER;
+      process.env.ARCHON_HOME = '/custom/archon';
+      expect(getArchonPublicPath()).toBe(join('/custom/archon', 'public'));
+    });
+
+    // The whole point of the directory: it is NOT in the web build output,
+    // which every deploy rebuilds from the Dockerfile.
+    test('is under ARCHON_HOME, not under the web dist', () => {
+      delete process.env.ARCHON_DOCKER;
+      process.env.ARCHON_HOME = '/custom/archon';
+      expect(getArchonPublicPath().startsWith('/custom/archon')).toBe(true);
+      expect(getArchonPublicPath()).not.toContain('dist');
+    });
+
+    test('is a sibling of temp, not inside it', () => {
+      delete process.env.ARCHON_DOCKER;
+      process.env.ARCHON_HOME = '/custom/archon';
+      expect(getArchonPublicPath()).not.toContain(getArchonTempPath());
     });
   });
 
