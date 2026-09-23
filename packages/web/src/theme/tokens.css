@@ -146,9 +146,13 @@
    upstream at one import line.
 
    `.brand-text` clips a background to its glyphs, so it needs a background and
-   not a color — a flat accent still works through background-clip. */
+   not a color — a flat accent still works through background-clip. Set the
+   image and the color separately: the `background` shorthand also resets
+   `background-clip` to `border-box`, which would paint the accent as a solid
+   block and leave the transparent glyphs invisible inside it. */
 .console-root .brand-text {
-  background: var(--accent);
+  background-image: none;
+  background-color: var(--accent);
 }
 .console-root .brand-bar {
   background: var(--accent);
