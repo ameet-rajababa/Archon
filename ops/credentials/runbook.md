@@ -45,9 +45,23 @@ shared between the two accounts.
 > **Do not close the Families account.** It is where personal life stays, and
 > linking makes it free. Closing it would discard a benefit already paid for.
 
-### 0b — Move only the work vaults
+### 0b — COPY the work vaults. Do not move them, and do not start here.
 
-157 items move. 805 stay.
+> **Ordering warning.** An item copied to Business and deleted from Families is
+> instantly unreadable by `production`, which is a *Families* service account.
+> Both hosts read through `production` today. Moving anything before
+> `adina-runtime` and `archon-automation` exist, with their tokens distributed,
+> creates an outage on credentials nobody is watching.
+>
+> **Phase 1 runs first.** Create the destination vaults and both service accounts,
+> distribute the tokens, and only then copy. Delete from Families last, in
+> Phase 8, once the new account has been serving reads for a while.
+
+The work is therefore: create empty vaults (Phase 1) → copy items in → verify the
+new account resolves every reference → switch each host's token → run → delete the
+Families originals.
+
+157 items copy. 805 stay.
 
 | Vault | Items | Destination | Reason |
 |---|---|---|---|
@@ -58,16 +72,25 @@ shared between the two accounts.
 | `Shared-Adina` | 28 | → Business | work |
 | `Wodify` | 9 | → Business | client |
 | `PROJ-Wix` | 8 | → Business | client |
-| `Automation` + `Automation-GitHub` | new | → Business | created in Phase 1; nothing to move |
+| `Automation` + `Automation-GitHub` | new | → Business | created in Phase 1; populated in Phase 3 |
 
-Create each destination vault on the Business account first, then move items
-into it. Confirm every item arrived before removing anything from the source.
+A vault cannot be moved between accounts. Each destination vault is created empty
+on the Business account and items are copied into it — which is why Phase 1's
+vault creation is a prerequisite rather than a parallel task.
 
 **`Personal` must not move.** Beyond 1Password's own work/personal separation
 guidance: personal credentials should not depend on a business subscription
 remaining current, Business accounts carry admin recovery that is unwanted the
 day another admin exists, and a company that restructures or changes hands should
 not have personal logins entangled in it.
+
+**`Development` needs a read before it is copied.** It holds 60 items including
+the DigitalOcean API token for this droplet, the Archon GitHub webhook secret,
+the Archon backup age key, and `Service Account Auth Token: production` itself.
+Some of those are read by the Archon server rather than interactively, so confirm
+what actually consumes each before assuming the copy is inert. The backup age key
+in particular must be verified readable on the new account before the Families
+copy is deleted.
 
 ### 0c — Drop Adina's user seat
 
