@@ -1906,6 +1906,10 @@ function buildDashboardWhereClauses(
     values.push(options.codebaseId);
     whereClauses.push(`r.codebase_id = $${String(values.length)}`);
   }
+  if (options?.parentConversationId) {
+    values.push(options.parentConversationId);
+    whereClauses.push(`r.parent_conversation_id = $${String(values.length)}`);
+  }
   if (options?.search) {
     const pattern = `%${options.search}%`;
     values.push(pattern, pattern);
