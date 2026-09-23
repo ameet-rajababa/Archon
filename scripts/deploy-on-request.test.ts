@@ -13,7 +13,7 @@
  * file — none of which needs a real container to observe.
  */
 import { describe, expect, test } from 'bun:test';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { trackTempRoots } from '@archon/paths/test-utils';
@@ -62,6 +62,12 @@ function writeFailingDeploy(path: string, reason: string): void {
   chmodSync(path, 0o755);
 }
 
+/** A stand-in deploy that hangs, so the script can be signalled mid-flight. */
+function writeHangingDeploy(path: string): void {
+  writeFileSync(path, '#!/usr/bin/env bash\necho started\nsleep 30\n', { mode: 0o755 });
+  chmodSync(path, 0o755);
+}
+
 function writeSucceedingDeploy(path: string): void {
   writeFileSync(path, '#!/usr/bin/env bash\necho did the thing\nexit 0\n', { mode: 0o755 });
   chmodSync(path, 0o755);
@@ -78,9 +84,9 @@ function sandbox(name: string): Sandbox {
   return { volume, bin, deploy: join(root, 'deploy.sh'), deployDir };
 }
 
-async function run(box: Sandbox, request: string): Promise<number> {
+function spawnRun(box: Sandbox, request: string): Bun.Subprocess {
   writeFileSync(join(box.volume, 'deploy-request'), `${request}\n`);
-  const proc = Bun.spawn(['bash', SCRIPT], {
+  return Bun.spawn(['bash', SCRIPT], {
     env: {
       ...process.env,
       PATH: `${box.bin}:${process.env.PATH ?? ''}`,
@@ -93,7 +99,20 @@ async function run(box: Sandbox, request: string): Promise<number> {
     stdout: 'pipe',
     stderr: 'pipe',
   });
-  return proc.exited;
+}
+
+async function run(box: Sandbox, request: string): Promise<number> {
+  return spawnRun(box, request).exited;
+}
+
+/** Wait for a line the script writes, so the signal lands mid-deploy. */
+async function waitForLog(box: Sandbox, needle: string): Promise<void> {
+  const log = join(box.volume, 'deploy-last.log');
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (existsSync(log) && readFileSync(log, 'utf8').includes(needle)) return;
+    await Bun.sleep(50);
+  }
+  throw new Error(`log never mentioned ${needle}`);
 }
 
 const read = (path: string): string => readFileSync(path, 'utf8');
@@ -159,6 +178,36 @@ describe('the losing attempt survives the next request', () => {
 
     expect(read(join(box.volume, 'deploy-last.log'))).toContain('DEPLOYED');
     expect(read(join(box.volume, 'deploy-prev.log'))).toContain('first attempt died here');
+  });
+});
+
+describe('a deploy that is stopped rather than finished', () => {
+  test('being killed mid-flight still records what the box is running', async () => {
+    const box = sandbox('killed');
+    writeDockerStub(box.bin, WANT, WANT);
+    writeHangingDeploy(box.deploy);
+
+    const proc = spawnRun(box, WANT);
+    await waitForLog(box, 'starting deploy');
+    proc.kill('SIGTERM');
+    await proc.exited;
+
+    const log = read(join(box.volume, 'deploy-last.log'));
+    expect(log).toContain('STOPPED MID-FLIGHT');
+    expect(read(join(box.volume, 'deploy-history'))).toContain(`KILLED ${WANT}`);
+  });
+
+  test('the recorded verdict names the commit actually live, not the one asked for', async () => {
+    const box = sandbox('killed-before-swap');
+    writeDockerStub(box.bin, WANT, OTHER);
+    writeHangingDeploy(box.deploy);
+
+    const proc = spawnRun(box, WANT);
+    await waitForLog(box, 'starting deploy');
+    proc.kill('SIGTERM');
+    await proc.exited;
+
+    expect(read(join(box.volume, 'deploy-history'))).toContain(`running ${OTHER}`);
   });
 });
 

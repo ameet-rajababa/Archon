@@ -1,0 +1,27 @@
+# Deploy the commit the container asked for. Started by archon-deploy.path.
+#
+# Runs on the HOST, which is the whole point: the deploy restarts the container
+# that asked for it, so the thing doing the work must live outside it.
+#
+# Watch one: journalctl -u archon-deploy -f
+
+[Unit]
+Description=Deploy the Archon commit the container asked for
+
+[Service]
+Type=oneshot
+ExecStart=/opt/archon/scripts/deploy-on-request.sh
+
+# THIS DEADLINE IS THE DEPLOY'S WHOLE BUDGET, and deploy-local.sh spends it:
+# a docker build takes minutes and the wait for a turn-gap can take half an
+# hour. systemd's default 90s would kill it mid-build.
+#
+# The two numbers below must be the SAME number, and the script derives every
+# internal timeout from the environment one — including how long step 5 may
+# wait, which is the budget minus what the swap still needs. They used to be
+# independent 1800s values, so a deploy that waited 27m34s for a quiet moment
+# swapped the container and was killed 108s later while the new image booted.
+# The swap had happened; no verdict was written anywhere. A wait that can
+# consume the entire deadline leaves nothing to report with.
+TimeoutStartSec=3600
+Environment=DEPLOY_BUDGET_SECONDS=3600

@@ -1,0 +1,25 @@
+# Watch for a deploy request written from inside the Archon container.
+#
+# A .path unit, not a timer: inotify fires the instant the file appears, so
+# there is no interval to tune and no latency to explain. Nothing here polls.
+#
+# Install, or reinstall after either unit changes (as root, on the host):
+#   sudo cp /opt/archon/scripts/deploy-units/archon-deploy.* /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now archon-deploy.path
+#
+# Copied from /opt/archon, which every deploy updates, so the units on the box
+# come from the same commit as the scripts they run. They used to be copied
+# from the data volume, where nothing version-controlled them.
+#
+# Enable the .path, never the .service — the service is what the path starts.
+
+[Unit]
+Description=Watch for an Archon deploy request
+
+[Path]
+PathExists=/var/lib/docker/volumes/archon_archon_data/_data/deploy-request
+Unit=archon-deploy.service
+
+[Install]
+WantedBy=paths.target

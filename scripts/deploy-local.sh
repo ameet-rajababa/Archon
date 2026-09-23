@@ -38,6 +38,17 @@ REMOTE="${REMOTE:-fork}"
 REMOTE_BRANCH="${REMOTE_BRANCH:-deploy}"
 SERVICE="${SERVICE:-app}"
 HEALTH_URL="${HEALTH_URL:-http://localhost:3000/api/health}"
+# The deadline of the systemd service that runs this deploy (TimeoutStartSec),
+# so the wait in step 5 can be given a SLICE of it rather than a number that
+# happens to be the same. Those two were both 1800s, and on 2026-09-23 a deploy
+# spent 27m34s waiting for a turn-gap, swapped the container at 15:43:46, and
+# was killed by systemd while the new image was still booting — the swap had
+# happened, and no verdict was written anywhere.
+DEPLOY_BUDGET_SECONDS="${DEPLOY_BUDGET_SECONDS:-1800}"
+# What the swap needs AFTER the wait ends: `up -d`, a cold start answering the
+# health check, and step 7. Held back from the wait rather than hoped for.
+SWAP_RESERVE_SECONDS="${SWAP_RESERVE_SECONDS:-420}"
+STARTED_AT=$(date -u +%s)
 
 # Timestamped, because this log is the only post-mortem anyone gets and it
 # could not answer "how long was it in step 5" — the difference between a build
@@ -166,12 +177,22 @@ else
   # `|| gap_status=$?` and not a bare call: under `set -e` a non-zero exit here
   # would end the script before the case below could say which non-zero it was,
   # and "timed out" and "could not tell" need different words.
+  # Whatever is left of the service's deadline once the build has taken what it
+  # took, minus the reserve the swap needs. An explicit TURN_GAP_TIMEOUT still
+  # wins: this derives a default, it does not override an operator.
+  gap_budget=$((DEPLOY_BUDGET_SECONDS - ($(date -u +%s) - STARTED_AT) - SWAP_RESERVE_SECONDS))
+  if [ "${TURN_GAP_TIMEOUT:-}" = "" ] && [ "$gap_budget" -le 0 ]; then
+    die "the build left no room to swap inside the ${DEPLOY_BUDGET_SECONDS}s deploy budget — NOTHING was deployed, and it is still running what it was. Re-run, or raise DEPLOY_BUDGET_SECONDS and TimeoutStartSec together."
+  fi
+  gap_timeout="${TURN_GAP_TIMEOUT:-$gap_budget}"
+  echo "waiting up to ${gap_timeout}s, holding ${SWAP_RESERVE_SECONDS}s back for the swap"
+
   gap_status=0
-  in_container "cd '$SOURCE_DIR' && HEALTH_URL='$HEALTH_URL' TURN_GAP_TIMEOUT='${TURN_GAP_TIMEOUT:-}' TURN_GAP_INTERVAL='${TURN_GAP_INTERVAL:-}' TURN_GAP_CONFIRM='${TURN_GAP_CONFIRM:-}' bun scripts/turn-gap.ts" \
+  in_container "cd '$SOURCE_DIR' && HEALTH_URL='$HEALTH_URL' TURN_GAP_TIMEOUT='$gap_timeout' TURN_GAP_INTERVAL='${TURN_GAP_INTERVAL:-}' TURN_GAP_CONFIRM='${TURN_GAP_CONFIRM:-}' bun scripts/turn-gap.ts" \
     || gap_status=$?
   case $gap_status in
     0) ;;
-    1) die "the box never went quiet — NOTHING was deployed, and it is still running what it was. Ask again later, or set SKIP_TURN_GAP=1 to swap anyway and lose the work in flight." ;;
+    1) die "the box never went quiet within ${gap_timeout}s — NOTHING was deployed, and it is still running what it was. Ask again later, or set SKIP_TURN_GAP=1 to swap anyway and lose the work in flight." ;;
     *) die "could not read what the container is holding, so it was left alone — NOTHING was deployed" ;;
   esac
 fi

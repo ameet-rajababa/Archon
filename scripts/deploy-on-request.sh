@@ -116,12 +116,39 @@ if [ "$HEAD" != "$WANT" ]; then
 fi
 
 note "checkout confirms $HEAD"
+
+# A deploy can be stopped rather than finish: systemd's TimeoutStartSec, or an
+# operator with systemctl. Without this, being killed is the one outcome that
+# writes NOTHING — no note, no history line — and the only way to learn what
+# happened is to go and look at the box. On 2026-09-23 that is exactly what
+# occurred at 15:45: the container had already swapped, and nothing said so.
+#
+# What it reports is what the box IS running, asked at signal time, because a
+# kill says nothing about whether the swap got through first.
+on_terminated() {
+  # The deploy is a BACKGROUND child and this waits on it, so that a signal is
+  # handled when it arrives rather than after the deploy finishes: bash defers
+  # a trap until the foreground command returns, which for a deploy mid-build
+  # is minutes away, and for one stuck in the turn-gap wait is half an hour.
+  # The child is stopped by its recorded PID, never by a name match.
+  [ -n "${DEPLOY_PID:-}" ] && kill -TERM "$DEPLOY_PID" 2>/dev/null
+  RUNNING=$(in_container "cat /app/.deployed-sha")
+  note "STOPPED MID-FLIGHT (SIGTERM) — the box is running ${RUNNING:-something it cannot name}"
+  record "KILLED $WANT — stopped mid-flight; running ${RUNNING:-unknown}"
+  exit 143
+}
+trap on_terminated TERM
+
 note "starting deploy"
-if bash "$DEPLOY"; then
+bash "$DEPLOY" &
+DEPLOY_PID=$!
+status=0
+wait "$DEPLOY_PID" || status=$?
+
+if [ "$status" -eq 0 ]; then
   note "DEPLOYED $WANT"
   record "OK $WANT"
 else
-  status=$?
   # What the box is ACTUALLY running, asked rather than assumed. deploy-local.sh
   # can fail AFTER `up -d` has already swapped the container — its health wait
   # and its verification both run past that point — so "running whatever it was
