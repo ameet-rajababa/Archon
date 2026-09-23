@@ -10,7 +10,13 @@ $ARGUMENTS
 
 ## 1. Establish the target
 
-Record `HEAD_BRANCH=$(git branch --show-current)` before doing anything public; an empty value is a hard failure. Read the origin remote once and resolve its canonical forge identity as `REPO_HOST` plus `REPO_PATH` (`owner/repo`). Strip transport syntax, credentials, and a trailing `.git`; normalize GitHub's ordinary HTTPS, `git@github.com:...`, and `ssh://git@ssh.github.com/...` forms to `REPO_HOST=github.com`. An origin that does not identify one repository is a hard failure. Never persist or print a credential-bearing raw remote. Use this same resolved `REPO_PATH` for every `gh --repo` argument.
+The target is already resolved, deterministically, from this branch's own push configuration. Take it as given and never re-derive it:
+
+- `HEAD_BRANCH` is **$INPUTS.head_branch** — the branch this run owns and the only one to push.
+- `REPO_HOST` is **$INPUTS.repo_host** and `REPO_PATH` is **$INPUTS.repo_path** (`owner/repo`) — the repository this run publishes to. Use this same `REPO_PATH` for every `gh --repo` argument.
+- `PUSH_REMOTE` is **$INPUTS.push_remote** — the remote name to push to.
+
+Do not read `git remote get-url`, and do not consult the name `origin`: in a fork-style checkout `origin` is the upstream, and reading it would publish this diff against a repository the operator has no write access to and never chose. Never persist or print a credential-bearing raw remote URL; nothing above contains one and nothing you write should introduce one.
 
 Determine the base branch from evidence, in order: an existing PR for that exact branch in `REPO_PATH` (read it back by explicit number); the repository's documented development flow (steering files, CONTRIBUTING); branch ancestry against likely integration branches (`dev`, `development`, the remote default). Never assume `main`. Use the same resolved base for every diff and command.
 
@@ -33,12 +39,12 @@ When an open PR already exists for this work, it is the pull request: never crea
 
 ## 4. Push and create
 
-Push the recorded branch with upstream tracking (`git push -u origin "$HEAD_BRANCH"`). For an existing fork PR whose author allowed maintainer edits, push to the fork instead, by explicit URL and ref: `git push "https://github.com/<headRepositoryOwner>/<headRepository>.git" "HEAD:refs/heads/<headRefName>"`. If the push is rejected or the remote diverged, stop and report — never rebase or force-push here. Unless step 1 found an existing PR, create the PR against the resolved base, honoring draft mode, and pass `--head "$HEAD_BRANCH"` explicitly. Pin every PR command to the recorded origin repository with `--repo "$REPO_PATH"` — in a clone of a fork, the CLI's default resolution targets the fork's upstream parent, publishing the diff against a repository the author never chose.
+Push the recorded branch with upstream tracking (`git push -u "$PUSH_REMOTE" "$HEAD_BRANCH"`). For an existing fork PR whose author allowed maintainer edits, push to the fork instead, by explicit URL and ref: `git push "https://github.com/<headRepositoryOwner>/<headRepository>.git" "HEAD:refs/heads/<headRefName>"` — that is the contributor's repository, a different case from the publish target above, and it is unchanged. If the push is rejected or the remote diverged, stop and report — never rebase or force-push here. Unless step 1 found an existing PR, create the PR against the resolved base, honoring draft mode, and pass `--head "$HEAD_BRANCH"` explicitly. Pin every PR command to `--repo "$REPO_PATH"` — without it the CLI resolves a fork clone's default to the upstream parent, publishing the diff against a repository the author never chose.
 
 ## 5. Verify by reading back
 
 Read the created or existing PR back from GitHub by its explicit number and `--repo "$REPO_PATH"`: confirm the repository identity, number, URL, title, base, head, and draft state match what you intended. The read-back head must equal `HEAD_BRANCH`, or for a fork PR the recorded `headRefName` with its head SHA equal to what you pushed; a repository or branch mismatch is a hard failure. Not done until the read-back agrees.
 
-Write `$ARTIFACTS_DIR/pr-action.md` with `REPO_HOST`, `REPO_PATH`, the recorded branch, the explicit push target, the PR number, and the create/read-back results. Do not put credentials or the raw origin URL in it. This is the durable action evidence; the node's typed output preserves the verified PR identity.
+Write `$ARTIFACTS_DIR/pr-action.md` with `REPO_HOST`, `REPO_PATH`, the recorded branch, `PUSH_REMOTE` as the explicit push target, the PR number, and the create/read-back results. Do not put credentials or any raw remote URL in it. This is the durable action evidence; the node's typed output preserves the verified PR identity.
 
 Return the verified record through the node's structured output, with exactly these fields: `repo` (`{ "host": REPO_HOST, "path": REPO_PATH }`), `number` (integer), `url`, `head`, `base`, and `is_draft` (boolean). This record is the run's authority for every later push, PR edit, comment, ready flip, and inbound forge event.
