@@ -679,18 +679,25 @@ describe('bundled-defaults', () => {
       // the run owns its worktree, so this node cannot be where that is discovered.
       expect(deliver).not.toContain('EXPECTED_BRANCH=');
       expect(deliver).not.toContain('git branch --show-current');
-      expect(deliver).toContain('gh pr ready "$PR_NUMBER" --repo "$ORIGIN_REPO"');
-      // The engine retains what every exec node prints, so the node keeps no log of
-      // its own — and the rule that log existed under still binds: the raw origin URL
-      // can carry a credential (https://<token>@host/...), so it is read exactly once,
-      // inside the substitution that normalizes it, and only `$ORIGIN_REPO` is ever
-      // passed to a command or interpolated into a failure message.
+      expect(deliver).toContain('gh pr ready "$PR_NUMBER" --repo "$REPO_PATH"');
+      // The repository is the one the `pr` node PUBLISHED to, taken from the identity
+      // it recorded — never re-derived from `git remote get-url origin`. Where origin
+      // is the upstream and the fork is a second remote, that derivation named a
+      // different repository, so the flip asked the upstream about a number that only
+      // exists on the fork and the whole delivery failed at its last node (#31). The
+      // same derivation made `ci-note` report "no CI evidence" on every round instead.
+      expect(deliver).toContain('REPO_PATH=$pr.output.repo.path');
+      expect(deliver).not.toContain('git remote get-url origin 2>/dev/null | sed');
       const flipBody = deliver.slice(deliver.indexOf('- id: flip-ready'));
       expect(flipBody).not.toContain('$ARTIFACTS_DIR/flip-ready.log');
-      const remoteReads = flipBody.split('\n').filter(line => line.includes('git remote'));
-      expect(remoteReads).toHaveLength(1);
-      expect(remoteReads[0]).toContain('ORIGIN_REPO=$(git remote get-url origin 2>/dev/null | sed');
-      expect(deliver).toContain('origin remote does not resolve to an owner/repo');
+      // No remote is read here at all now. That also retires the hazard the old
+      // read-exactly-once rule managed: a raw origin URL can carry a credential
+      // (https://<token>@host/...), and one never enters this node again.
+      // Matches a command SUBSTITUTION, not the phrase: the node's comment explains
+      // why it does not read a remote, and a bare-substring check would count that
+      // explanation as the thing it forbids.
+      expect(flipBody.split('\n').filter(line => line.includes('$(git remote'))).toHaveLength(0);
+      expect(deliver).toContain('the recorded repository is not an owner/repo');
       // A command node reads its node-local `with:` map through `$INPUTS.<name>`,
       // never the INPUTS_<UPPER_SNAKE> env form — that one is built only for
       // bash/script nodes, and naming it here left the agent reading the literal
@@ -761,7 +768,10 @@ describe('bundled-defaults', () => {
      */
     const runFlipReady = async (scenario: {
       name: string;
-      git: string[];
+      /** Omitted leaves no fake `git` on PATH — the node reads no remote. */
+      git?: string[];
+      /** The recorded `repo.path` the flip selects by. Malformed values must refuse. */
+      repoPath?: string;
       /** Omitted leaves no fake `gh` on PATH — for a refusal that must land before one. */
       gh?: string[];
       env?: Record<string, string>;
@@ -820,7 +830,7 @@ describe('bundled-defaults', () => {
           cwd: directory,
           stubs: {
             pr: {
-              repo: { host: 'github.com', path: 'owner/repo' },
+              repo: { host: 'github.com', path: scenario.repoPath ?? 'owner/repo' },
               number: 42,
               head: 'recorded-branch',
             },
@@ -868,28 +878,24 @@ describe('bundled-defaults', () => {
     });
 
     it.skipIf(process.platform === 'win32')(
-      'refuses an origin that does not resolve to an owner/repo before flipping ready',
+      'refuses a recorded repository that does not resolve to an owner/repo',
       async () => {
-        // The guard that remains protects this node's own `gh` calls: a remote
-        // that does not normalize to `owner/repo` would point them somewhere
-        // unintended, and the raw URL can carry a token. Assert the reason, not
+        // The guard that remains protects this node's own `gh` calls: a value that
+        // does not normalize to `owner/repo` would point them somewhere unintended.
+        // It now guards the RECORDED identity rather than a remote URL, because the
+        // remote is no longer what selects the repository. Assert the reason, not
         // just `failed`, so it stays anchored to that check.
         const { result, ghLog } = await runFlipReady({
           name: 'run-owned-ready-flip',
-          git: [
-            '#!/bin/sh',
-            'case "$*" in',
-            '  "remote get-url origin") printf "%s\\n" "$TEST_ORIGIN" ;;',
-            'esac',
-          ],
-          // No fake `gh`: the node refuses at the origin check before reaching one.
-          env: { TEST_ORIGIN: 'https://token@example.com/repo.git' },
+          // No fake `git` and no fake `gh`: the node reads no remote, and refuses
+          // on the recorded value before it reaches a `gh` call.
+          repoPath: 'https://token@example.com/repo.git',
         });
 
         expect(result.outcome).toBe('failed');
         const flip = result.trace.find(entry => entry.nodeId === 'flip-ready');
         expect(flip?.state).toBe('failed');
-        expect(flip?.reason).toContain('origin remote does not resolve to an owner/repo');
+        expect(flip?.reason).toContain('the recorded repository is not an owner/repo');
         expect(ghLog).not.toContain('pr ready');
       }
     );
@@ -990,20 +996,21 @@ describe('bundled-defaults', () => {
         if (flipReady?.kind !== 'exec' || flipReady.runtime !== 'sh') {
           throw new Error('flip-ready is not a bash node');
         }
-        // The engine substitutes the producer ref before running the body; the dry-run
-        // scenarios above prove that wiring, so this one supplies the resolved number.
-        const script = flipReady.script.replace('$pr.output.number', '42');
+        // The engine substitutes the producer refs before running the body; the dry-run
+        // scenarios above prove that wiring, so this one supplies them resolved. BOTH
+        // are needed — the node selects the repository by the recorded identity as
+        // well as the recorded number — and an unsubstituted ref fails under `set -u`
+        // rather than quietly running against the wrong repository.
+        const script = flipReady.script
+          .replace('$pr.output.number', '42')
+          .replace('$pr.output.repo.path', 'owner/repo');
         const directory = mkdtempSync(join(tmpdir(), 'archon-flip-streams-'));
         const bin = join(directory, 'bin');
 
         try {
           writeFakeBins(bin, {
-            git: [
-              '#!/bin/sh',
-              'case "$*" in',
-              '  "remote get-url origin") printf "%s\\n" "git@github.com:owner/repo.git" ;;',
-              'esac',
-            ],
+            // No fake `git`: the node reads no remote at all now, so leaving one out
+            // is part of the assertion rather than an omission.
             gh: [
               '#!/bin/sh',
               'case "$*" in',
