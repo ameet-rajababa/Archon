@@ -113,6 +113,9 @@
       "src/routes/webhooks.test.ts"
     ],
     [
+      "src/routes/public-files.test.ts"
+    ],
+    [
       "src/discord-mention.test.ts"
     ]
   ]
