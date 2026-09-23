@@ -27,7 +27,13 @@ export function ChatsPanel(): ReactElement {
   const baselineRef = useRef('');
   useEffect(() => {
     if (config === undefined) return;
-    const chats = config.config.chats;
+    // Typed as always present, and checked anyway: `K.config` is a shared
+    // cache key, so this can be handed a payload from a server that predates
+    // the field. Seeding `form` with `undefined` would pass a `=== null`
+    // guard and then throw on the first read, taking the whole settings page
+    // with it — a panel is allowed to be unavailable, not to crash its host.
+    const chats: ChatsConfig | undefined = config.config.chats;
+    if (chats === undefined) return;
     setForm(chats);
     baselineRef.current = JSON.stringify(chats);
   }, [config]);
