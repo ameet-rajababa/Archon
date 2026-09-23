@@ -380,4 +380,43 @@ describe('subscribeKey — staleness window on resubscribe', () => {
     expect(get(key)).toBe('v2');
     unsubscribe4();
   });
+
+  test('a key warmed only by set() always reloads on subscribe, then joins the window', async () => {
+    const key = 'test:pushed-value-subscribe';
+    setSystemTime(START);
+
+    // An SSE push or an optimistic skill-layer write. Nothing stamps its age,
+    // so the window cannot apply to it and the first subscriber is owed a load.
+    set(key, 'pushed');
+
+    let loads = 0;
+    const unsubscribe = subscribeKey(
+      key,
+      () => {},
+      () => {
+        loads += 1;
+        return Promise.resolve('loaded');
+      }
+    );
+
+    expect(loads).toBe(1);
+    expect(get(key)).toBe('pushed'); // still on screen while that load is in flight
+    await flush();
+    expect(get(key)).toBe('loaded');
+    unsubscribe();
+
+    // One load converges it: the value now has an age, so the window applies.
+    const unsubscribe2 = subscribeKey(
+      key,
+      () => {},
+      () => {
+        loads += 1;
+        return Promise.resolve('again');
+      }
+    );
+    await flush();
+    expect(loads).toBe(1);
+    expect(get(key)).toBe('loaded');
+    unsubscribe2();
+  });
 });
