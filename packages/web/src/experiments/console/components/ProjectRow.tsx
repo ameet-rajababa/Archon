@@ -6,7 +6,7 @@ import { setIdentity, useProjectIdentity } from '../lib/project-identity';
 import { pushIdentity } from '../lib/presentation-sync';
 import { ProjectCountCells } from './ProjectCountCells';
 import { RowMenu } from './RowMenu';
-import { useDisplayName, setDisplayName } from '../lib/display-name';
+import { projectLabel, useDisplayName, setDisplayName } from '../lib/display-name';
 import { formatProjectLocator } from '../lib/format';
 import type { Project } from '../primitives/project';
 
@@ -60,12 +60,8 @@ export function ProjectRow({
   const [removeError, setRemoveError] = useState<string | null>(null);
   const { identity, color } = useProjectIdentity(project.id);
   const displayName = useDisplayName(project.id, project.name);
-  // Group headers already show the owner — strip it from the row label
-  // unless the user renamed the project (then show their name verbatim).
-  const label =
-    displayName === project.name && project.name.includes('/')
-      ? project.name.slice(project.name.indexOf('/') + 1)
-      : displayName;
+  // Shared with the page header, which names the same project.
+  const label = projectLabel(project.name, displayName);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(displayName);
   const [menuOpen, setMenuOpen] = useState(false);

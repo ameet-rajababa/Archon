@@ -2,6 +2,7 @@ import type { ReactElement } from 'react';
 import { useLocation, useParams } from 'react-router';
 import { ProjectViewTabs } from './ProjectViewTabs';
 import { ProjectStateChip } from './ProjectStateChip';
+import { useProjectLabel } from '../lib/display-name';
 import { Glyph } from '../lib/glyph';
 import { useProjectIdentity } from '../lib/project-identity';
 import { useEntity } from '../store/cache';
@@ -36,6 +37,10 @@ interface FeedShape {
  * you scan and the header answers "where am I", so the same identity has to
  * appear in both — the header carried only the name, which left the icon
  * looking like a property of the list rather than of the project.
+ *
+ * The name is the repo alone. `owner/repo` above a path that already spells
+ * the owner out said it twice and left the distinguishing half truncated;
+ * the full name is still on the title attribute for anyone who wants it.
  */
 export function ProjectHeader(): ReactElement {
   const { projectId } = useParams<{ projectId?: string }>();
@@ -60,6 +65,10 @@ export function ProjectHeader(): ReactElement {
   );
   const { data: projects } = useEntity<Project[]>(K.projects, () => skill.listProjects());
 
+  // Renaming in the rail reaches the header through the same override store,
+  // so the two can never disagree about what this project is called.
+  const label = useProjectLabel(projectId ?? '', project?.name ?? '');
+
   const counts = feed?.counts ?? null;
   const activity = activitySummary(counts);
   const needsYou = activityNeedsYou(counts);
@@ -74,8 +83,8 @@ export function ProjectHeader(): ReactElement {
                 <Glyph seed={projectId} glyph={identity.glyph} color={color} size={24} />
               </span>
             ) : null}
-            <h1 className="truncate text-xl font-semibold text-text-primary">
-              {projectId === undefined ? 'All projects' : (project?.name ?? 'Project')}
+            <h1 title={project?.name} className="truncate text-xl font-semibold text-text-primary">
+              {projectId === undefined ? 'All projects' : label === '' ? 'Project' : label}
             </h1>
             {/* Whether this project wants something. Beside the name because
                 it is a property of the project, not of the page — and absent

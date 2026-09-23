@@ -45,3 +45,22 @@ export function useDisplayName(projectId: string, fallback: string): string {
   }, [projectId, fallback]);
   return value;
 }
+
+/**
+ * What to call a project on screen: the repo alone.
+ *
+ * The owner is already the rail's group header, and the header's second line
+ * is the full path — a third copy of `owner/` crowds out the only part that
+ * distinguishes one project from another. A rename is shown verbatim: the user
+ * chose those words, so they are not ours to trim.
+ */
+export function projectLabel(name: string, displayName: string): string {
+  if (displayName !== name) return displayName;
+  const slash = name.indexOf('/');
+  return slash === -1 ? name : name.slice(slash + 1);
+}
+
+/** `projectLabel` against the live override, for callers that only want the label. */
+export function useProjectLabel(projectId: string, name: string): string {
+  return projectLabel(name, useDisplayName(projectId, name));
+}
