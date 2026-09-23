@@ -145,10 +145,16 @@ export function runStreamKeys(conversationPlatformId: string, runId: string): st
  * Subscribe to the dashboard SSE stream and invalidate the affected caches on
  * any lifecycle change.
  *
- * Mount it ONCE, at the root (ConsoleApp does). The server keeps a single
- * stream per id, so a second EventSource on `__dashboard__` evicts the first,
- * whose browser then reconnects and evicts the second — two mounts is not a
- * duplicate subscription, it is a reconnect loop.
+ * Safe to mount from more than one place — ConsoleApp mounts it at the root
+ * and ChatRunsPanel mounts it again. Each opens an independent connection and
+ * the invalidations are idempotent, so the duplicate costs a socket and a
+ * redundant refetch, nothing more.
+ *
+ * It was NOT always safe: the server held one writer per stream id, so two
+ * subscribers on `__dashboard__` evicted each other in a reconnect loop.
+ * `SSETransport.streams` is a Set per id now, and retires a writer when it
+ * aborts, when a write to it fails, or via the zombie reaper — never because
+ * someone else connected. Check that before reintroducing a mount-once rule.
  *
  * Events we care about:
  *   workflow_status      — run created / status changed / completed / failed
