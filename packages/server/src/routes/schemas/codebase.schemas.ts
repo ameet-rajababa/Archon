@@ -96,11 +96,42 @@ export const codebaseFilesResponseSchema = z
   })
   .openapi('CodebaseFilesResponse');
 
+/**
+ * Version token for a file's contents, echoed back on write.
+ *
+ * A content hash, NOT an mtime: two writes inside one filesystem timestamp
+ * tick are indistinguishable by time, and a clock that moves backwards makes
+ * a stale file look fresh. The hash answers the only question a save needs to
+ * ask - "is this still the file I read?"
+ */
 /** Response for GET /api/codebases/:id/file — one file's text. */
 export const codebaseFileResponseSchema = z
   .object({
     path: z.string(),
     content: z.string(),
     size: z.number(),
+    etag: z.string(),
   })
   .openapi('CodebaseFileResponse');
+
+/** Body for PUT /api/codebases/:id/file - the new text, and the version it replaces. */
+export const writeCodebaseFileBodySchema = z
+  .object({
+    content: z.string(),
+    /**
+     * The `etag` from the read this edit started from. Required, never
+     * optional: an absent token would make "save anyway" the default, and
+     * the whole point of this endpoint is that it cannot silently overwrite.
+     */
+    etag: z.string().min(1),
+  })
+  .openapi('WriteCodebaseFileBody');
+
+/** Response for PUT /api/codebases/:id/file - the state the file is now in. */
+export const writeCodebaseFileResponseSchema = z
+  .object({
+    path: z.string(),
+    size: z.number(),
+    etag: z.string(),
+  })
+  .openapi('WriteCodebaseFileResponse');

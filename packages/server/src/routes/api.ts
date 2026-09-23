@@ -10,10 +10,20 @@ import { cors } from 'hono/cors';
 import type { WebAdapter } from '../adapters/web';
 import { boundMetadataToolOutputs } from '../adapters/web/truncate';
 import { DASHBOARD_STREAM } from '../adapters/web/transport';
-import { rm, readFile, writeFile, unlink, mkdir, readdir, realpath, stat } from 'fs/promises';
+import {
+  rm,
+  readFile,
+  writeFile,
+  unlink,
+  mkdir,
+  readdir,
+  realpath,
+  stat,
+  rename,
+} from 'fs/promises';
 import { existsSync, readFileSync } from 'fs';
 import { normalize, join, sep, basename, dirname, resolve } from 'path';
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash } from 'crypto';
 import type { Context } from 'hono';
 import { cleanupUploads } from './upload-cleanup';
 import {
@@ -345,6 +355,8 @@ import {
   codebaseFilePathQuerySchema,
   codebaseFilesResponseSchema,
   codebaseFileResponseSchema,
+  writeCodebaseFileBodySchema,
+  writeCodebaseFileResponseSchema,
 } from './schemas/codebase.schemas';
 import {
   updateAssistantConfigBodySchema,
@@ -479,6 +491,15 @@ type ContainedPath =
  * Step 4 is why this returns a resolved path rather than a boolean: the caller
  * must read the path that was checked, not re-derive one that was not (#3160).
  */
+/**
+ * Version token for a file's bytes. A content hash, so two writes inside one
+ * filesystem timestamp tick are still distinguishable and a clock that moves
+ * backwards cannot make a stale file look fresh.
+ */
+function fileEtag(bytes: Buffer): string {
+  return createHash('sha256').update(bytes).digest('hex').slice(0, 32);
+}
+
 async function resolveContainedPath(root: string, rawRelative: string): Promise<ContainedPath> {
   if (rawRelative.includes('\0') || rawRelative.split(/[/\\]/).some(seg => seg === '..')) {
     return { ok: false, reason: 'invalid' };
@@ -871,6 +892,33 @@ const readCodebaseFileRoute = createRoute({
     },
     400: jsonError('Bad request'),
     404: jsonError('Not found'),
+    413: jsonError('File too large'),
+    415: jsonError('Unsupported media type'),
+    500: jsonError('Server error'),
+  },
+});
+
+const writeCodebaseFileRoute = createRoute({
+  method: 'put',
+  path: '/api/codebases/{id}/file',
+  tags: ['Codebases'],
+  summary: "Write one text file in a codebase's checkout",
+  request: {
+    params: codebaseIdParamsSchema,
+    query: codebaseFilePathQuerySchema,
+    body: {
+      content: { 'application/json': { schema: writeCodebaseFileBodySchema } },
+      required: true,
+    },
+  },
+  responses: {
+    200: {
+      content: { 'application/json': { schema: writeCodebaseFileResponseSchema } },
+      description: 'Written',
+    },
+    400: jsonError('Bad request'),
+    404: jsonError('Not found'),
+    409: jsonError('The file changed since it was read'),
     413: jsonError('File too large'),
     415: jsonError('Unsupported media type'),
     500: jsonError('Server error'),
@@ -1773,7 +1821,7 @@ export function registerApiRoutes(
     // the size ceiling, and a binary that must not be streamed down a text
     // route. Both are the correct code for what happened; neither is
     // representable as one of the others without lying about the reason.
-    status: 400 | 401 | 404 | 413 | 415 | 422 | 500 | 503,
+    status: 400 | 401 | 404 | 409 | 413 | 415 | 422 | 500 | 503,
     message: string,
     detail?: string
   ): Response {
@@ -3528,10 +3576,107 @@ export function registerApiRoutes(
         path: contained.relative,
         content: buffer.toString('utf-8'),
         size: info.size,
+        etag: fileEtag(buffer),
       });
     } catch (error) {
       getLog().error({ err: error, codebaseId: id }, 'codebase_files.read_failed');
       return apiError(c, 500, 'Failed to read file');
+    }
+  });
+
+  registerOpenApiRoute(writeCodebaseFileRoute, async c => {
+    const id = c.req.param('id') ?? '';
+    const rawPath = c.req.query('path') ?? '';
+    try {
+      const body = await c.req.json<{ content?: unknown; etag?: unknown }>();
+      const content = body.content;
+      const etag = body.etag;
+      if (typeof content !== 'string' || typeof etag !== 'string' || etag === '') {
+        return apiError(c, 400, 'content and etag are required');
+      }
+      if (rawPath === '') {
+        return apiError(c, 400, 'Invalid path');
+      }
+
+      const root = await codebaseRoot(id);
+      if (root === null) {
+        return apiError(c, 404, 'Codebase not found');
+      }
+
+      const contained = await resolveContainedPath(root, rawPath);
+      if (!contained.ok) {
+        if (contained.reason === 'invalid' || contained.reason === 'escaped') {
+          getLog().warn({ codebaseId: id, path: rawPath }, 'codebase_files.path_escape_blocked');
+          return apiError(c, 400, 'Invalid path');
+        }
+        if (contained.reason === 'symlink-escape') {
+          getLog().warn({ codebaseId: id, path: rawPath }, 'codebase_files.symlink_escape_blocked');
+          return apiError(c, 404, 'File not found');
+        }
+        if (contained.reason === 'missing') {
+          // This endpoint edits files that exist. Creating one is a different
+          // decision - a new path has no version to conflict with, so the
+          // safety this route is built around would not apply to it.
+          return apiError(c, 404, 'File not found');
+        }
+        getLog().error(
+          { err: contained.err, codebaseId: id, path: rawPath },
+          'codebase_files.write_failed'
+        );
+        return apiError(c, 500, 'Failed to write file');
+      }
+
+      const info = await stat(contained.realPath);
+      if (!info.isFile()) {
+        return apiError(c, 400, 'Not a regular file');
+      }
+      const incoming = Buffer.from(content, 'utf-8');
+      if (incoming.byteLength > MAX_FILE_BYTES) {
+        return apiError(
+          c,
+          413,
+          `File is ${String(incoming.byteLength)} bytes; the limit is ${String(MAX_FILE_BYTES)}`
+        );
+      }
+      if (incoming.includes(0)) {
+        return apiError(c, 415, 'Binary content is not accepted on this route');
+      }
+
+      // THE CONFLICT CHECK. Read what is on disk NOW and compare it to the
+      // version this edit started from. A run rewriting the file between the
+      // read and this save is the ordinary case on this box, not an exotic
+      // one, and without this the save would silently discard that work.
+      const current = await readFile(contained.realPath);
+      const currentEtag = fileEtag(current);
+      if (currentEtag !== etag) {
+        return apiError(
+          c,
+          409,
+          'This file changed on disk since you opened it. Reload to see the current version.'
+        );
+      }
+
+      // Write to a temp file in the SAME directory, then rename. rename(2) is
+      // atomic within a filesystem, so a reader - or a crash - sees either the
+      // old file or the new one, never a half-written source file. A temp file
+      // elsewhere would make the rename a cross-device copy and lose that.
+      const temp = join(dirname(contained.realPath), `.archon-write-${randomUUID()}`);
+      try {
+        await writeFile(temp, incoming, { mode: info.mode & 0o777 });
+        await rename(temp, contained.realPath);
+      } catch (err) {
+        await unlink(temp).catch(() => undefined);
+        throw err;
+      }
+
+      return c.json({
+        path: contained.relative,
+        size: incoming.byteLength,
+        etag: fileEtag(incoming),
+      });
+    } catch (error) {
+      getLog().error({ err: error, codebaseId: id }, 'codebase_files.write_failed');
+      return apiError(c, 500, 'Failed to write file');
     }
   });
 

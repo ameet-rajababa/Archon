@@ -1427,7 +1427,89 @@ export interface paths {
         };
       };
     };
-    put?: never;
+    /** Write one text file in a codebase's checkout */
+    put: {
+      parameters: {
+        query?: {
+          path?: string;
+        };
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          'application/json': components['schemas']['WriteCodebaseFileBody'];
+        };
+      };
+      responses: {
+        /** @description Written */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'application/json': components['schemas']['WriteCodebaseFileResponse'];
+          };
+        };
+        /** @description Bad request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'application/json': components['schemas']['Error'];
+          };
+        };
+        /** @description Not found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'application/json': components['schemas']['Error'];
+          };
+        };
+        /** @description The file changed since it was read */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'application/json': components['schemas']['Error'];
+          };
+        };
+        /** @description File too large */
+        413: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'application/json': components['schemas']['Error'];
+          };
+        };
+        /** @description Unsupported media type */
+        415: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'application/json': components['schemas']['Error'];
+          };
+        };
+        /** @description Server error */
+        500: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'application/json': components['schemas']['Error'];
+          };
+        };
+      };
+    };
     post?: never;
     delete?: never;
     options?: never;
@@ -3756,6 +3838,16 @@ export interface components {
       path: string;
       content: string;
       size: number;
+      etag: string;
+    };
+    WriteCodebaseFileResponse: {
+      path: string;
+      size: number;
+      etag: string;
+    };
+    WriteCodebaseFileBody: {
+      content: string;
+      etag: string;
     };
     AddCodebaseBody: {
       url?: string;

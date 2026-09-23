@@ -5,6 +5,10 @@
  * Lives beside v1 rather than replacing it, so the two can be compared on the
  * same checkout with the same data. Reached at /console/p/:projectId/files-v2.
  *
+ * EDITABLE. A save carries the `etag` the read returned, so the server can
+ * refuse a write against a file that changed underneath it (409) rather than
+ * discard whatever wrote it. That refusal is shown, never retried through.
+ *
  * EVERY BYTE OF THIS IS LAZY. ConsoleApp mounts it through React.lazy, so the
  * libraries are absent from the initial bundle entirely, and the language
  * grammars arrive per file type (lib/code-language.ts). A session that never
@@ -105,6 +109,14 @@ export function FilesV2Page(): ReactElement {
 
   const [loaded, setLoaded] = useState<Record<string, FileEntry[]>>({});
   const [content, setContent] = useState<string | null>(null);
+  // What the server last confirmed, and the version it was. `draft` differs
+  // from `content` exactly when there are unsaved edits, which is the only
+  // definition of dirty this needs.
+  const [draft, setDraft] = useState<string>('');
+  const [etag, setEtag] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
   const [viewerError, setViewerError] = useState<string | null>(null);
   const [language, setLanguage] = useState<Extension[]>([]);
   const [filter, setFilter] = useState('');
@@ -141,7 +153,12 @@ export function FilesV2Page(): ReactElement {
     setViewerError(null);
     void skill.readFileContent(projectId, selected).then(
       res => {
-        if (live) setContent(res.content);
+        if (!live) return;
+        setContent(res.content);
+        setDraft(res.content);
+        setEtag(res.etag);
+        setSaveError(null);
+        setSavedAt(null);
       },
       (err: Error) => {
         if (live) setViewerError(refusalMessage(err));
@@ -171,6 +188,45 @@ export function FilesV2Page(): ReactElement {
       });
     return build('');
   }, [loaded]);
+
+  const dirty = content !== null && draft !== content;
+
+  const save = useCallback((): void => {
+    if (projectId === undefined || selected === null || etag === null || saving) return;
+    setSaving(true);
+    setSaveError(null);
+    void skill.writeFileContent(projectId, selected, draft, etag).then(
+      res => {
+        // The saved text IS the file now, so it becomes the baseline and the
+        // new token is what the next save will be judged against.
+        setContent(draft);
+        setEtag(res.etag);
+        setSavedAt(Date.now());
+        setSaving(false);
+      },
+      (err: Error) => {
+        // A 409 means someone else wrote the file. Surfaced and left alone -
+        // retrying with a fresh token is exactly the silent overwrite the
+        // token exists to prevent.
+        setSaveError(refusalMessage(err));
+        setSaving(false);
+      }
+    );
+  }, [projectId, selected, etag, draft, saving]);
+
+  // Cmd/Ctrl-S, because nobody reaches for a button to save a file.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        save();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return (): void => {
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [save]);
 
   if (projectId === undefined) {
     return <EmptyState title="No project" hint="Pick a project to read its files." />;
@@ -224,10 +280,35 @@ export function FilesV2Page(): ReactElement {
           <span className="min-w-0 truncate font-mono text-[12px] text-text-secondary">
             {selected ?? 'No file selected'}
           </span>
+          {dirty ? (
+            <span
+              aria-label="Unsaved changes"
+              className="shrink-0 font-mono text-[11px] text-warning"
+            >
+              unsaved
+            </span>
+          ) : savedAt !== null ? (
+            <span className="shrink-0 font-mono text-[11px] text-text-tertiary">saved</span>
+          ) : null}
+          {selected !== null ? (
+            <button
+              type="button"
+              onClick={save}
+              disabled={!dirty || saving}
+              className="shrink-0 rounded border border-border px-2 py-0.5 font-mono text-[11px] text-text-secondary transition-colors hover:text-text-primary disabled:opacity-40"
+            >
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+          ) : null}
           <span className="ml-auto shrink-0 font-mono text-[10px] uppercase tracking-[0.14em] text-text-tertiary">
             v2 · arborist + codemirror
           </span>
         </header>
+        {saveError !== null ? (
+          <p className="shrink-0 border-b border-error/30 bg-error/[0.06] px-4 py-1.5 font-mono text-[11.5px] text-error">
+            {saveError}
+          </p>
+        ) : null}
         {selected === null ? (
           <EmptyState
             title="Nothing open"
@@ -240,9 +321,8 @@ export function FilesV2Page(): ReactElement {
         ) : (
           <div className="min-h-0 flex-1 overflow-hidden">
             <CodeMirror
-              value={content}
-              editable={false}
-              readOnly
+              value={draft}
+              onChange={setDraft}
               height="100%"
               style={{ height: '100%' }}
               theme={THEME}

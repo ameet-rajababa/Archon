@@ -870,3 +870,136 @@ describe('Files tab — GET /api/codebases/:id/files and /file', () => {
     expect((await read('src')).status).toBe(400);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Tests: writing a file (#23 phase 2)
+//
+// The conflict check is the reason this endpoint exists, so it is tested
+// against a real file that really changes underneath the caller.
+// ---------------------------------------------------------------------------
+
+describe('Files tab - PUT /api/codebases/:id/file', () => {
+  let root: string;
+  let outside: string;
+
+  const asCodebase = (over: Record<string, unknown>): never =>
+    ({ ...MOCK_CODEBASE, ...over }) as never;
+
+  beforeAll(async () => {
+    root = await mkdtemp(join(tmpdir(), 'archon-write-root-'));
+    outside = await mkdtemp(join(tmpdir(), 'archon-write-outside-'));
+    await writeFile(join(outside, 'secret.txt'), 'private\n');
+  });
+
+  afterAll(async () => {
+    await removeTempTree(root);
+    await removeTempTree(outside);
+  });
+
+  beforeEach(() => {
+    mockGetCodebase.mockReset();
+  });
+
+  const read = async (path: string): Promise<Response> => {
+    mockGetCodebase.mockImplementationOnce(async () => asCodebase({ default_cwd: root }));
+    return makeApp().request(
+      `/api/codebases/codebase-uuid-1/file?path=${encodeURIComponent(path)}`
+    );
+  };
+
+  const write = async (path: string, content: string, etag: string): Promise<Response> => {
+    mockGetCodebase.mockImplementationOnce(async () => asCodebase({ default_cwd: root }));
+    return makeApp().request(
+      `/api/codebases/codebase-uuid-1/file?path=${encodeURIComponent(path)}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content, etag }),
+      }
+    );
+  };
+
+  const etagOf = async (path: string): Promise<string> => {
+    const body = (await (await read(path)).json()) as { etag: string };
+    return body.etag;
+  };
+
+  test('a read carries a version token, and it changes when the bytes do', async () => {
+    await writeFile(join(root, 'a.txt'), 'one\n');
+    const first = await etagOf('a.txt');
+    expect(first).not.toBe('');
+
+    await writeFile(join(root, 'a.txt'), 'two\n');
+    expect(await etagOf('a.txt')).not.toBe(first);
+  });
+
+  test('writes the file, and returns the version it now has', async () => {
+    await writeFile(join(root, 'b.txt'), 'before\n');
+    const etag = await etagOf('b.txt');
+
+    const response = await write('b.txt', 'after\n', etag);
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as { size: number; etag: string };
+    expect(body.size).toBe(6);
+    expect(body.etag).not.toBe(etag);
+    expect(await Bun.file(join(root, 'b.txt')).text()).toBe('after\n');
+  });
+
+  test('a save against a stale version is refused, and changes nothing', async () => {
+    // The case this endpoint exists for: read, something else writes, save.
+    // Without the check the caller's save would discard the other write.
+    await writeFile(join(root, 'c.txt'), 'original\n');
+    const stale = await etagOf('c.txt');
+    await writeFile(join(root, 'c.txt'), 'written by a run\n');
+
+    const response = await write('c.txt', 'my edit\n', stale);
+    expect(response.status).toBe(409);
+    expect(await Bun.file(join(root, 'c.txt')).text()).toBe('written by a run\n');
+  });
+
+  test('a traversal and a symlink escape are refused on write too', async () => {
+    await symlink(join(outside, 'secret.txt'), join(root, 'escape-w.txt'));
+    expect((await write('../secret.txt', 'x', 'any')).status).toBe(400);
+    expect((await write('escape-w.txt', 'x', 'any')).status).toBe(404);
+    // The refused write did not reach the file the link points at.
+    expect(await Bun.file(join(outside, 'secret.txt')).text()).toBe('private\n');
+  });
+
+  test('a missing file is not created by a write', async () => {
+    // Creating a file has no version to conflict with, so it is deliberately
+    // not this route's job.
+    expect((await write('does-not-exist.txt', 'x', 'any')).status).toBe(404);
+  });
+
+  test('binary content and oversized content are refused', async () => {
+    await writeFile(join(root, 'd.txt'), 'ok\n');
+    const etag = await etagOf('d.txt');
+    expect((await write('d.txt', 'a\u0000b', etag)).status).toBe(415);
+    expect((await write('d.txt', 'x'.repeat(1024 * 1024 + 1), etag)).status).toBe(413);
+    // Neither refusal touched the file.
+    expect(await Bun.file(join(root, 'd.txt')).text()).toBe('ok\n');
+  });
+
+  test('a missing etag is refused rather than treated as permission to overwrite', async () => {
+    await writeFile(join(root, 'e.txt'), 'ok\n');
+    mockGetCodebase.mockImplementationOnce(async () => asCodebase({ default_cwd: root }));
+    const response = await makeApp().request('/api/codebases/codebase-uuid-1/file?path=e.txt', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: 'overwritten' }),
+    });
+    expect(response.status).toBe(400);
+    expect(await Bun.file(join(root, 'e.txt')).text()).toBe('ok\n');
+  });
+
+  test('a write leaves no temp file behind', async () => {
+    await writeFile(join(root, 'f.txt'), 'one\n');
+    const etag = await etagOf('f.txt');
+    expect((await write('f.txt', 'two\n', etag)).status).toBe(200);
+
+    const { readdir } = await import('fs/promises');
+    const left = (await readdir(root)).filter(n => n.startsWith('.archon-write-'));
+    expect(left).toEqual([]);
+  });
+});
