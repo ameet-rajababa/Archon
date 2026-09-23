@@ -39,7 +39,10 @@ REMOTE_BRANCH="${REMOTE_BRANCH:-deploy}"
 SERVICE="${SERVICE:-app}"
 HEALTH_URL="${HEALTH_URL:-http://localhost:3000/api/health}"
 
-step() { printf '\n\033[1m── %s\033[0m\n' "$1"; }
+# Timestamped, because this log is the only post-mortem anyone gets and it
+# could not answer "how long was it in step 5" — the difference between a build
+# that dragged and a wait that never ended.
+step() { printf '\n\033[1m── %s  [%s]\033[0m\n' "$1" "$(date -u '+%H:%M:%SZ')"; }
 die() { printf '\n\033[31mSTOPPED: %s\033[0m\n' "$1" >&2; exit 1; }
 
 # Everything container-side runs as root through one helper: the two checkouts
@@ -177,12 +180,20 @@ fi
 step "6/7  Restart and wait for health"
 docker compose up -d "$SERVICE" || die "up failed"
 
-for _ in $(seq 1 60); do
+# The container is already swapped by this point, so a failure here is a
+# failure with the new image LIVE. The message has to say so, or it reads as
+# "nothing happened" — which is what the report said on 2026-09-23 while the
+# new image was serving.
+HEALTH_WAIT=${HEALTH_WAIT:-120}
+waited=0
+while [ "$waited" -lt "$HEALTH_WAIT" ]; do
   if curl -fsS "$HEALTH_URL" >/dev/null 2>&1; then break; fi
   sleep 2
+  waited=$((waited + 2))
 done
-curl -fsS "$HEALTH_URL" >/dev/null 2>&1 || die "never became healthy at $HEALTH_URL"
-echo "healthy"
+curl -fsS "$HEALTH_URL" >/dev/null 2>&1 ||
+  die "swapped to $SHA, but it never became healthy at $HEALTH_URL within ${HEALTH_WAIT}s — the new image IS running"
+echo "healthy after ${waited}s"
 
 # ── 7. Ask the running container which commit it IS ─────────────────────────
 # The one question worth asking. Everything above can be green while the
