@@ -3,7 +3,7 @@ import { Database } from 'bun:sqlite';
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { removeTempTree } from '@archon/paths/test-utils';
+import { SCRATCH_REGISTRY_ENV, removeTempTree } from '@archon/paths/test-utils';
 import { requestDetachedRunStop } from '../utils/detached-run-control';
 
 const CLI_PATH = resolve(import.meta.dir, '..', 'cli.ts');
@@ -60,6 +60,7 @@ function spawnCli(fixture: Fixture, args: string[]): Bun.ReadableSubprocess {
     env: {
       ...process.env,
       ARCHON_HOME: fixture.archonHome,
+      ...SCRATCH_REGISTRY_ENV,
       ARCHON_TELEMETRY_DISABLED: '1',
     },
     stdout: 'pipe',

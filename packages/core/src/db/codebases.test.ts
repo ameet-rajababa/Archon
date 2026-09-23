@@ -30,11 +30,16 @@ import {
 
 describe('codebases', () => {
   beforeEach(() => {
-    mockQuery.mockClear();
+    // Reset, not clear: mockClear keeps queued `...Once` values, so a single
+    // test that returns before it queries shifts every later test's mock by
+    // one and the whole file goes red for one cause. Reset drops the queue,
+    // which means the base implementation has to be put back.
+    mockQuery.mockReset();
+    mockQuery.mockImplementation(() => Promise.resolve(createQueryResult([])));
   });
 
   const mockCodebase: Codebase = {
-    id: 'codebase-123',
+    id: '0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93',
     name: 'test-project',
     repository_url: 'https://github.com/user/repo',
     default_cwd: '/workspace/test-project',
@@ -142,20 +147,31 @@ describe('codebases', () => {
     test('returns existing codebase', async () => {
       mockQuery.mockResolvedValueOnce(createQueryResult([mockCodebase]));
 
-      const result = await getCodebase('codebase-123');
+      const result = await getCodebase('0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93');
 
       expect(result).toEqual(mockCodebase);
       expect(mockQuery).toHaveBeenCalledWith('SELECT * FROM remote_agent_codebases WHERE id = $1', [
-        'codebase-123',
+        '0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93',
       ]);
     });
 
-    test('returns null for non-existent codebase', async () => {
+    test('returns null when no row matches', async () => {
       mockQuery.mockResolvedValueOnce(createQueryResult([]));
 
-      const result = await getCodebase('non-existent');
+      const result = await getCodebase('7f9a2c11-4b83-4d56-9e01-3c6b5a8d2f47');
 
       expect(result).toBeNull();
+    });
+
+    // A value that cannot be a uuid cannot be in a uuid column, so the query
+    // is skipped entirely: asking PostgreSQL raises a type error the console
+    // shows as a 500, which reads as "the server is broken" rather than "no
+    // such project".
+    test('returns null without querying when the id cannot be a row id', async () => {
+      const result = await getCodebase('my-project');
+
+      expect(result).toBeNull();
+      expect(mockQuery).not.toHaveBeenCalled();
     });
   });
 
@@ -222,22 +238,22 @@ describe('codebases', () => {
         execute: { path: '.claude/commands/execute.md', description: 'Execute plan' },
       };
 
-      await updateCodebaseCommands('codebase-123', commands);
+      await updateCodebaseCommands('0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93', commands);
 
       expect(mockQuery).toHaveBeenCalledWith(
         'UPDATE remote_agent_codebases SET commands = $1, updated_at = NOW() WHERE id = $2',
-        [JSON.stringify(commands), 'codebase-123']
+        [JSON.stringify(commands), '0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93']
       );
     });
 
     test('handles empty commands object', async () => {
       mockQuery.mockResolvedValueOnce(createQueryResult([], 1));
 
-      await updateCodebaseCommands('codebase-123', {});
+      await updateCodebaseCommands('0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93', {});
 
       expect(mockQuery).toHaveBeenCalledWith(
         'UPDATE remote_agent_codebases SET commands = $1, updated_at = NOW() WHERE id = $2',
-        ['{}', 'codebase-123']
+        ['{}', '0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93']
       );
     });
   });
@@ -249,12 +265,12 @@ describe('codebases', () => {
       };
       mockQuery.mockResolvedValueOnce(createQueryResult([{ commands }]));
 
-      const result = await getCodebaseCommands('codebase-123');
+      const result = await getCodebaseCommands('0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93');
 
       expect(result).toEqual(commands);
       expect(mockQuery).toHaveBeenCalledWith(
         'SELECT commands FROM remote_agent_codebases WHERE id = $1',
-        ['codebase-123']
+        ['0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93']
       );
     });
 
@@ -269,7 +285,7 @@ describe('codebases', () => {
     test('returns empty object when commands is null', async () => {
       mockQuery.mockResolvedValueOnce(createQueryResult([{ commands: null }]));
 
-      const result = await getCodebaseCommands('codebase-123');
+      const result = await getCodebaseCommands('0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93');
 
       expect(result).toEqual({});
     });
@@ -280,7 +296,7 @@ describe('codebases', () => {
       });
       mockQuery.mockResolvedValueOnce(createQueryResult([{ commands: frozenCommands }]));
 
-      const commands = await getCodebaseCommands('codebase-123');
+      const commands = await getCodebaseCommands('0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93');
 
       // Must not throw - result should be a mutable copy
       commands['new-command'] = { path: 'test.md', description: 'Test' };
@@ -292,8 +308,8 @@ describe('codebases', () => {
     test('throws on corrupt JSON string (SQLite TEXT column)', async () => {
       mockQuery.mockResolvedValueOnce(createQueryResult([{ commands: '{not valid json' }]));
 
-      await expect(getCodebaseCommands('codebase-123')).rejects.toThrow(
-        /Corrupt commands JSON for codebase codebase-123/
+      await expect(getCodebaseCommands('0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93')).rejects.toThrow(
+        /Corrupt commands JSON for codebase 0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93/
       );
     });
 
@@ -301,7 +317,7 @@ describe('codebases', () => {
       const commands = { plan: { path: 'plan.md', description: 'Plan' } };
       mockQuery.mockResolvedValueOnce(createQueryResult([{ commands: JSON.stringify(commands) }]));
 
-      const result = await getCodebaseCommands('codebase-123');
+      const result = await getCodebaseCommands('0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93');
       expect(result).toEqual(commands);
     });
   });
@@ -313,7 +329,7 @@ describe('codebases', () => {
       // Second call: updateCodebaseCommands
       mockQuery.mockResolvedValueOnce(createQueryResult([], 1));
 
-      await registerCommand('codebase-123', 'plan', {
+      await registerCommand('0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93', 'plan', {
         path: '.claude/commands/plan.md',
         description: 'Plan feature',
       });
@@ -326,7 +342,7 @@ describe('codebases', () => {
           JSON.stringify({
             plan: { path: '.claude/commands/plan.md', description: 'Plan feature' },
           }),
-          'codebase-123',
+          '0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93',
         ]
       );
     });
@@ -338,7 +354,7 @@ describe('codebases', () => {
       mockQuery.mockResolvedValueOnce(createQueryResult([{ commands: existingCommands }]));
       mockQuery.mockResolvedValueOnce(createQueryResult([], 1));
 
-      await registerCommand('codebase-123', 'plan', {
+      await registerCommand('0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93', 'plan', {
         path: '.claude/commands/new-plan.md',
         description: 'New plan',
       });
@@ -350,7 +366,7 @@ describe('codebases', () => {
           JSON.stringify({
             plan: { path: '.claude/commands/new-plan.md', description: 'New plan' },
           }),
-          'codebase-123',
+          '0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93',
         ]
       );
     });
@@ -362,7 +378,7 @@ describe('codebases', () => {
       mockQuery.mockResolvedValueOnce(createQueryResult([{ commands: existingCommands }]));
       mockQuery.mockResolvedValueOnce(createQueryResult([], 1));
 
-      await registerCommand('codebase-123', 'plan', {
+      await registerCommand('0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93', 'plan', {
         path: '.claude/commands/plan.md',
         description: 'Plan feature',
       });
@@ -375,7 +391,7 @@ describe('codebases', () => {
             execute: { path: '.claude/commands/execute.md', description: 'Execute plan' },
             plan: { path: '.claude/commands/plan.md', description: 'Plan feature' },
           }),
-          'codebase-123',
+          '0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93',
         ]
       );
     });
@@ -463,47 +479,49 @@ describe('codebases', () => {
     test('updates default_cwd only', async () => {
       mockQuery.mockResolvedValueOnce(createQueryResult([], 1));
 
-      await updateCodebase('codebase-123', { default_cwd: '/new/path' });
+      await updateCodebase('0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93', { default_cwd: '/new/path' });
 
       expect(mockQuery).toHaveBeenCalledWith(
         'UPDATE remote_agent_codebases SET default_cwd = $1, updated_at = NOW() WHERE id = $2',
-        ['/new/path', 'codebase-123']
+        ['/new/path', '0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93']
       );
     });
 
     test('updates repository_url only', async () => {
       mockQuery.mockResolvedValueOnce(createQueryResult([], 1));
 
-      await updateCodebase('codebase-123', { repository_url: 'https://github.com/owner/repo' });
+      await updateCodebase('0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93', {
+        repository_url: 'https://github.com/owner/repo',
+      });
 
       expect(mockQuery).toHaveBeenCalledWith(
         'UPDATE remote_agent_codebases SET repository_url = $1, updated_at = NOW() WHERE id = $2',
-        ['https://github.com/owner/repo', 'codebase-123']
+        ['https://github.com/owner/repo', '0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93']
       );
     });
 
     test('updates both default_cwd and repository_url', async () => {
       mockQuery.mockResolvedValueOnce(createQueryResult([], 1));
 
-      await updateCodebase('codebase-123', {
+      await updateCodebase('0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93', {
         default_cwd: '/new/path',
         repository_url: 'https://github.com/owner/repo',
       });
 
       expect(mockQuery).toHaveBeenCalledWith(
         'UPDATE remote_agent_codebases SET default_cwd = $1, repository_url = $2, updated_at = NOW() WHERE id = $3',
-        ['/new/path', 'https://github.com/owner/repo', 'codebase-123']
+        ['/new/path', 'https://github.com/owner/repo', '0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93']
       );
     });
 
     test('updates default_branch', async () => {
       mockQuery.mockResolvedValueOnce(createQueryResult([], 1));
 
-      await updateCodebase('codebase-123', { default_branch: 'develop' });
+      await updateCodebase('0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93', { default_branch: 'develop' });
 
       expect(mockQuery).toHaveBeenCalledWith(
         'UPDATE remote_agent_codebases SET default_branch = $1, updated_at = NOW() WHERE id = $2',
-        ['develop', 'codebase-123']
+        ['develop', '0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93']
       );
     });
 
@@ -520,7 +538,9 @@ describe('codebases', () => {
     test('does not wrap operational DB errors in CodebaseNotFoundError', async () => {
       mockQuery.mockRejectedValueOnce(new Error('connection refused'));
 
-      const error = await updateCodebase('codebase-123', { default_cwd: '/path' }).catch(e => e);
+      const error = await updateCodebase('0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93', {
+        default_cwd: '/path',
+      }).catch(e => e);
 
       expect(error).toBeInstanceOf(Error);
       expect(error).not.toBeInstanceOf(CodebaseNotFoundError);
@@ -528,7 +548,7 @@ describe('codebases', () => {
     });
 
     test('no-ops when no fields provided', async () => {
-      await updateCodebase('codebase-123', {});
+      await updateCodebase('0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93', {});
 
       expect(mockQuery).not.toHaveBeenCalled();
     });
@@ -543,23 +563,23 @@ describe('codebases', () => {
       // Third call: delete codebase
       mockQuery.mockResolvedValueOnce(createQueryResult([], 1));
 
-      await deleteCodebase('codebase-123');
+      await deleteCodebase('0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93');
 
       expect(mockQuery).toHaveBeenCalledTimes(3);
       expect(mockQuery).toHaveBeenNthCalledWith(
         1,
         'UPDATE remote_agent_sessions SET codebase_id = NULL WHERE codebase_id = $1',
-        ['codebase-123']
+        ['0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93']
       );
       expect(mockQuery).toHaveBeenNthCalledWith(
         2,
         'UPDATE remote_agent_conversations SET codebase_id = NULL WHERE codebase_id = $1',
-        ['codebase-123']
+        ['0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93']
       );
       expect(mockQuery).toHaveBeenNthCalledWith(
         3,
         'DELETE FROM remote_agent_codebases WHERE id = $1',
-        ['codebase-123']
+        ['0b1c5f3a-8d24-4e17-9f60-2a7c4d8e1b93']
       );
     });
 

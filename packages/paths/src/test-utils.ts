@@ -4,7 +4,7 @@
  * This module is test-only. Nothing in `src/` imports it; it lives here because
  * `@archon/paths` is the one package every consumer of these helpers already depends on.
  */
-import { afterEach } from 'bun:test';
+import { afterAll, afterEach, beforeAll } from 'bun:test';
 import { rm } from 'node:fs/promises';
 
 /** Attempts before a stuck tree is reported as a leak rather than retried again. */
@@ -108,3 +108,63 @@ export function trackTempRoots(): (root: string) => string {
     return root;
   };
 }
+
+/**
+ * Make `getArchonHome()` obey `ARCHON_HOME` for every test in the calling file.
+ *
+ * `getArchonHome()` checks `isDocker()` FIRST and returns a hardcoded `/.archon`,
+ * so a test that sets `ARCHON_HOME` to a temp directory silently resolves against
+ * the real home whenever the suite runs inside a container — which the Archon dev
+ * box and any docker-compose install are. The tests pass on a laptop and fail on
+ * the box, which reads as flake rather than as an environment the test never
+ * controlled.
+ *
+ * `isDocker()` reads `ARCHON_DOCKER` and `WORKSPACE_PATH` from `process.env` on
+ * every call — the two that all three of its checks rest on — so
+ * clearing them once per file is enough. Call this from any file that points
+ * `ARCHON_HOME` somewhere and expects to be believed. Do NOT call it from a test
+ * about Docker detection itself — that test owns these variables.
+ */
+export function honorArchonHomeEnv(): void {
+  let archonDocker: string | undefined;
+  let workspacePath: string | undefined;
+  beforeAll(() => {
+    archonDocker = process.env.ARCHON_DOCKER;
+    workspacePath = process.env.WORKSPACE_PATH;
+    delete process.env.ARCHON_DOCKER;
+    delete process.env.WORKSPACE_PATH;
+  });
+  afterAll(() => {
+    if (archonDocker === undefined) delete process.env.ARCHON_DOCKER;
+    else process.env.ARCHON_DOCKER = archonDocker;
+    if (workspacePath === undefined) delete process.env.WORKSPACE_PATH;
+    else process.env.WORKSPACE_PATH = workspacePath;
+  });
+}
+
+/**
+ * Env a spawned Archon process needs so that the scratch `ARCHON_HOME` beside it
+ * is the registry it actually opens.
+ *
+ * Spread this into any `spawnSync`/`Bun.spawn` env that also sets `ARCHON_HOME`
+ * to a temp directory. Every key here is normal to have set on a self-hosted box
+ * and absent on CI, which is why omitting one fails only for a contributor
+ * running Archon on the machine they develop it on:
+ *
+ *   `DATABASE_URL`    sends the registry to PostgreSQL, where no `archon.db`
+ *                     file is ever written and the scratch home stays empty.
+ *   `ARCHON_DOCKER`,  make `getArchonHome()` return a hardcoded `/.archon` and
+ *   `WORKSPACE_PATH`  ignore `ARCHON_HOME` altogether.
+ *
+ * Empty rather than deleted: a Bun child restores a deleted key from `.env`.
+ *
+ * The parent's own reads need `honorArchonHomeEnv` as well — this only covers
+ * what a child inherits.
+ *
+ * Not for a test about detached Docker handoff, which sets these deliberately.
+ */
+export const SCRATCH_REGISTRY_ENV = {
+  DATABASE_URL: '',
+  ARCHON_DOCKER: '',
+  WORKSPACE_PATH: '',
+} as const;

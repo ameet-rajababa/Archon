@@ -9,6 +9,7 @@ import {
   readOrCreateLocalKey,
   clearLocalKeyCache,
 } from './token-crypto';
+import { honorArchonHomeEnv } from '@archon/paths/test-utils';
 
 const KEY = Buffer.alloc(32, 7); // deterministic 32-byte key
 const OTHER_KEY = Buffer.alloc(32, 9);
@@ -19,6 +20,10 @@ function makeTmpDir(): string {
   mkdirSync(dir, { recursive: true });
   return dir;
 }
+
+// The auto-key path resolves $ARCHON_HOME/credential-key; without this the
+// container's Docker signals send it to the real /.archon instead of tmpDir.
+honorArchonHomeEnv();
 
 describe('token-crypto', () => {
   describe('encryptToken/decryptToken', () => {

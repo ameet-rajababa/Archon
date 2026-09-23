@@ -39,7 +39,7 @@ afterAll(async () => {
   await removeTempTree(base);
 });
 
-const get = (path: string): Promise<Response> => app.request(path);
+const get = async (path: string): Promise<Response> => await app.request(path);
 
 describe('registerPublicFiles', () => {
   test('serves a published file', async () => {

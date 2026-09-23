@@ -22,9 +22,14 @@ import {
 } from './setup';
 import * as setupModule from './setup';
 import { parse as parseDotenv } from 'dotenv';
+import { honorArchonHomeEnv } from '@archon/paths/test-utils';
 
 // Test directory for file operations
 const TEST_DIR = join(tmpdir(), 'archon-setup-test-' + Date.now());
+
+// These tests point ARCHON_HOME at a temp directory; without this the
+// container's Docker signals make getArchonHome() ignore it.
+honorArchonHomeEnv();
 
 describe('setup command', () => {
   beforeEach(() => {
