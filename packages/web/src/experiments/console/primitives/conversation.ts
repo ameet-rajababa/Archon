@@ -32,3 +32,18 @@ export function toConversationSummary(raw: RawConversation): ConversationSummary
     lastActivityAt: raw.last_activity_at,
   };
 }
+
+/**
+ * The DB uuid behind a platform conversation id. A run's
+ * `parent_conversation_id` points at the uuid, while the routes that carry a
+ * chat around the console carry the platform id, so every "runs launched from
+ * this chat" lookup has to cross this one join. Returns `null` when no chat is
+ * open, or for the moment between creating one and the list refetching.
+ */
+export function resolveConversationDbId(
+  conversations: ConversationSummary[],
+  platformConversationId: string | null
+): string | null {
+  if (platformConversationId === null) return null;
+  return conversations.find(c => c.id === platformConversationId)?.dbId ?? null;
+}

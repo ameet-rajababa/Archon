@@ -14,7 +14,7 @@ import { K } from '../store/keys';
 import * as skill from '../skills';
 import type { Project } from '../primitives/project';
 import type { Message } from '../primitives/message';
-import type { ConversationSummary } from '../primitives/conversation';
+import { resolveConversationDbId, type ConversationSummary } from '../primitives/conversation';
 
 // While a turn is active, refetch messages on this cadence so streamed replies
 // still surface if a per-conversation SSE event is dropped (cross-origin
@@ -62,12 +62,10 @@ export function ChatPage(): ReactElement {
     if (web !== undefined) setActiveConvId(web.id);
   }, [conversations, activeConvId]);
 
-  // `activeConvId` is the PLATFORM conversation id (what the message and stream
-  // routes take); a run's `parent_conversation_id` is the DB uuid. Derived from
-  // the conversation list rather than tracked as second state, so the two can't
-  // drift; null for the moment between creating a chat and the list refetching.
+  // Derived rather than tracked as second state, so the platform id and the DB
+  // uuid can't drift apart.
   const activeConvDbId = useMemo<string | null>(
-    () => (conversations ?? []).find(c => c.id === activeConvId)?.dbId ?? null,
+    () => resolveConversationDbId(conversations ?? [], activeConvId),
     [conversations, activeConvId]
   );
 

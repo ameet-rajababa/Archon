@@ -5,16 +5,9 @@ import { K } from '../store/keys';
 import { useDashboardSSE } from '../lib/sse';
 import * as skill from '../skills';
 import type { Run } from '../primitives/run';
-import type { RunCounts } from '../skills/runs';
 import { statusDotClass, runStatusLabel } from '../lib/run-status';
 import { shortRunId, relativeTime } from '../lib/format';
 import { RunOutcomeBadge } from './RunOutcomeBadge';
-
-interface FeedData {
-  runs: Run[];
-  counts: RunCounts;
-  total: number;
-}
 
 interface ChatRunsPanelProps {
   /**
@@ -45,8 +38,9 @@ export function ChatRunsPanel({
   projectId,
 }: ChatRunsPanelProps): ReactElement | null {
   const [expanded, setExpanded] = useState(false);
-  const { data, error } = useEntity<FeedData>(K.chatRuns(conversationDbId), () =>
-    skill.listRuns({ parentConversationId: conversationDbId, limit: FETCH_LIMIT })
+  const { data, error } = useEntity<Awaited<ReturnType<typeof skill.listRuns>>>(
+    K.chatRuns(conversationDbId),
+    () => skill.listRuns({ parentConversationId: conversationDbId, limit: FETCH_LIMIT })
   );
   useDashboardSSE();
 
