@@ -33,9 +33,9 @@ export function activityNeedsYou(counts: HeaderCounts | null | undefined): boole
 }
 
 /**
- * The second line when no project is scoped. The header keeps its two lines in
- * every state so that picking a project never changes its height — anything
- * below it would otherwise jump.
+ * What the tab row carries on its right when no project is scoped. The header
+ * fills that corner in every state so that picking a project never changes its
+ * height — anything below it would otherwise jump.
  */
 export function allProjectsSubtitle(
   projectCount: number,
@@ -44,6 +44,25 @@ export function allProjectsSubtitle(
   const projects = `${projectCount.toString()} project${projectCount === 1 ? '' : 's'}`;
   const activity = activitySummary(counts);
   return activity === null ? projects : `${projects} · ${activity}`;
+}
+
+/**
+ * The project path as the tab row shows it: the last few segments, with what
+ * was dropped marked by a leading ellipsis.
+ *
+ * Every checkout sits under the same workspaces root, so the leading half of
+ * the path is identical on every project page and identifies nothing. Trimming
+ * it here rather than truncating in CSS keeps the informative end — the one
+ * you would paste into a terminal — from being the half that disappears.
+ *
+ * The full path stays on the element's title, so nothing is unrecoverable.
+ */
+const HEADER_PATH_SEGMENTS = 3;
+
+export function headerPathLabel(path: string): string {
+  const segments = path.split('/').filter(segment => segment !== '');
+  if (segments.length <= HEADER_PATH_SEGMENTS) return path;
+  return `…/${segments.slice(-HEADER_PATH_SEGMENTS).join('/')}`;
 }
 
 /**

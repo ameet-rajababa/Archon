@@ -4,6 +4,7 @@ import {
   activityNeedsYou,
   activitySummary,
   allProjectsSubtitle,
+  headerPathLabel,
 } from './project-header';
 
 describe('activitySummary', () => {
@@ -50,6 +51,27 @@ describe('allProjectsSubtitle', () => {
     expect(allProjectsSubtitle(5, { running: 1, paused: 2 })).toBe(
       '5 projects · 1 running · 2 paused'
     );
+  });
+});
+
+describe('headerPathLabel', () => {
+  test('drops the workspaces prefix every project shares', () => {
+    expect(headerPathLabel('/.archon/workspaces/rajababa-io/wix-access/source')).toBe(
+      '…/rajababa-io/wix-access/source'
+    );
+  });
+
+  test('keeps a path that is already short enough to identify itself', () => {
+    expect(headerPathLabel('/home/appuser/archon')).toBe('/home/appuser/archon');
+    expect(headerPathLabel('/srv/app')).toBe('/srv/app');
+  });
+
+  test('a trailing slash does not cost a real segment', () => {
+    expect(headerPathLabel('/a/b/c/d/e/')).toBe('…/c/d/e');
+  });
+
+  test('an empty path stays empty rather than becoming a bare ellipsis', () => {
+    expect(headerPathLabel('')).toBe('');
   });
 });
 

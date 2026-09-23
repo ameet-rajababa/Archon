@@ -15,6 +15,7 @@ import {
   activityNeedsYou,
   activitySummary,
   allProjectsSubtitle,
+  headerPathLabel,
 } from '../lib/project-header';
 
 interface FeedShape {
@@ -29,9 +30,13 @@ interface FeedShape {
  * Runs/Chat tabs with it, and a run that failed to load left a bare error on an
  * empty page with no way back.
  *
- * Its height is fixed in every state on purpose: name, path, tabs. A header
+ * Its height is fixed in every state on purpose: name, then tabs. A header
  * that grows or shrinks between screens shifts everything below it, which is
  * the thing being fixed here rather than a detail of it.
+ *
+ * The path rides the right end of the tab row rather than owning a line of its
+ * own. That line was mostly a constant workspaces prefix and a second printing
+ * of the name above it, and the tab row had the width spare.
  *
  * The mark and the name are the rail row's, drawn larger. The rail is a list
  * you scan and the header answers "where am I", so the same identity has to
@@ -76,29 +81,20 @@ export function ProjectHeader(): ReactElement {
   return (
     <header className="flex shrink-0 flex-col gap-3 border-b border-border px-6 pb-0 pt-4">
       <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <span className="flex min-w-0 items-center gap-2.5">
-            {projectId !== undefined ? (
-              <span aria-hidden className="flex shrink-0 items-center">
-                <Glyph seed={projectId} glyph={identity.glyph} color={color} size={24} />
-              </span>
-            ) : null}
-            <h1 title={project?.name} className="truncate text-xl font-semibold text-text-primary">
-              {projectId === undefined ? 'All projects' : label === '' ? 'Project' : label}
-            </h1>
-            {/* Whether this project wants something. Beside the name because
+        <span className="flex min-w-0 items-center gap-2.5">
+          {projectId !== undefined ? (
+            <span aria-hidden className="flex shrink-0 items-center">
+              <Glyph seed={projectId} glyph={identity.glyph} color={color} size={24} />
+            </span>
+          ) : null}
+          <h1 title={project?.name} className="truncate text-xl font-semibold text-text-primary">
+            {projectId === undefined ? 'All projects' : label === '' ? 'Project' : label}
+          </h1>
+          {/* Whether this project wants something. Beside the name because
                 it is a property of the project, not of the page — and absent
                 entirely when the answer is no. */}
-            {projectId !== undefined ? <ProjectStateChip projectId={projectId} /> : null}
-          </span>
-          {/* Always rendered, even while loading: an absent second line would
-              change the header's height and shift the page under the reader. */}
-          <p className="truncate text-xs text-text-tertiary">
-            {projectId === undefined
-              ? allProjectsSubtitle(projects?.length ?? 0, counts)
-              : (project?.path ?? 'Loading…')}
-          </p>
-        </div>
+          {projectId !== undefined ? <ProjectStateChip projectId={projectId} /> : null}
+        </span>
 
         {activity !== null ? (
           <span
@@ -119,13 +115,28 @@ export function ProjectHeader(): ReactElement {
         ) : null}
       </div>
 
-      {projectId === undefined ? (
-        // No project scoped means no tab can be meaningful, but the row still
-        // occupies its space so the header is one height everywhere.
-        <div aria-hidden className="h-[26px]" />
-      ) : (
-        <ProjectViewTabs projectId={projectId} active={activeProjectTab(pathname)} />
-      )}
+      {/* One min-height governs both states, so no project scoped cannot make
+          the header a different height from a project that is. A spacer sized
+          to match the tab row by hand held that invariant before, and had
+          already drifted 1.5px off the tabs it was copying. */}
+      <div className="flex min-h-[26px] items-end justify-between gap-4">
+        {projectId === undefined ? (
+          <p className="min-w-0 truncate pb-1 text-xs text-text-tertiary">
+            {allProjectsSubtitle(projects?.length ?? 0, counts)}
+          </p>
+        ) : (
+          <>
+            <ProjectViewTabs projectId={projectId} active={activeProjectTab(pathname)} />
+            {/* The checkout, in the width the tabs leave. Rendered while loading
+                too — this corner holds the header's second line of context in
+                every state. The trimmed label is what you read; the full path
+                stays on the title for anyone who wants all of it. */}
+            <p title={project?.path} className="min-w-0 truncate pb-1 text-xs text-text-tertiary">
+              {project?.path === undefined ? 'Loading…' : headerPathLabel(project.path)}
+            </p>
+          </>
+        )}
+      </div>
     </header>
   );
 }
