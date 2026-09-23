@@ -180,6 +180,36 @@ export async function ensureArchonWorkspacesPath(): Promise<string> {
 }
 
 /**
+ * Files the console serves over HTTP, at `/files/<project>/<chatId>/<name>`.
+ *
+ * Under ARCHON_HOME rather than in the web build output, which is where they
+ * used to go: that directory lives inside the Docker image and every deploy
+ * rebuilds it, so anything written there at runtime survived until the next
+ * deploy and no longer. ARCHON_HOME is a mounted volume, so it outlives image
+ * rebuilds, upgrades and container replacement.
+ *
+ * ANYTHING PLACED HERE IS SERVED to everyone who can reach the console. It is
+ * a publishing directory, not a scratch space — `getArchonTempPath()` is the
+ * scratch space. The per-chat subdirectory exists so a chat's files have an
+ * owner: when a hard delete for conversations exists, it deletes one directory
+ * rather than hunting for orphans. No such delete exists yet, and a
+ * soft-deleted chat is still readable, so nothing prunes this today.
+ */
+export function getArchonPublicPath(): string {
+  return join(getArchonHome(), 'public');
+}
+
+/**
+ * Ensure the public directory exists and return its path. Safe to call on a
+ * fresh install, where nothing has been published yet.
+ */
+export async function ensureArchonPublicPath(): Promise<string> {
+  const path = getArchonPublicPath();
+  await mkdir(path, { recursive: true });
+  return path;
+}
+
+/**
  * Get the global worktrees directory (~/.archon/worktrees/).
  * Used as the legacy fallback for repos not registered under workspaces/.
  * New project registrations use getProjectWorktreesPath(owner, repo) instead.

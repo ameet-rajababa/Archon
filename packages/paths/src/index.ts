@@ -59,6 +59,8 @@ export {
   findCommandFiles,
   getWebDistDir,
   getSourceWebDistDir,
+  getArchonPublicPath,
+  ensureArchonPublicPath,
 } from './archon-paths';
 export type { ProjectStorageKey, ProjectStoragePaths } from './archon-paths';
 
