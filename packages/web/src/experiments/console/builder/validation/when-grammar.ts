@@ -25,6 +25,16 @@ import type { AtomNode, ParseResult, WhenAst, WhenOp } from '../types/when';
 const SEGMENT_SOURCE = String.raw`[a-zA-Z_][a-zA-Z0-9_]*`;
 
 /**
+ * The FIELD of a node reference: one or more dot-joined segments, mirroring the
+ * engine's `OUTPUT_FIELD_PATH_SOURCE` (packages/workflows/src/output-ref.ts).
+ *
+ * A nested declared shape has to be addressable — `$pr.output.repo.path` — or a
+ * consumer cannot name a field its producer declares, and goes back to deriving
+ * the value outside the engine. A single segment is the common case.
+ */
+const FIELD_PATH_SOURCE = String.raw`${SEGMENT_SOURCE}(?:\.${SEGMENT_SOURCE})*`;
+
+/**
  * The reserved scope name for workflow inputs (the engine's `WHEN_INPUTS_SCOPE`).
  * It can never be a node id — the engine's node schema rejects it outright — so
  * binding the name to the input scope here cannot shadow a real node.
@@ -47,7 +57,8 @@ const INPUT_NAME_SOURCE = String.raw`[a-zA-Z_][a-zA-Z0-9_-]*`;
  *   2. nodeId    — `$nodeId`, using the package-wide id grammar (`@/lib/node-ref`)
  *   3. segment1  — first path segment (`output` for canonical refs, else a
  *                  shorthand field name)
- *   4. segment2  — optional second segment (the field name when segment1 is `output`)
+ *   4. fieldPath — optional field path (the dot-joined field when segment1 is
+ *                  `output`); more than one segment addresses a nested shape
  *   5. op        — one of the six operators
  *   6. quoted    — single-quoted RHS literal (may be empty)
  *   7. bare      — unquoted RHS: number (`-?\d+(.\d+)?`) or `true`/`false`
@@ -66,7 +77,7 @@ export const ATOM_PATTERN = new RegExp(
   '^(?:' +
     String.raw`\$${INPUTS_SCOPE}\.(${INPUT_NAME_SOURCE})` +
     '|' +
-    String.raw`\$(${NODE_ID_SOURCE})\.(${SEGMENT_SOURCE})(?:\.(${SEGMENT_SOURCE}))?` +
+    String.raw`\$(${NODE_ID_SOURCE})\.(${SEGMENT_SOURCE})(?:\.(${FIELD_PATH_SOURCE}))?` +
     ')' +
     String.raw`\s*(==|!=|<=|>=|<|>)\s*` +
     String.raw`(?:'([^']*)'|(-?\d+(?:\.\d+)?|true|false))$`
