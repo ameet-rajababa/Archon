@@ -21,6 +21,96 @@ environment, never the one used to make the change.
 
 ---
 
+## Phase 0 pre-flight — prove the irreplaceable items first
+
+An audit of `Development` on 2026-09-23 established one structural fact that
+reframes the whole migration:
+
+> **Nothing anywhere reads `op://Development` at runtime.** Every live consumer
+> reads a *local copy* — adina's `~/vault/.env` (~175 keys, loaded by every
+> systemd unit), the droplet's `/opt/archon/.env` (visible in the server's
+> process environment), Archon's env-var store, and per-account
+> `oauth-secrets.env` files. The only `op://` reference on any machine appears
+> inside a disaster-recovery runbook, not in executable code.
+
+**Therefore copying the vault cannot cause an outage.** No running system reads
+it. The danger is entirely in the *other* direction: for several items the vault
+holds the only surviving recovery copy, and for one it holds the only copy that
+exists anywhere.
+
+### The item that must be proved before anything else
+
+**`Archon backup age key (private)`.** The nightly backup encrypts with the
+*public* half only, read from `/opt/archon/backup/age-recipient.pub`. The script
+says so in its own header: *"Holds NO decryption key — the droplet cannot read
+its own backups, past or present."* The private key exists solely as a field on
+this 1Password item. There is no second copy on adina, on the droplet, or in the
+backup repository.
+
+If it becomes unreadable, **every nightly Archon Postgres backup ever taken is
+permanently undecryptable** — all workflow history, run state and conversations.
+
+Prove it end to end before the Families copy is touched:
+
+```bash
+op item get <id> --format json     # NOT --fields: that wraps multi-line values
+                                    # in literal quotes and age then fails with
+                                    # "unknown identity type"
+age -d -i KEYFILE archon-db.sql.gz.age | gunzip | head -5
+```
+
+against the newest object in `rajababa-io/archon-backup`. A successful read is
+not proof; a successful decrypt is.
+
+> **Gap to close separately.** `~/vault/runbooks/disaster-recovery.md` documents
+> git-crypt key loss in detail (§D) and has **no section for the age key**. The
+> quarterly drill therefore cannot detect the loss of the single most
+> irreplaceable item in the vault.
+
+### Break the bootstrap circularity before migrating
+
+`Service Account Auth Token: production` is filed **inside the vault it unlocks**.
+Its only other copy is the `OP_SERVICE_ACCOUNT_TOKEN` value in Archon's database,
+across three codebase rows. **Neither copy can recover the other**: lose the DB
+and the vault item is unreachable without the token; lose the token and the DB
+row is the only way back.
+
+Put a copy somewhere outside both — offline, on paper, or in `Personal` — *before*
+the migration, not after.
+
+### Verify readable on Business before deleting any Families original
+
+Ordered by what an unrecoverable loss costs:
+
+1. `Archon backup age key (private)` — decrypt a real backup, as above.
+2. `homebase vault — git-crypt master key` — and settle whether the canonical
+   copy is this one or `op://Adina/vault git-crypt key`. DR §D.4 states plainly
+   that recovery is impossible without it and there is no third tier.
+3. `homebase vault .env — adina` — the only off-machine copy of the ~175-key
+   file every adina unit loads.
+4. `B2 master key` — the second backup tier under git-crypt.
+5. `Service Account Auth Token: production` — after the circularity is broken.
+6. `Archon Postgres password (server)` and `Archon Claude Code OAuth token` —
+   the droplet's live `.env` is the only other copy, in a Docker volume on one box.
+7. `Archon GitHub webhook secret` — verified at runtime by
+   `packages/server/src/index.ts:512` and `adapter.ts:553` (`timingSafeEqual`).
+   A mismatch fails silently as rejected deliveries.
+8. The four workspace-mcp / Google OAuth client secrets — three services are
+   running now and re-auth needs them.
+9. `supabase - homebase db password` and the five derived `homebase Supabase …
+   DSN` items.
+10. `GitHub PAT (fine-grained) - archon-all-repos`, alongside the classic PAT it
+    cannot replace.
+
+### Do not "fix" the misspellings in isolation
+
+`GEMENI_API_KEY` and `CLOUDFARE_API_TOKEN` are misspelled in Archon's store and
+spelled correctly in the vault and on adina. Consumers on each side agree with
+their own spelling, so correcting one side alone breaks that side. Change the key
+and every consumer together, and verify in a clean shell.
+
+---
+
 ## Phase 0 — Link the Families account, then move the work vaults
 
 **Operator only. Nothing else in this runbook may start until this is done**, or
