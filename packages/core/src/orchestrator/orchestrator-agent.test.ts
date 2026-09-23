@@ -159,9 +159,12 @@ const mockUpdateConversation = mock<typeof ConversationDb.updateConversation>(()
 const mockSetConversationArchived = mock<typeof ConversationDb.setConversationArchived>(() =>
   Promise.resolve()
 );
+const mockGetConversationByPlatformId = mock<typeof ConversationDb.getConversationByPlatformId>(
+  () => Promise.resolve(null)
+);
 mock.module('../db/conversations', () => ({
   getOrCreateConversation: mockGetOrCreateConversation,
-  getConversationByPlatformId: mock(() => Promise.resolve(null)),
+  getConversationByPlatformId: mockGetConversationByPlatformId,
   updateConversation: mockUpdateConversation,
   touchConversation: mock(() => Promise.resolve()),
   setConversationArchived: mockSetConversationArchived,
@@ -508,10 +511,14 @@ const mockAddMessage = mock<typeof MessageDb.addMessage>((conversationId, role, 
 const mockGetRecentWorkflowResultMessages = mock<typeof MessageDb.getRecentWorkflowResultMessages>(
   () => Promise.resolve([])
 );
+const mockCountAutoHandoffNotices = mock<typeof MessageDb.countAutoHandoffNotices>(() =>
+  Promise.resolve(0)
+);
 mock.module('../db/messages', () => ({
   addMessage: mockAddMessage,
   listMessages: mock(() => Promise.resolve([])),
   getRecentWorkflowResultMessages: mockGetRecentWorkflowResultMessages,
+  countAutoHandoffNotices: mockCountAutoHandoffNotices,
 }));
 
 mock.module('@archon/isolation', () => ({
@@ -6929,5 +6936,212 @@ describe('handoff relay', () => {
 
     expect(results[0]).toContain('Handed off');
     expect(mockSetConversationArchived).toHaveBeenCalled();
+  });
+});
+
+// ── An automatic handoff fires at most twice, across restarts ────────────────
+
+/**
+ * The guard that stops a chat handing itself off repeatedly.
+ *
+ * It used to be `nudgeBands`, the in-memory map that stops a threshold
+ * announcing twice, and that map is cleared on boot. Re-arming an
+ * ANNOUNCEMENT costs a repeated sentence; re-arming an ACTION costs a second
+ * document and a second successor, which is what happened on 2026-09-22 when
+ * a deploy landed between a reading at 50% and a reading at 51%.
+ *
+ * So the count comes from a row. Every test here starts with an EMPTY band map
+ * for its conversation — a distinct id per test — which is precisely the state
+ * a restart leaves behind. What separates them is only what the durable count
+ * says, and that is the whole claim: the guard holds when memory does not.
+ */
+describe('automatic handoff attempt guard', () => {
+  /**
+   * A platform that can both speak live and write the notice down.
+   *
+   * `sendStructuredEvent` is load-bearing rather than decorative:
+   * `maybeNudgeHandoff` returns before reading anything if the platform cannot
+   * emit one, which is why automatic handoff is web-only in practice.
+   */
+  function makeNudgePlatform() {
+    return {
+      ...makePlatform(),
+      sendStructuredEvent: mock<NonNullable<IPlatformAdapter['sendStructuredEvent']>>(() =>
+        Promise.resolve()
+      ),
+      sendDurableNotice: mock<NonNullable<IPlatformAdapter['sendDurableNotice']>>(() =>
+        Promise.resolve()
+      ),
+    } satisfies IPlatformAdapter;
+  }
+
+  /**
+   * A turn that ends above the handoff threshold.
+   *
+   * 60% of a 1M window, against the default 50% threshold. The model id is
+   * real because `contextWindowFor` refuses to guess a window — an unlisted id
+   * yields no percentage and the whole path goes quiet.
+   */
+  function turnEndsAt60Percent(): void {
+    mockSendQuery.mockImplementationOnce(async function* () {
+      yield { type: 'assistant', content: 'done' };
+      yield {
+        type: 'result',
+        sessionId: 'session-1',
+        contextTokens: 600_000,
+        resolvedModel: { id: 'claude-opus-5' },
+      };
+    });
+  }
+
+  /**
+   * The log events this turn warned about.
+   *
+   * Used to tell a deliberate decline from a swallowed exception: both leave
+   * no notice behind, and only the log says which one happened.
+   */
+  function warnedEvents(): string[] {
+    return (mockLogger.warn as unknown as ReturnType<typeof mock>).mock.calls.map(c =>
+      String((c as unknown[])[1] ?? '')
+    );
+  }
+
+  /** The notices written down, with the metadata each carried. */
+  function durableNotices(
+    platform: ReturnType<typeof makeNudgePlatform>
+  ): { content: string; metadata: Record<string, unknown> | undefined }[] {
+    return (platform.sendDurableNotice as ReturnType<typeof mock>).mock.calls.map(c => ({
+      content: (c as unknown[])[1] as string,
+      metadata: (c as unknown[])[2] as Record<string, unknown> | undefined,
+    }));
+  }
+
+  beforeEach(() => {
+    mockSendQuery.mockClear();
+    mockLoadConfig.mockReset();
+    mockLoadConfig.mockImplementation(() => Promise.resolve(makeConfig()));
+    mockGetOrCreateConversation.mockReset();
+    mockGetCodebase.mockReset();
+    mockListCodebases.mockReset();
+    mockGetCodebase.mockImplementation(() => Promise.resolve(null));
+    mockListCodebases.mockImplementation(() => Promise.resolve([]));
+    mockGetConversationByPlatformId.mockReset();
+    mockCountAutoHandoffNotices.mockReset();
+    mockCountAutoHandoffNotices.mockImplementation(() => Promise.resolve(0));
+    mockGetPausedWorkflowRun.mockClear();
+    mockGetPausedWorkflowRun.mockImplementation(() => Promise.resolve(null));
+    (mockLogger.warn as unknown as ReturnType<typeof mock>).mockClear();
+  });
+
+  /**
+   * Drive one turn that crosses the threshold in a chat nothing has nudged yet.
+   *
+   * The id is unique per call because `nudgeBands` is module state keyed by it:
+   * a shared id would let one test's reading become the next test's "previous",
+   * and a band that has already spoken stays silent.
+   */
+  async function crossThreshold(options: {
+    id: string;
+    alreadyTried: number;
+    conversationRow?: Conversation | null;
+  }): Promise<ReturnType<typeof makeNudgePlatform>> {
+    const conversation = makeConversation({
+      id: `${options.id}-db`,
+      platform_conversation_id: options.id,
+    });
+    mockGetOrCreateConversation.mockImplementation(() => Promise.resolve(conversation));
+    mockGetConversationByPlatformId.mockImplementation(() =>
+      Promise.resolve(
+        options.conversationRow === undefined ? conversation : options.conversationRow
+      )
+    );
+    mockCountAutoHandoffNotices.mockImplementation(() => Promise.resolve(options.alreadyTried));
+
+    turnEndsAt60Percent();
+    const platform = makeNudgePlatform();
+    await handleMessage(platform, options.id, 'carry on');
+    return platform;
+  }
+
+  test('a chat that has never handed off hands off, and flags the notice it wrote', async () => {
+    const platform = await crossThreshold({ id: 'conv-guard-fresh', alreadyTried: 0 });
+
+    const notices = durableNotices(platform);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]?.content).toContain('Handing off automatically');
+    // The flag, not the sentence. The wording is prose and will be reworded;
+    // this is what `countAutoHandoffNotices` matches on, so writer and reader
+    // agree here or the guard counts nothing.
+    expect(notices[0]?.metadata).toEqual({ autoHandoff: true });
+    expect(mockCountAutoHandoffNotices).toHaveBeenCalledWith('conv-guard-fresh-db');
+  });
+
+  test('one earlier attempt still leaves room to retry', async () => {
+    // The budget is two because the first attempt can die mid-turn — a deploy
+    // killed the 17:18 one on 2026-09-22 and it wrote no document. Unattended
+    // is exactly the case with nobody awake to ask again.
+    const platform = await crossThreshold({ id: 'conv-guard-retry', alreadyTried: 1 });
+
+    expect(durableNotices(platform)).toHaveLength(1);
+  });
+
+  test('two earlier attempts block, even though the band map was cleared', async () => {
+    // This is the restart. The band map is empty for this id — the same state
+    // a reboot leaves — so memory alone would re-arm and hand off a third
+    // time. The row is what refuses.
+    const platform = await crossThreshold({ id: 'conv-guard-exhausted', alreadyTried: 2 });
+
+    expect(durableNotices(platform)).toHaveLength(0);
+    expect(platform.sendMessage).toHaveBeenCalled(); // the reply itself still landed
+  });
+
+  test('an unreadable count blocks rather than hands off', async () => {
+    // `countAutoHandoffNotices` answers MAX_SAFE_INTEGER when the query fails.
+    // Not knowing how many times this fired is not knowing it never did, and
+    // the direction being guarded is the expensive one.
+    const platform = await crossThreshold({
+      id: 'conv-guard-unreadable',
+      alreadyTried: Number.MAX_SAFE_INTEGER,
+    });
+
+    expect(durableNotices(platform)).toHaveLength(0);
+  });
+
+  test('no conversation row means decline, not act blind', async () => {
+    // Nothing has persisted yet, so there is no count to read and nowhere to
+    // write the guard either — acting here could repeat forever.
+    const platform = await crossThreshold({
+      id: 'conv-guard-unpersisted',
+      alreadyTried: 0,
+      conversationRow: null,
+    });
+
+    expect(durableNotices(platform)).toHaveLength(0);
+    expect(mockCountAutoHandoffNotices).not.toHaveBeenCalled();
+    // And declined DELIBERATELY. Without the explicit check the next line
+    // dereferences the missing row, and the `catch` that keeps this path
+    // non-fatal swallows the TypeError — producing exactly the two assertions
+    // above. Silence is the only thing that separates a decision from a crash.
+    expect(warnedEvents()).not.toContain('handoff_nudge_failed');
+  });
+
+  test('a blocked handoff says so instead of spending an attempt', async () => {
+    // A paused run has to be answered here; moving the work would strand it.
+    // The chat still speaks — a 3am decline nobody can distinguish from "never
+    // reached the threshold" is what makes the morning unreadable — but the
+    // notice carries no flag, so it does not consume the budget.
+    mockGetPausedWorkflowRun.mockImplementation(() =>
+      Promise.resolve({ id: 'run-1' } as unknown as Awaited<
+        ReturnType<typeof WorkflowDb.getPausedWorkflowRun>
+      >)
+    );
+
+    const platform = await crossThreshold({ id: 'conv-guard-blocked', alreadyTried: 0 });
+
+    const notices = durableNotices(platform);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]?.content).toContain('waiting on your approval');
+    expect(notices[0]?.metadata).toBeUndefined();
+    expect(mockCountAutoHandoffNotices).not.toHaveBeenCalled();
   });
 });

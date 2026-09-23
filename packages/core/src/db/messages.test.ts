@@ -26,7 +26,12 @@ mock.module('@archon/paths', () => ({
   })),
 }));
 
-import { addMessage, listMessages, getRecentWorkflowResultMessages } from './messages';
+import {
+  addMessage,
+  listMessages,
+  getRecentWorkflowResultMessages,
+  countAutoHandoffNotices,
+} from './messages';
 
 describe('messages', () => {
   beforeEach(() => {
@@ -223,6 +228,76 @@ describe('messages', () => {
       const result = await getRecentWorkflowResultMessages('conv-1');
 
       expect(result).toEqual([row]);
+    });
+  });
+  /**
+   * The guard that stops a chat handing itself off twice reads this count, so
+   * the two failure directions are not symmetric: over-counting costs a chat
+   * that stays open, under-counting costs a second document and a second
+   * successor. That is why the error path here returns a number that blocks.
+   */
+  describe('countAutoHandoffNotices', () => {
+    beforeEach(() => {
+      mockGetDatabaseType.mockClear();
+    });
+
+    test('matches the metadata flag, not the sentence, on PostgreSQL', async () => {
+      mockGetDatabaseType.mockReturnValueOnce('postgresql');
+      mockQuery.mockResolvedValueOnce(createQueryResult([{ count: 0 }]));
+
+      await countAutoHandoffNotices('conv-1');
+
+      const sql = mockQuery.mock.calls[0]?.[0] as string;
+      expect(sql).toContain("(metadata->>'autoHandoff') = 'true'");
+      expect(sql).not.toContain('json_extract');
+      // Scoped to the durable notice the handoff writes — an assistant message
+      // that happens to mention handing off is not an attempt.
+      expect(sql).toContain("role = 'system'");
+      expect(mockQuery).toHaveBeenCalledWith(expect.any(String), ['conv-1']);
+    });
+
+    test('matches the metadata flag on SQLite', async () => {
+      mockGetDatabaseType.mockReturnValueOnce('sqlite');
+      mockQuery.mockResolvedValueOnce(createQueryResult([{ count: 0 }]));
+
+      await countAutoHandoffNotices('conv-1');
+
+      const sql = mockQuery.mock.calls[0]?.[0] as string;
+      expect(sql).toContain("json_extract(metadata, '$.autoHandoff') = 1");
+      expect(sql).not.toContain("metadata->>'autoHandoff'");
+    });
+
+    test("reads PostgreSQL's string COUNT as a number", async () => {
+      // node-postgres returns bigint columns as strings. Left as one, '2' >= 2
+      // is false and an exhausted budget reads as room for another attempt.
+      mockGetDatabaseType.mockReturnValueOnce('postgresql');
+      mockQuery.mockResolvedValueOnce(createQueryResult([{ count: '2' }]));
+
+      expect(await countAutoHandoffNotices('conv-1')).toBe(2);
+    });
+
+    test('a chat that has never handed off counts zero', async () => {
+      mockGetDatabaseType.mockReturnValueOnce('postgresql');
+      mockQuery.mockResolvedValueOnce(createQueryResult([{ count: 0 }]));
+
+      expect(await countAutoHandoffNotices('conv-1')).toBe(0);
+    });
+
+    test('an empty result set counts zero rather than NaN', async () => {
+      mockGetDatabaseType.mockReturnValueOnce('postgresql');
+      mockQuery.mockResolvedValueOnce(createQueryResult([]));
+
+      expect(await countAutoHandoffNotices('conv-1')).toBe(0);
+    });
+
+    test('a failed count blocks rather than allows', async () => {
+      // Not knowing how many times this already fired is not the same as
+      // knowing it never did. Returning 0 here would hand off on every turn
+      // for as long as the database is unreachable.
+      mockGetDatabaseType.mockReturnValueOnce('postgresql');
+      mockQuery.mockRejectedValueOnce(new Error('connection refused'));
+
+      expect(await countAutoHandoffNotices('conv-1')).toBe(Number.MAX_SAFE_INTEGER);
     });
   });
 });
