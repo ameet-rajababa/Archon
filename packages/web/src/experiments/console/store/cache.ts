@@ -12,6 +12,10 @@
  * - After the last unsubscribe, `cache`/`errors` are deliberately retained so
  *   a remount reads warm; only the per-key version counter is released.
  *   `invalidate()` fully releases subscriber-less keys.
+ * - A retained value is served to a later subscriber only while it is younger
+ *   than `STALE_AFTER_MS`; past that, subscribing revalidates it in place.
+ *   Without that, clicking back into a view showed whatever was last fetched
+ *   for as long as the tab lived, and only a page reload corrected it.
  * - A resubscribe that arrives while a previous, abandoned load for the key is
  *   still in flight starts its OWN loader; the orphaned load can no longer
  *   clobber the fresh result (per-key `loadSeq` guard, #2101).
@@ -42,6 +46,23 @@ const versions = new Map<string, number>();
 // like `cache`/`errors` (so a load that settles with no resubscriber still
 // warms the cache) and released together with them by `invalidate()`.
 const loadSeq = new Map<string, number>();
+// When each key's value last landed from a successful load. Retained across
+// unsubscribe alongside `cache`/`errors` — the age of a warm value is exactly
+// what a later subscriber needs — and released with them by `invalidate()`.
+const fetchedAt = new Map<string, number>();
+
+/**
+ * How long a warm value is served to a new subscriber before `ensureLoad`
+ * revalidates it instead.
+ *
+ * `useEntity` backs every console panel, so revalidating on every subscribe
+ * would turn each remount — a route change, a React StrictMode double mount —
+ * into a fresh round of requests for every key the page touches. Two seconds
+ * is short enough that returning to a conversation refetches it and long
+ * enough to absorb that churn. One window for all keys: no panel has yet
+ * needed its own.
+ */
+const STALE_AFTER_MS = 2_000;
 
 function notify(key: string): void {
   // No subscribers ⇒ nothing snapshots the counter, so don't bump it — a late
@@ -69,6 +90,7 @@ function runLoad(key: string, loader: () => Promise<unknown>): void {
     .then(v => {
       if ((loadSeq.get(key) ?? 0) !== seq) return; // superseded by a newer load for this key
       cache.set(key, v);
+      fetchedAt.set(key, Date.now());
       errors.delete(key);
       notify(key);
     })
@@ -86,8 +108,22 @@ function runLoad(key: string, loader: () => Promise<unknown>): void {
   inflight.set(key, p);
 }
 
+function isStale(key: string): boolean {
+  const at = fetchedAt.get(key);
+  // No stamp means the value never came from a loader — `set`/`patch` warmed
+  // it — so its age is unknown and a refetch is owed.
+  return at === undefined || Date.now() - at >= STALE_AFTER_MS;
+}
+
+/**
+ * Load on subscribe, unless the key is already loading or holds a value still
+ * inside the staleness window. A stale warm key reloads WITHOUT clearing the
+ * cache (`runLoad` only writes on resolve), so the subscriber keeps rendering
+ * the previous value — no blank, no loading flash — until fresh data lands.
+ */
 function ensureLoad(key: string): void {
-  if (cache.has(key) || inflight.has(key)) return;
+  if (inflight.has(key)) return;
+  if (cache.has(key) && !isStale(key)) return;
   const loader = loaders.get(key);
   if (loader === undefined) return;
   runLoad(key, loader);
@@ -125,7 +161,10 @@ function revalidate(key: string): void {
     cache.delete(key);
     errors.delete(key);
     versions.delete(key); // fully release the key — nothing subscribes, so nothing snapshots it
-    loadSeq.delete(key); // release the sequence alongside cache/errors (they move together)
+    // Release the sequence and the freshness stamp alongside cache/errors —
+    // they all describe the value that just went away and move together.
+    loadSeq.delete(key);
+    fetchedAt.delete(key);
     return;
   }
   if (inflight.has(key)) return; // a revalidation is already in flight
