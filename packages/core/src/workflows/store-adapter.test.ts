@@ -161,7 +161,13 @@ mock.module(
   })
 );
 
-const { createWorkflowStore, createWorkflowDeps } = await import('./store-adapter');
+const {
+  createWorkflowStore,
+  createWorkflowDeps,
+  registerGitHubAppAuthProvider,
+  isGitHubAppModeActive,
+  resolveBotGitHubToken,
+} = await import('./store-adapter');
 
 describe('createWorkflowStore', () => {
   test('returns object with all IWorkflowStore methods', () => {
@@ -409,4 +415,40 @@ describe('createWorkflowDeps', () => {
       expect(result?.protectedValues).not.toContain('gpt-5');
     });
   });
+});
+
+describe('GitHub App token resolution', () => {
+  beforeEach(() => {
+    registerGitHubAppAuthProvider(null);
+  });
+
+  function provider(getInstallationToken: (o: string, r: string) => Promise<string>) {
+    // Only the one method this path uses; the rest of IGitHubAppAuthProvider is
+    // irrelevant to which token speaks for a repository.
+    return { getInstallationToken } as unknown as Parameters<
+      typeof registerGitHubAppAuthProvider
+    >[0];
+  }
+
+  test('PAT mode: no provider registered, so there is no bot token and no App mode', async () => {
+    expect(isGitHubAppModeActive()).toBe(false);
+    expect(await resolveBotGitHubToken('acme', 'widgets')).toBeUndefined();
+  });
+
+  test('App mode: the token is resolved per repository', async () => {
+    registerGitHubAppAuthProvider(provider(async (o, r) => `token-for-${o}/${r}`));
+    expect(isGitHubAppModeActive()).toBe(true);
+    expect(await resolveBotGitHubToken('acme', 'widgets')).toBe('token-for-acme/widgets');
+  });
+
+  test('a provider that throws yields undefined rather than propagating', async () => {
+    registerGitHubAppAuthProvider(provider(() => Promise.reject(new Error('not installed'))));
+    expect(await resolveBotGitHubToken('acme', 'widgets')).toBeUndefined();
+  });
+
+  // The `createWorkflowDeps` wiring itself is deliberately NOT asserted here.
+  // Cross-file module mocks already fail every existing `createWorkflowDeps`
+  // test in a whole-suite run, so an assertion there would be red in CI and
+  // green alone — worse than no assertion, because the PAT-mode direction
+  // would pass for the wrong reason.
 });

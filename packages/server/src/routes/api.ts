@@ -64,6 +64,8 @@ import {
   setUserTiers,
   setUserAliases,
   setUserDefault,
+  isGitHubAppModeActive,
+  resolveBotGitHubToken,
 } from '@archon/core';
 import type { UserTiersPatch, UserAliasesPatch, AliasesPatch } from '@archon/core';
 import { parseWorkflowRunConfig } from '@archon/core/config';
@@ -4907,9 +4909,20 @@ export function registerApiRoutes(
     }
     const [, owner, repo] = m;
 
-    const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
+    // App mode mints a fresh installation token per repository and is asked
+    // first, through the same resolver the workflow engine uses — a board that
+    // disagreed with a run about which token speaks for a repository would be
+    // the harder bug. PAT and solo installs fall back to the env var, which is
+    // exactly the behaviour before App mode existed.
+    const token =
+      (await resolveBotGitHubToken(owner, repo)) ??
+      process.env.GITHUB_TOKEN ??
+      process.env.GH_TOKEN;
     if (token === undefined || token === '') {
-      return c.json({ issues: [], repo: `${owner}/${repo}`, reason: 'no-token' });
+      // Two different people fix these. In App mode the App is simply not
+      // installed on this repository; otherwise nobody configured a token.
+      const reason = isGitHubAppModeActive() ? 'app-not-installed' : 'no-token';
+      return c.json({ issues: [], repo: `${owner}/${repo}`, reason });
     }
 
     // One query for everything the board needs. `closedByPullRequestsReferences`
