@@ -361,6 +361,21 @@ export class SqliteAdapter implements IDatabase {
           'ALTER TABLE remote_agent_conversations ADD COLUMN user_id TEXT REFERENCES remote_agent_users(id) ON DELETE SET NULL'
         );
       }
+      // Nullable with no default, like deleted_at beside it: the absence of a
+      // timestamp is the "not finished" answer, which is what an older binary
+      // that never writes this column leaves behind.
+      if (!colNames.has('completed_at')) {
+        this.db.run('ALTER TABLE remote_agent_conversations ADD COLUMN completed_at TEXT');
+        // Migration 032, inside the column-add guard so it happens exactly
+        // once. Archiving and marking done were two flags over one idea: get
+        // this out of the list. The console now has a single lifecycle and
+        // does not list soft-deleted rows at all, so an archived chat left as
+        // it was would be visible nowhere. Reading "you filed it away" as "you
+        // were finished with it" is the only reading that cannot lose a chat.
+        this.db.run(
+          'UPDATE remote_agent_conversations SET completed_at = deleted_at, deleted_at = NULL WHERE deleted_at IS NOT NULL'
+        );
+      }
       // Indexes must be created here, not in createSchema(): these columns don't
       // exist on older databases until the ALTER TABLE statements above run, and
       // CREATE INDEX on a missing column aborts the entire createSchema()
@@ -727,6 +742,7 @@ export class SqliteAdapter implements IDatabase {
         color TEXT,
         sort_order INTEGER,
         title_pinned INTEGER DEFAULT 0,
+        completed_at TEXT,
         deleted_at TEXT,
         hidden INTEGER DEFAULT 0,
         user_id TEXT REFERENCES remote_agent_users(id) ON DELETE SET NULL,

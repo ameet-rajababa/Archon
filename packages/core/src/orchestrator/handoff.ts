@@ -202,9 +202,9 @@ export function lineageMetadata(lineage: HandoffLineage): Record<string, unknown
  * The lineage on a stored message, or null when there is none to read.
  *
  * Total rather than throwing, and deliberately strict about both fields. The
- * caller's next move is to archive one chat and reopen another, so a partial
+ * caller's next move is to finish one chat and reopen another, so a partial
  * or malformed record must read as "no lineage" — acting on half of one would
- * archive a chat with nothing restored in its place.
+ * close a chat with nothing reopened in its place.
  */
 export function readLineage(metadata: string): HandoffLineage | null {
   let parsed: unknown;

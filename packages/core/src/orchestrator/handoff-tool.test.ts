@@ -6,39 +6,39 @@ const LINEAGE: HandoffLineage = { from: 'predecessor-db', document: '/h/2026-09-
 
 function arrange(overrides: {
   lineage?: HandoffLineage | null;
-  restore?: (id: string) => Promise<void>;
-  archiveSelf?: () => Promise<void>;
+  reopen?: (id: string) => Promise<void>;
+  markSelfDone?: () => Promise<void>;
 }) {
   const calls: string[] = [];
-  const restore =
-    overrides.restore ??
+  const reopen =
+    overrides.reopen ??
     ((id: string): Promise<void> => {
-      calls.push(`restore:${id}`);
+      calls.push(`reopen:${id}`);
       return Promise.resolve();
     });
-  const archiveSelf =
-    overrides.archiveSelf ??
+  const markSelfDone =
+    overrides.markSelfDone ??
     ((): Promise<void> => {
-      calls.push('archiveSelf');
+      calls.push('markSelfDone');
       return Promise.resolve();
     });
   const tool = buildUndoHandoffTool({
     lineage: () => Promise.resolve(overrides.lineage ?? null),
-    restore: mock(restore),
-    archiveSelf: mock(archiveSelf),
+    reopen: mock(reopen),
+    markSelfDone: mock(markSelfDone),
   });
   return { tool, calls };
 }
 
 describe('undo_handoff', () => {
-  test('reopens the predecessor and archives this chat', async () => {
+  test('reopens the predecessor and marks this chat done', async () => {
     const { tool, calls } = arrange({ lineage: LINEAGE });
 
     const result = await tool.handler({});
 
     // Order is the assertion, not just the pair: reopening first means a
-    // failure after it leaves one chat visible, never both hidden.
-    expect(calls).toEqual(['restore:predecessor-db', 'archiveSelf']);
+    // failure after it leaves one chat in the open list, never neither.
+    expect(calls).toEqual(['reopen:predecessor-db', 'markSelfDone']);
     expect(result).toContain('Undone');
     expect(result).toContain(LINEAGE.document);
   });
@@ -52,35 +52,36 @@ describe('undo_handoff', () => {
     expect(result).toContain('not opened by a handoff');
   });
 
-  test('the work is described as kept, because archiving is a soft delete', async () => {
+  test('the work is described as kept, and named where to find it', async () => {
     const { tool } = arrange({ lineage: LINEAGE });
 
-    // The user is told what survives. An undo that reads as destructive gets
-    // avoided, and an unused undo is the same as no undo at all.
-    expect(await tool.handler({})).toContain('Archived filter');
+    // The user is told what survives and which filter holds it. An undo that
+    // reads as destructive gets avoided, and an unused undo is the same as no
+    // undo at all.
+    expect(await tool.handler({})).toContain('Done filter');
   });
 
-  test('a chat that cannot archive itself still reopened the predecessor', async () => {
+  test('a chat that cannot mark itself done still reopened the predecessor', async () => {
     const { tool, calls } = arrange({
       lineage: LINEAGE,
-      archiveSelf: () => Promise.reject(new Error('db down')),
+      markSelfDone: () => Promise.reject(new Error('db down')),
     });
 
     const result = await tool.handler({});
 
-    expect(calls).toEqual(['restore:predecessor-db']);
-    expect(result).toContain('could not be archived');
+    expect(calls).toEqual(['reopen:predecessor-db']);
+    expect(result).toContain('could not be marked done');
     expect(result).toContain('by hand');
   });
 
-  test('a predecessor that cannot be reopened does not archive this chat too', async () => {
+  test('a predecessor that cannot be reopened does not close this chat too', async () => {
     const { tool, calls } = arrange({
       lineage: LINEAGE,
-      restore: () => Promise.reject(new Error('db down')),
+      reopen: () => Promise.reject(new Error('db down')),
     });
 
-    // Fails loudly rather than swallowing: archiving on top of a failed
-    // restore is the one outcome that hides both chats at once.
+    // Fails loudly rather than swallowing: finishing on top of a failed
+    // reopen is the one outcome that takes both chats out of the open list.
     await expect(tool.handler({})).rejects.toThrow('db down');
     expect(calls).toEqual([]);
   });

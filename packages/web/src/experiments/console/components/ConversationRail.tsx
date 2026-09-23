@@ -16,8 +16,8 @@ import {
   type ConversationSummary,
 } from '../primitives/conversation';
 import { relativeTime } from '../lib/format';
-import { askAwaitingIds, chatStatus, STATUS_TITLE } from '../primitives/chat-status';
-import { RowMenu } from './RowMenu';
+import { askAwaitingIds, chatStatus, completedIds, STATUS_TITLE } from '../primitives/chat-status';
+import { MenuCheckItem, MenuItem, RowMenu } from './RowMenu';
 import { clampPaneWidth, readPaneWidth, writePaneWidth, type PaneBounds } from '../lib/pane-width';
 
 import { chooseNeighbourChat } from '../lib/last-chat';
@@ -50,12 +50,19 @@ const CHATLIST_WIDTH: PaneBounds = {
   initial: 236,
 };
 
-/** Which archived state the rail is showing. */
-export type ArchiveScope = 'active' | 'archived' | 'all';
+/**
+ * Which part of the lifecycle the rail is showing.
+ *
+ * Two positions and the union of them, because a chat has two states. There
+ * used to be a third chip, `Archived`, over a second flag — and two flags made
+ * four combinations, two of which nobody could read. Marking a chat done now
+ * does the only job archiving did: take it out of the list you work from.
+ */
+export type ChatScope = 'open' | 'done' | 'all';
 
-const SCOPES: readonly { value: ArchiveScope; label: string }[] = [
-  { value: 'active', label: 'Active' },
-  { value: 'archived', label: 'Archived' },
+const SCOPES: readonly { value: ChatScope; label: string }[] = [
+  { value: 'open', label: 'Open' },
+  { value: 'done', label: 'Done' },
   { value: 'all', label: 'All' },
 ];
 
@@ -66,17 +73,19 @@ interface ConversationRailProps {
   onSelect: (id: string | null) => void;
   onRename: (id: string, title: string) => void;
   /**
-   * Archive or restore chats. `next` is the chat to open if archiving these
-   * takes the page out of the one it is reading — the rail names it because
-   * only the rail knows the displayed order.
+   * Mark a chat's unit of work finished, or reopen it.
+   *
+   * `next` is the chat to open if this takes the page out of the one it is
+   * reading — under `Open`, marking done removes the row. The rail names the
+   * neighbour because only the rail knows the displayed order.
    */
-  onArchive: (ids: string[], archived: boolean, next: string | null) => void;
+  onComplete: (id: string, completed: boolean, next: string | null) => void;
   /**
    * Persist an arrangement: `ids` is the rail as displayed, top first.
    *
    * The rail says what it is showing and nothing more — it cannot see the
-   * other archive scope, so it must not speak for it. The server rearranges
-   * the named chats within the positions they already hold.
+   * other scope, so it must not speak for it. The server rearranges the named
+   * chats within the positions they already hold.
    */
   onReorder: (ids: string[]) => void;
   /**
@@ -97,10 +106,10 @@ interface ConversationRailProps {
    * working is the server's conversation lock, awaiting belongs to a run.
    */
   awaitingIds?: ReadonlySet<string>;
-  /** Which archived state the list is showing; the rail does not fetch. */
-  scope: ArchiveScope;
-  onScopeChange: (scope: ArchiveScope) => void;
-  archivedCount: number;
+  /** Which lifecycle scope the list is showing; the rail does not fetch. */
+  scope: ChatScope;
+  onScopeChange: (scope: ChatScope) => void;
+  doneCount: number;
   /** Which project's manual order to read and write. */
   projectId: string;
   /**
@@ -127,11 +136,11 @@ export function ConversationRail({
   activeConvId,
   onSelect,
   onRename,
-  onArchive,
+  onComplete,
   onReorder,
   scope,
   onScopeChange,
-  archivedCount,
+  doneCount,
   pendingNew,
   projectId,
   liveIds,
@@ -258,6 +267,9 @@ export function ConversationRail({
     return ids;
   }, [conversations, awaitingIds]);
 
+  /** Finished chats, read off the rows the rail already has. */
+  const done = useMemo(() => completedIds(conversations), [conversations]);
+
   // The server has caught up; stop overriding it. Anything else — a failed
   // write — leaves the arrangement on screen and the error on the page.
 
@@ -365,8 +377,8 @@ export function ConversationRail({
    * Opening a chat is one click, always.
    *
    * Multi-select is gone: the design's row menu acts on the chat it belongs
-   * to, and the only thing selection bought was bulk archive and bulk recolor
-   * — one of which no longer exists. `additive` stays in the signature because
+   * to, and the only thing selection bought was bulk filing and bulk recolor
+   * — neither of which still exists. `additive` stays in the signature because
    * a modifier-click still means "not the ordinary case" and callers pass it;
    * it simply no longer builds a set.
    */
@@ -389,14 +401,13 @@ export function ConversationRail({
           permanent filter field for a list this short was chrome. */}
       <div className="chatlist-head">
         {SCOPES.map(({ value, label }) => {
-          // Counts on Active and Archived, not on All.
-          //   Archived is the one you cannot see — a count answers "is there
+          // Counts on Open and Done, not on All.
+          //   Done is the one you cannot see — a count answers "is there
           //   anything in there?" without a click, which is the only reason to
-          //   click it. Active agrees with the tab above by construction.
+          //   click it. Open agrees with the list below by construction.
           //   All is not a set you are asking about; it is the absence of a
           //   filter, and its count is the sum of the two beside it.
-          const count =
-            value === 'active' ? conversations.length : value === 'archived' ? archivedCount : 0;
+          const count = value === 'open' ? conversations.length : value === 'done' ? doneCount : 0;
           return (
             <button
               key={value}
@@ -412,8 +423,8 @@ export function ConversationRail({
               }`}
             >
               {label}
-              {/* Zero renders blank, as in the rail table — an Archived chip
-                  with no number says "nothing archived" by its silence. */}
+              {/* Zero renders blank, as in the rail table — a Done chip with
+                  no number says "nothing finished yet" by its silence. */}
               {count > 0 ? <span className="ml-1.5 text-text-tertiary">{count}</span> : null}
             </button>
           );
@@ -493,7 +504,7 @@ export function ConversationRail({
 
         {visible.map((c, index) => {
           const isActive = c.id === activeConvId;
-          const status = chatStatus(c.id, { working: liveIds ?? EMPTY_SET, awaiting });
+          const status = chatStatus(c.id, { working: liveIds ?? EMPTY_SET, awaiting, done });
           const shift =
             dragId === null ? 0 : previewShift(boxesRef.current, dragFrom, dropIndex, index);
           return (
@@ -504,9 +515,7 @@ export function ConversationRail({
                 else rowRefs.current.set(c.id, el);
               }}
               aria-current={isActive}
-              className={`rail-row group ${dragId === c.id ? 'opacity-40 ' : ''}${
-                c.archived ? 'opacity-55 hover:opacity-100' : ''
-              }`}
+              className={`rail-row group${dragId === c.id ? ' opacity-40' : ''}`}
               style={{
                 // A transform, never a layout change: the geometry captured at
                 // drag start has to stay true for the whole gesture.
@@ -617,36 +626,34 @@ export function ConversationRail({
                 width={188}
                 label={`Actions for ${conversationLabel(c)}`}
               >
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
+                <MenuItem
+                  label="Rename…"
+                  onSelect={() => {
                     setDraft(conversationLabel(c));
                     setRenamingId(c.id);
                     setMenuFor(null);
                   }}
-                  className="w-full rounded-lg px-2.5 py-1.5 text-left text-[12.5px] text-text-secondary hover:bg-surface-elevated hover:text-text-primary disabled:cursor-default disabled:opacity-40"
-                >
-                  Rename…
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    const ids = [c.id];
-                    onArchive(
-                      ids,
-                      !c.archived,
-                      activeConvId !== null && ids.includes(activeConvId)
-                        ? chooseNeighbourChat(visible, activeConvId, ids)
+                />
+                {/* The row names what the chat IS and the tick says whether
+                    it holds, so `Done` is always the second item — findable by
+                    position, and readable at rest without decoding the dot.
+                    `Reopen` appears only on a ticked row, because that is the
+                    only one whose click does the opposite of its label. */}
+                <MenuCheckItem
+                  label="Done"
+                  checked={c.completed}
+                  checkedAction="Reopen"
+                  onSelect={() => {
+                    onComplete(
+                      c.id,
+                      !c.completed,
+                      activeConvId === c.id
+                        ? chooseNeighbourChat(visible, activeConvId, [c.id])
                         : null
                     );
                     setMenuFor(null);
                   }}
-                  className="w-full rounded-lg px-2.5 py-1.5 text-left text-[12.5px] text-text-secondary hover:bg-surface-elevated hover:text-text-primary"
-                >
-                  {c.archived ? 'Restore' : 'Archive'}
-                </button>
+                />
               </RowMenu>
             </div>
           );

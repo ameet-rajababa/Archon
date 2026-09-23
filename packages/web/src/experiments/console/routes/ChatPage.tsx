@@ -3,7 +3,7 @@ import { useParams } from 'react-router';
 import { ChatStream } from '../components/ChatStream';
 import { ChatComposer, type ChatDraft } from '../components/ChatComposer';
 import { chooseOpenChat, readLastChat, writeLastChat } from '../lib/last-chat';
-import { ConversationRail, type ArchiveScope } from '../components/ConversationRail';
+import { ConversationRail, type ChatScope } from '../components/ConversationRail';
 import { ChatStatusStrip } from '../components/ChatStatusStrip';
 import { ContextBar } from '../components/ContextBar';
 import { WorkflowDock } from '../components/WorkflowDock';
@@ -13,7 +13,12 @@ import { useConversationSSE } from '../lib/sse';
 import { useLiveChats } from '../lib/live-chats';
 import { useEntity, invalidate } from '../store/cache';
 import { K } from '../store/keys';
-import { awaitingInputIds, chatStatus, type ChatStatus } from '../primitives/chat-status';
+import {
+  awaitingInputIds,
+  chatStatus,
+  completedIds,
+  type ChatStatus,
+} from '../primitives/chat-status';
 import type { Run } from '../primitives/run';
 import { baselineUserIds, echoHasLanded } from '../primitives/pending-echo';
 import { useFollowTail } from '../hooks/useFollowTail';
@@ -82,21 +87,21 @@ const LIST_POLL_MS = 8000;
 export function ChatPage(): ReactElement {
   const { projectId } = useParams<{ projectId: string }>();
 
-  // Which archived state the rail is showing. Part of the cache key, or
+  // Which lifecycle scope the rail is showing. Part of the cache key, or
   // switching scope would render the previous scope's list.
-  const [scope, setScope] = useState<ArchiveScope>('active');
+  const [scope, setScope] = useState<ChatScope>('open');
   const { data: conversations, error: conversationsError } = useEntity<ConversationSummary[]>(
     projectId !== undefined ? `${K.conversations(projectId)}:${scope}` : 'noop:no-project-convs',
     () =>
       projectId !== undefined ? skill.listConversations(projectId, scope) : Promise.resolve([])
   );
 
-  // Counting archived chats needs its own read: the active list cannot know
-  // how many it is leaving out.
-  const { data: archivedList } = useEntity<ConversationSummary[]>(
-    projectId !== undefined ? `${K.conversations(projectId)}:archived-count` : 'noop:no-archived',
+  // Counting finished chats needs its own read: the open list cannot know how
+  // many it is leaving out.
+  const { data: doneList } = useEntity<ConversationSummary[]>(
+    projectId !== undefined ? `${K.conversations(projectId)}:done-count` : 'noop:no-done',
     () =>
-      projectId !== undefined ? skill.listConversations(projectId, 'archived') : Promise.resolve([])
+      projectId !== undefined ? skill.listConversations(projectId, 'done') : Promise.resolve([])
   );
 
   // Active conversation: most-recent web conversation, else null until first send.
@@ -145,7 +150,7 @@ export function ChatPage(): ReactElement {
   const invalidateConversations = (): void => {
     if (projectId === undefined) return;
     invalidate(`${K.conversations(projectId)}:${scope}`);
-    invalidate(`${K.conversations(projectId)}:archived-count`);
+    invalidate(`${K.conversations(projectId)}:done-count`);
     invalidate(K.conversations(projectId));
   };
   invalidateConversationsRef.current = invalidateConversations;
@@ -171,25 +176,29 @@ export function ChatPage(): ReactElement {
     };
   }, [projectId]);
 
-  const archiveConversations = (ids: string[], archived: boolean, next: string | null): void => {
+  /**
+   * Mark a chat's unit of work finished, or reopen it.
+   *
+   * Marking the chat you are READING done drops it out of the list the rail is
+   * showing, so the page has to move — but to the neighbour the rail named,
+   * not to a blank new chat. Being ejected to the composer every time you tick
+   * one off turns clearing a rail into a fight.
+   *
+   * Which way removes it depends on the scope: under `Open` it is finishing,
+   * under `Done` it is reopening, and under `All` neither — the chat stays
+   * listed either way.
+   */
+  const completeConversation = (id: string, completed: boolean, next: string | null): void => {
     void (async (): Promise<void> => {
       try {
-        for (const id of ids) {
-          await skill.setConversationArchived(id, archived);
-        }
-        // Archiving the chat you are reading drops it out of the list the rail
-        // shows, so the page must move — but to the neighbour the rail named,
-        // not to a blank new chat. Being ejected to the composer after every
-        // archive turns tidying a rail into a fight. Only the scope being
-        // viewed matters: under `all` the chat stays listed either way, and
-        // under `archived` it is restoring, not archiving, that removes it.
-        const leavesList = scope === 'active' ? archived : scope === 'archived' ? !archived : false;
-        if (leavesList && activeConvId !== null && ids.includes(activeConvId)) {
+        await skill.setConversationCompleted(id, completed);
+        const leavesList = scope === 'open' ? completed : scope === 'done' ? !completed : false;
+        if (leavesList && activeConvId === id) {
           selectConversation(next);
         }
         invalidateConversations();
       } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'Could not change the archive state.');
+        setError(e instanceof Error ? e.message : 'Could not change the done state.');
       }
     })();
   };
@@ -394,12 +403,19 @@ export function ChatPage(): ReactElement {
     return new Set([...liveIds, activeConvId]);
   }, [liveIds, activeConvId, working]);
 
-  /** The status of the chat being READ. Same three states and same ordering as
+  /** Finished chats, read off the same rows the rail draws. */
+  const doneIds = useMemo(() => completedIds(conversations ?? []), [conversations]);
+
+  /** The status of the chat being READ. Same four states and same ordering as
    * every row in the rail — `chatStatus` owns the precedence. */
   const status: ChatStatus =
     activeConvId === null
       ? 'idle'
-      : chatStatus(activeConvId, { working: railLiveIds, awaiting: awaitingIds });
+      : chatStatus(activeConvId, {
+          working: railLiveIds,
+          awaiting: awaitingIds,
+          done: doneIds,
+        });
 
   // Belt and braces: an echo must never outlive its turn. If the reply has
   // landed and released the composer, whatever the echo was waiting for is
@@ -625,11 +641,11 @@ export function ChatPage(): ReactElement {
         activeConvId={activeConvId}
         onSelect={selectConversation}
         onRename={renameConversation}
-        onArchive={archiveConversations}
+        onComplete={completeConversation}
         onReorder={reorderConversations}
         scope={scope}
         onScopeChange={setScope}
-        archivedCount={archivedList?.length ?? 0}
+        doneCount={doneList?.length ?? 0}
         pendingNew={startingNew && activeConvId === null}
         projectId={projectId}
       />
@@ -638,7 +654,7 @@ export function ChatPage(): ReactElement {
           <div
             ref={scrollRef}
             {...scrollerProps}
-            className="h-full overflow-y-auto px-[30px] pt-[26px] pb-[18px]"
+            className="h-full overflow-y-auto px-[var(--chat-pad)] pt-[var(--chat-pad)] pb-[var(--msg-gap)]"
           >
             {/* Match the composer's centered 940px column (design: .stream-inner) */}
             <div ref={contentRef} className="mx-auto max-w-[940px]">

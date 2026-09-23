@@ -20,7 +20,7 @@ const conv = (over: Partial<ConversationSummary> = {}): ConversationSummary => (
   lastActivityAt: '2026-06-05T10:00:00Z',
   color: null,
   assistant: 'claude',
-  archived: false,
+  completed: false,
   askCandidate: null,
   sortOrder: null,
   ...over,
@@ -139,7 +139,7 @@ describe('matchesFilter', () => {
   });
 });
 
-describe('toConversationSummary — archived', () => {
+describe('toConversationSummary — done', () => {
   const raw = (over: Record<string, unknown> = {}) => ({
     id: 'db-1',
     platform_conversation_id: 'web-1',
@@ -158,14 +158,24 @@ describe('toConversationSummary — archived', () => {
     expect(toConversationSummary(raw({ ai_assistant_type: 'codex' })).assistant).toBe('codex');
   });
 
-  test('a soft-deleted conversation reads as archived', () => {
-    expect(toConversationSummary(raw({ deleted_at: '2026-06-06T10:00:00Z' })).archived).toBe(true);
+  test('a completed_at timestamp reads as done', () => {
+    expect(toConversationSummary(raw({ completed_at: '2026-06-07T10:00:00Z' })).completed).toBe(
+      true
+    );
   });
 
-  test('a live conversation is not archived', () => {
-    expect(toConversationSummary(raw({ deleted_at: null })).archived).toBe(false);
-    // Older payloads omit the field entirely rather than sending null.
-    expect(toConversationSummary(raw()).archived).toBe(false);
+  test('no timestamp is not done — including from a server without the column', () => {
+    expect(toConversationSummary(raw({ completed_at: null })).completed).toBe(false);
+    expect(toConversationSummary(raw()).completed).toBe(false);
+  });
+
+  test('a soft-deleted row says nothing about being done', () => {
+    // `deleted_at` used to be read here as `archived` and rendered as a second
+    // lifecycle flag. It is a soft delete again: the console never lists these
+    // rows, and if one arrives it is judged on `completed_at` like any other.
+    expect(toConversationSummary(raw({ deleted_at: '2026-06-06T10:00:00Z' })).completed).toBe(
+      false
+    );
   });
 });
 

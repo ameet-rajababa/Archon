@@ -148,11 +148,11 @@ describe('ChatStatusStrip', () => {
     expect(html).toContain('file-19.ts');
   });
 
-  // One mark, defined once in rail.css. A spinner here and a heartbeat in the
-  // rail would be two vocabularies for one state, which is what the shared
-  // status primitive exists to prevent.
+  // One mark, defined once in rail.css. A spinner here and a dot in the rail
+  // would be two vocabularies for one state, which is what the shared status
+  // primitive exists to prevent.
   test("wears the rail's own mark rather than a lookalike", () => {
-    for (const status of ['working', 'awaiting', 'idle'] as const) {
+    for (const status of ['working', 'awaiting', 'done', 'idle'] as const) {
       const html = renderToStaticMarkup(
         <ChatStatusStrip status={status} trace={[]} expanded={false} onToggle={noop} />
       );

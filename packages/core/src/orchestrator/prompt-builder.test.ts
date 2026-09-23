@@ -94,6 +94,7 @@ describe('buildOrchestratorSystemAppend', () => {
     hidden: false,
     sort_order: null,
     title_pinned: null,
+    completed_at: null,
     deleted_at: null,
     user_id: null,
     last_activity_at: null,

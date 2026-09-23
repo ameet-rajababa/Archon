@@ -357,6 +357,44 @@ ALTER TABLE remote_agent_conversations
 ALTER TABLE remote_agent_conversations
   ADD COLUMN IF NOT EXISTS title_pinned BOOLEAN DEFAULT FALSE;
 
+-- From migrations 031 and 032: the chat's unit of work is finished, and every
+-- chat archived before the column existed becomes a finished one.
+--
+-- A chat is one issue, or one cluster of them; `completed_at` is when a human
+-- said that work had landed. NULL means not finished, which is every row's
+-- default and the only answer an older binary can give.
+--
+-- The backfill is the other half. Archiving and marking done were two flags
+-- over one idea -- get this out of the list -- and the console now has a single
+-- lifecycle and does not list soft-deleted rows at all, so an archived chat
+-- left as it was would be visible nowhere. Reading "you filed it away" as "you
+-- were finished with it" is the only reading that cannot lose a chat;
+-- reopening one is a single click.
+--
+-- THE GUARD IS LOAD-BEARING, and this is why the pair is a DO block rather than
+-- the ADD COLUMN IF NOT EXISTS above it plus a bare UPDATE. This file is
+-- re-executed on EVERY boot. A standing `WHERE deleted_at IS NOT NULL` is not a
+-- migration, it is a rule that runs forever -- and `deleted_at` is still
+-- written by the DELETE route and the PATCH `archived` field, so the next
+-- restart would resurrect a chat the operator had just deleted and mark it
+-- done. Running the backfill only in the boot that ADDS the column makes it
+-- what it claims to be: a one-time reading of history. It also matches the
+-- SQLite adapter, where the same pair sits inside the same guard.
+DO $migration_032$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'remote_agent_conversations' AND column_name = 'completed_at'
+  ) THEN
+    ALTER TABLE remote_agent_conversations ADD COLUMN completed_at TIMESTAMPTZ;
+    UPDATE remote_agent_conversations
+    SET completed_at = deleted_at,
+        deleted_at = NULL
+    WHERE deleted_at IS NOT NULL;
+  END IF;
+END
+$migration_032$;
+
 -- From migration 030: every title that predates the column is treated as one a
 -- human chose, because nothing was recording the answer when it was written.
 -- Idempotent; leaves untitled rows (the hidden workflow sub-chats) alone.
@@ -671,6 +709,8 @@ COMMENT ON COLUMN remote_agent_conversations.sort_order IS
   'Hand-arranged rail position, ascending. NULL means never arranged; the console reads those as newest-first and shows them above every placed chat.';
 COMMENT ON COLUMN remote_agent_conversations.title_pinned IS
   'A human named this chat. Automatic re-titling skips the row; an explicit request still overrides it. NULL means not pinned.';
+COMMENT ON COLUMN remote_agent_conversations.completed_at IS
+  'When a human marked this chat''s unit of work finished. NULL means not finished. Independent of deleted_at: done says the work landed, archived says stop showing it.';
 
 -- Sessions
 CREATE INDEX IF NOT EXISTS idx_remote_agent_sessions_conversation

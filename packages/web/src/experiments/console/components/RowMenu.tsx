@@ -11,6 +11,111 @@ interface Anchor {
   left: number;
 }
 
+/**
+ * The geometry every row in a menu shares.
+ *
+ * Stated once because the tick gutter only works if it is the same width on
+ * every row — a checkable item and a plain one with different indents is two
+ * left edges, and the eye reads that as two lists.
+ */
+const MENU_ROW_CLASS =
+  'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12.5px] hover:bg-surface-elevated hover:text-text-primary';
+
+/** The tick gutter, reserved on every row and filled only by a checked one. */
+function TickSlot({ on }: { on: boolean }): ReactElement {
+  return (
+    <span
+      aria-hidden
+      className={`w-[11px] shrink-0 text-[12px] leading-none${on ? '' : ' opacity-0'}`}
+      style={{ color: 'var(--text-primary)' }}
+    >
+      ✓
+    </span>
+  );
+}
+
+/**
+ * A menu row that DOES something: rename, delete, open elsewhere.
+ *
+ * Carries the empty tick gutter so its label starts where a checkable row's
+ * label starts.
+ */
+export function MenuItem({
+  label,
+  onSelect,
+}: {
+  label: string;
+  onSelect: () => void;
+}): ReactElement {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onSelect}
+      className={`${MENU_ROW_CLASS} text-text-secondary`}
+    >
+      <TickSlot on={false} />
+      {label}
+    </button>
+  );
+}
+
+/**
+ * A menu row that IS a state: the label names the state, the tick says whether
+ * it holds, and clicking toggles it.
+ *
+ * Deliberately not a verb that swaps with the state ("Mark done" / "Reopen").
+ * A row whose word changes under you cannot be found by position — you read it
+ * every time — and a menu of verbs shows nothing about what the thing already
+ * is. Nor is it a pair of rows with the inapplicable one greyed: disabled means
+ * "unavailable right now, for a reason you could fix", and the reason that row
+ * is dead is that its twin is the answer, which is never fixable.
+ *
+ * `menuitemcheckbox` is the role that says all of this to a screen reader, so
+ * the tick is not the only place the state is written down.
+ *
+ * The tick is NEUTRAL, not green. Green in this console means a chat's work
+ * landed; a tick that was also green would make the colour mean "checked" as
+ * well, and the rail's green dot is weaker for every extra thing it says.
+ *
+ * `checkedAction` names the click on a TICKED row only — "Reopen" beside a
+ * ticked `Done`. Unticked, the click is already obvious: you are clicking
+ * `Done` to make it done, and "Done · Mark done" would say the same word
+ * twice. A column where half the entries carry no information is one you learn
+ * to stop reading, including the half that mattered. It is `aria-hidden`
+ * because the role and `aria-checked` already say that activating this clears
+ * the state; as an accessible name, "Done Reopen" is worse than nothing.
+ */
+export function MenuCheckItem({
+  label,
+  checked,
+  checkedAction,
+  onSelect,
+}: {
+  label: string;
+  checked: boolean;
+  checkedAction?: string;
+  onSelect: () => void;
+}): ReactElement {
+  return (
+    <button
+      type="button"
+      role="menuitemcheckbox"
+      aria-checked={checked}
+      onClick={onSelect}
+      className={`${MENU_ROW_CLASS} ${checked ? 'text-text-primary' : 'text-text-secondary'}`}
+    >
+      <TickSlot on={checked} />
+      {label}
+      {checked && checkedAction !== undefined ? (
+        <span aria-hidden className="ml-auto whitespace-nowrap text-[11px] text-text-tertiary">
+          {checkedAction}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
 export interface RowMenuProps {
   /**
    * The row the menu belongs to; its rect is what the menu is placed against.

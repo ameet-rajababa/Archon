@@ -692,94 +692,92 @@
 }
 
 /* ── CHAT STATUS ────────────────────────────────────────────────────────
-   Shape as well as color. Three states told apart by hue alone fail for
-   anyone who cannot separate blue from amber, and fail again in a screenshot
-   — the dot, the ring and the outline are distinguishable without color. */
+   One mark, four states, told apart by colour alone — and that is a
+   deliberate narrowing. The column used to carry shape AND motion as well:
+   a breathing blue dot, a breathing amber dot, a still grey one. Two of the
+   three moved, so movement said "not idle" rather than anything specific,
+   and the scaling made the same 8px dot measure differently from row to row
+   depending on which frame of its 1.9s cycle it was caught in. A column of
+   marks that are not the same size is one you compare instead of scan.
+
+   What replaces it is a mark that is always exactly 8px, always in exactly
+   the same place. Colour is doing real work here rather than duplicating a
+   shape cue, so the word beside it carries the meaning for anyone who cannot
+   separate these hues: the chat's status strip and the project chip both
+   print the label, and every row's slot has a `title`. */
 .chat-status {
   flex: 0 0 auto;
   display: grid;
   place-items: center;
 }
 /* The rail's SLOT, kept apart from the mark's appearance: the project chip in
-   the header wears the same three marks and must not inherit a row's
-   geometry. Separating them is what stops the chip growing a second set of
-   rules — and a second heartbeat, which is exactly what it had.
+   the header wears the same marks and must not inherit a row's geometry.
+   Separating them is what stops the chip growing a second set of rules.
 
    The slot is the DOT's own width, not a column wide enough to have held a
    glyph. At 15px the 8px dot sat centred with 3.5px of slot either side, and
    the row's 8px gap on top of that put it 11.5px from the word it belongs to
    — far enough that the mark read as its own column rather than as part of
-   the line it labels. Every state is a dot now, so there is nothing wider to
-   reserve for. The gap drops with it; 7px still clears the working ring,
-   which reaches 2.1× and so comes within 2.6px of the text at its widest. */
+   the line it labels. Every state is a dot, so there is nothing wider to
+   reserve for. */
 .chatlist .rail-row {
   gap: 7px;
 }
 .chatlist .rail-row > .chat-status {
   width: 8px;
-  /* Optically centred on the title's first line (13px text, 1.35 line-height),
-     not on the row: a dot centred on a two-line card floats between them. */
-  margin-top: 5px;
+  /* Centred on the title's FIRST LINE, not on the row — a dot centred on a
+     two-line card floats between them. Derived from the two values that
+     decide where that line sits (see `.chatlist .rail-row .rail-text`)
+     rather than hand-tuned as a margin: a slot exactly one line box tall,
+     with `place-items: center` doing the arithmetic. Change the title's size
+     or leading and the dot follows instead of drifting. */
+  height: calc(var(--text-body) * 1.35);
 }
+/* Every state is this dot. Size and radius are stated ONCE, so no state can
+   render at a different diameter from its neighbour in the same column. */
 .chat-status i {
   display: block;
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  background: currentColor;
 }
-/* Working: a solid dot with a ring radiating out of it. The animation is the
-   point — a static mark cannot distinguish "running" from "stopped here". */
+/* Working: the agent is executing a turn for this chat right now. */
 .chat-status.is-working {
-  position: relative;
   color: var(--running);
 }
-.chat-status.is-working i {
-  background: currentColor;
-  /* The dot BREATHES as well as radiating. The expanding ring alone is a
-     ripple you only catch if you happen to be looking straight at it — at 8px
-     against a near-black surface it is nearly invisible. A mark that changes
-     SIZE is what the eye picks up from the edge of vision, which is the whole
-     job of this mark. Same 1.9s as the ring, so it reads as one heartbeat. */
-  animation: chat-throb 1.9s ease-in-out infinite;
+/* Awaiting: your move — a run paused on a gate, or a question not answered.
+   The MARK variant of the warning colour, not the text one: a dot is a
+   graphic and owes 3:1 rather than 4.5:1, which is the difference between
+   amber and the ochre the word has to settle for. */
+.chat-status.is-awaiting {
+  color: var(--warning-mark);
 }
-@keyframes chat-throb {
-  0%,
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  45% {
-    transform: scale(1.28);
-    opacity: 0.8;
-  }
+/* Done: the unit of work this chat IS — an issue, a cluster of them — has
+   landed. The only state a human sets by hand, and the only one that is a
+   claim about the work rather than about this moment, which is why working
+   and awaiting both outrank it: a done chat that starts moving again shows
+   what it is doing now and goes back to green when it stops. */
+.chat-status.is-done {
+  color: var(--success);
 }
-.chat-status.is-working::after {
-  content: '';
-  position: absolute;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0.55;
-  animation: chat-ping 1.9s cubic-bezier(0, 0, 0.2, 1) infinite;
+/* Idle: nothing pending here. Quiet rather than empty — the one state with
+   nothing to announce, so it is the one that is dimmed. */
+.chat-status.is-idle {
+  color: var(--text-tertiary);
 }
-@keyframes chat-ping {
-  0% {
-    transform: scale(1);
-    opacity: 0.5;
-  }
-  75%,
-  100% {
-    transform: scale(2.1);
-    opacity: 0;
-  }
+.chat-status.is-idle i {
+  opacity: 0.7;
 }
-/* The working mark for a dot that is not a chat's — a run in the dock, the
-   project header's activity pill. Same colour it already had, but now the same
-   HEARTBEAT: a static blue dot and a breathing one meant the same thing in two
-   places, which is how a reader learns that the movement is decoration.
-   The ring takes `background-color: inherit` so it picks up whatever colour the
-   dot itself was given, rather than needing to be told twice. */
+
+/* The live mark — a run in the dock, the project header's activity pill.
+   It KEEPS the heartbeat the chat dots gave up, because it is a different
+   reading job: one mark on a surface you glance at, pointing at the single
+   thing that is executing, rather than one cell in a column of ten you scan
+   down. Motion there singles something out; motion in the rail only meant
+   "not idle", which the colour already said.
+   The ring takes `background-color: inherit` so it picks up whatever colour
+   the dot itself was given, rather than needing to be told twice. */
 .live-mark {
   position: relative;
   animation: chat-throb 1.9s ease-in-out infinite;
@@ -793,37 +791,27 @@
   opacity: 0.5;
   animation: chat-ping 1.9s cubic-bezier(0, 0, 0.2, 1) infinite;
 }
-
-/* Awaiting: an open ring. Unresolved, and deliberately not a filled dot —
-   filled reads as "done", which is the opposite of what it means.
-   The MARK variant of the warning colour, not the text one: a 2px ring is a
-   graphic and owes 3:1 rather than 4.5:1, which is the difference between
-   amber and the ochre the word has to settle for. */
-.chat-status.is-awaiting {
-  color: var(--warning-mark);
+@keyframes chat-throb {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  45% {
+    transform: scale(1.28);
+    opacity: 0.8;
+  }
 }
-.chat-status.is-awaiting i {
-  /* Solid, not an outline. A ring reads as faint at 8px against a near-black
-     surface, and this is the one state that is asking for something. The
-     working mark keeps its radiating halo, so the two are still told apart by
-     more than hue: one pulses alone, the other sends a ring out. */
-  background: currentColor;
-  /* Moves like the working dot, on the same 1.9s beat, because a mark that
-     wants something from you should be as hard to overlook as one that is
-     busy. The SHAPE still separates them — open ring against filled dot —
-     so the two never rely on telling amber from blue. */
-  animation: chat-throb 1.9s ease-in-out infinite;
-}
-/* Idle: a quiet dot — settled, not empty. It is the one state with nothing to
-   announce, so it is the only one that does not move. Still a dot rather than
-   a chat glyph, because the column has one job: three states of one mark. What
-   KIND of row this is, is said by the rail it is sitting in. */
-.chat-status.is-idle {
-  color: var(--text-tertiary);
-}
-.chat-status.is-idle i {
-  background: currentColor;
-  opacity: 0.7;
+@keyframes chat-ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  75%,
+  100% {
+    transform: scale(2.1);
+    opacity: 0;
+  }
 }
 
 /* Owner section label.

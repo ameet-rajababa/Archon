@@ -328,6 +328,65 @@ try {
   }
 
   drop(freshDb);
+
+  // ── Migration 032 is one-time, and has to be checked on DATA ──────────────
+  // Everything above compares SHAPE, which cannot see this. The archived→done
+  // backfill runs only in the boot that ADDS `completed_at`, because this file
+  // is re-executed on every start and `deleted_at` is still written by the
+  // DELETE route: an unguarded standing UPDATE would resurrect a chat the
+  // operator had just deleted, and re-finish one they had just reopened.
+  //
+  // The SQLite adapter expresses the same guard a different way — its own
+  // column-add branch — so a test there does not protect this half.
+  const guardDb = dbNameFor('migration-032-guard');
+  recreate(guardDb);
+  const guardSql = (sql: string): string => psql(guardDb, { sql }).out.trim();
+
+  // A database as an older binary left it: the column gone, one chat archived
+  // and one live.
+  psql(guardDb, { file: SCHEMA_PATH });
+  psql(guardDb, { sql: 'ALTER TABLE remote_agent_conversations DROP COLUMN completed_at' });
+  psql(guardDb, {
+    sql: `INSERT INTO remote_agent_conversations (platform_type, platform_conversation_id, deleted_at)
+          VALUES ('web','filed','2026-06-06T10:00:00Z'),('web','live',NULL)`,
+  });
+
+  // The migrating boot: the archived chat becomes a finished one, and the live
+  // one is left alone rather than swept into Done.
+  psql(guardDb, { file: SCHEMA_PATH });
+  const migrated = guardSql(
+    `SELECT platform_conversation_id || ':' || (completed_at IS NOT NULL) || ':' || (deleted_at IS NOT NULL)
+     FROM remote_agent_conversations ORDER BY 1`
+  );
+  const expectMigrated = 'filed:true:false\nlive:false:false';
+  if (migrated !== expectMigrated) {
+    console.error(
+      `FAIL migration 032: the backfill did not run on the boot that adds the column\n  expected: ${expectMigrated.replace(/\n/g, ' | ')}\n  got:      ${migrated.replace(/\n/g, ' | ')}`
+    );
+    failures++;
+  }
+
+  // A later boot, after the operator has deleted one chat through the API and
+  // reopened the other by hand. Both choices must survive.
+  psql(guardDb, {
+    sql: `UPDATE remote_agent_conversations SET deleted_at = NOW() WHERE platform_conversation_id = 'live';
+          UPDATE remote_agent_conversations SET completed_at = NULL WHERE platform_conversation_id = 'filed'`,
+  });
+  psql(guardDb, { file: SCHEMA_PATH });
+  const later = guardSql(
+    `SELECT platform_conversation_id || ':' || (completed_at IS NOT NULL) || ':' || (deleted_at IS NOT NULL)
+     FROM remote_agent_conversations ORDER BY 1`
+  );
+  const expectLater = 'filed:false:false\nlive:false:true';
+  if (later !== expectLater) {
+    console.error(
+      `FAIL migration 032: a later boot changed rows it must not touch — the backfill is a standing rule, not a migration\n  expected: ${expectLater.replace(/\n/g, ' | ')}\n  got:      ${later.replace(/\n/g, ' | ')}`
+    );
+    failures++;
+  }
+  if (failures === 0)
+    console.log('ok   migration 032 backfill runs once and only on the adding boot');
+  drop(guardDb);
 } catch (err) {
   console.error(`\n${(err as Error).message}`);
   failures++;

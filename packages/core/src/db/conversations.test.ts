@@ -19,7 +19,9 @@ import {
   getOrCreateConversation,
   updateConversation,
   findConversationByPlatformId,
+  listConversations,
   nextOrderSlots,
+  setConversationCompleted,
   setConversationOrder,
 } from './conversations';
 import type { Conversation } from '../types';
@@ -55,6 +57,7 @@ describe('conversations', () => {
       color: null,
       sort_order: null,
       title_pinned: null,
+      completed_at: null,
       hidden: false,
       deleted_at: null,
       user_id: null,
@@ -302,6 +305,7 @@ describe('conversations', () => {
       color: null,
       sort_order: null,
       title_pinned: null,
+      completed_at: null,
       hidden: false,
       deleted_at: null,
       user_id: null,
@@ -499,6 +503,65 @@ describe('conversations', () => {
     test('an empty order never touches the database', async () => {
       await setConversationOrder([]);
       expect(mockQuery).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('listConversations — lifecycle filter', () => {
+    const sqlOf = async (state?: 'open' | 'done' | 'all'): Promise<string> => {
+      mockQuery.mockClear();
+      mockQuery.mockResolvedValueOnce(createQueryResult([]));
+      await listConversations(50, undefined, undefined, false, undefined, 'active', state);
+      return String(mockQuery.mock.calls[0]?.[0]);
+    };
+
+    test('open and done each ask about completed_at', async () => {
+      expect(await sqlOf('open')).toContain('completed_at IS NULL');
+      expect(await sqlOf('done')).toContain('completed_at IS NOT NULL');
+    });
+
+    test('omitting it asks nothing, so an existing caller keeps its rows', async () => {
+      // The console is the only caller that filters. Every other reader —
+      // the orchestrator, the adapters — predates the column and must not
+      // silently start losing finished chats.
+      expect(await sqlOf()).not.toContain('completed_at');
+    });
+
+    test('the two filters are separate clauses on separate columns', async () => {
+      // `deleted_at` says whether a row was removed; `completed_at` says
+      // whether the work landed. Collapsing them into one clause is what made
+      // four states out of two questions.
+      const sql = await sqlOf('open');
+      expect(sql).toContain('deleted_at IS NULL');
+      expect(sql).toContain('completed_at IS NULL');
+    });
+  });
+
+  describe('setConversationCompleted', () => {
+    test('marking done writes a timestamp, reopening clears it', async () => {
+      // The timestamp IS the state — there is no second boolean that can
+      // disagree with it — so reopening has to write NULL rather than a
+      // falsy value the readers would still see as a completion.
+      mockQuery.mockResolvedValueOnce(createQueryResult([], 1));
+      await setConversationCompleted('conv-1', true);
+      expect(String(mockQuery.mock.calls[0]?.[0])).toContain('completed_at = NOW()');
+
+      mockQuery.mockClear();
+      mockQuery.mockResolvedValueOnce(createQueryResult([], 1));
+      await setConversationCompleted('conv-1', false);
+      expect(String(mockQuery.mock.calls[0]?.[0])).toContain('completed_at = NULL');
+    });
+
+    test('it never touches deleted_at — done and archived are separate', async () => {
+      mockQuery.mockResolvedValueOnce(createQueryResult([], 1));
+      await setConversationCompleted('conv-1', true);
+      expect(String(mockQuery.mock.calls[0]?.[0])).not.toContain('deleted_at');
+    });
+
+    test('a chat that is not there is an error, not a silent no-op', async () => {
+      mockQuery.mockResolvedValueOnce(createQueryResult([], 0));
+      await expect(setConversationCompleted('gone', true)).rejects.toBeInstanceOf(
+        ConversationNotFoundError
+      );
     });
   });
 });

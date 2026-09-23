@@ -227,11 +227,22 @@ export async function listConversations(
    */
   userId?: string,
   /**
-   * Which archived state to return. `active` (the default) preserves the
-   * historic behaviour exactly; `archived` returns only soft-deleted rows so
-   * they can be listed and restored; `all` returns both.
+   * Which soft-delete state to return. `active` (the default) preserves the
+   * historic behaviour exactly; `archived` returns only soft-deleted rows;
+   * `all` returns both.
    */
-  archived: 'active' | 'archived' | 'all' = 'active'
+  archived: 'active' | 'archived' | 'all' = 'active',
+  /**
+   * Where the chat is in its lifecycle: `open` has no completion recorded,
+   * `done` has one, `all` (the default) does not ask.
+   *
+   * A separate question from `archived`, and a separate column. `deleted_at`
+   * says whether a row was removed; `completed_at` says whether the work it
+   * holds landed. The console asks only this one — it lists open work by
+   * default and finished work on request — but the parameter defaults to `all`
+   * so every existing caller keeps the rows it already got.
+   */
+  state: 'open' | 'done' | 'all' = 'all'
 ): Promise<readonly Conversation[]> {
   const params: unknown[] = [];
   const archivedClause =
@@ -240,7 +251,13 @@ export async function listConversations(
       : archived === 'archived'
         ? 'deleted_at IS NOT NULL'
         : '1 = 1';
-  let sql = `SELECT * FROM remote_agent_conversations WHERE ${archivedClause} AND (hidden IS NULL OR hidden = false)`;
+  const stateClause =
+    state === 'open'
+      ? 'completed_at IS NULL'
+      : state === 'done'
+        ? 'completed_at IS NOT NULL'
+        : '1 = 1';
+  let sql = `SELECT * FROM remote_agent_conversations WHERE ${archivedClause} AND ${stateClause} AND (hidden IS NULL OR hidden = false)`;
 
   if (excludeEmpty) {
     sql +=
@@ -328,6 +345,28 @@ export async function setConversationArchived(id: string, archived: boolean): Pr
   const dialect = getDialect();
   const result = await pool.query(
     `UPDATE remote_agent_conversations SET deleted_at = ${archived ? dialect.now() : 'NULL'}, updated_at = ${dialect.now()} WHERE id = $1`,
+    [id]
+  );
+  if (result.rowCount === 0) {
+    throw new ConversationNotFoundError(id);
+  }
+}
+
+/**
+ * Mark a conversation's unit of work finished, or reopen it.
+ *
+ * Symmetric for the same reason archiving is: a state a person can enter and
+ * not leave is a trap, and work that turns out not to have landed has to be
+ * able to say so.
+ *
+ * The timestamp is the state — there is no separate boolean to disagree with
+ * it — and re-marking an already-finished chat moves it to now rather than
+ * being rejected, because the caller is asserting the state, not a transition.
+ */
+export async function setConversationCompleted(id: string, completed: boolean): Promise<void> {
+  const dialect = getDialect();
+  const result = await pool.query(
+    `UPDATE remote_agent_conversations SET completed_at = ${completed ? dialect.now() : 'NULL'}, updated_at = ${dialect.now()} WHERE id = $1`,
     [id]
   );
   if (result.rowCount === 0) {

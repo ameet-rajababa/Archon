@@ -38,8 +38,16 @@ export interface ConversationSummary {
    * real provenance rather than a guess from the current default.
    */
   assistant: string;
-  /** Archived chats are hidden from the default list but are never destroyed. */
-  archived: boolean;
+  /**
+   * A human marked this chat's unit of work finished.
+   *
+   * The chat's whole lifecycle: open or done. There was a second flag here —
+   * `archived` — and two flags over one idea made four states, two of which
+   * nobody could read ("filed but never finished", "finished and filed"). The
+   * console does not list soft-deleted rows at all now, so there is nothing
+   * left for the second flag to say.
+   */
+  completed: boolean;
   /**
    * This chat's newest message, when the server thinks it might hold an ask
    * block — its test is deliberately broad, so this still has to be parsed
@@ -65,7 +73,7 @@ interface RawConversation {
   last_activity_at: string | null;
   color: string | null;
   ai_assistant_type: string;
-  deleted_at?: string | null;
+  completed_at?: string | null;
   sort_order?: number | null;
   ask_candidate?: string | null;
 }
@@ -83,8 +91,10 @@ export function toConversationSummary(raw: RawConversation): ConversationSummary
     lastActivityAt: raw.last_activity_at,
     color: parseConversationColor(raw.color),
     assistant: raw.ai_assistant_type,
-    // Archiving is a soft delete, so the timestamp's presence is the state.
-    archived: raw.deleted_at != null,
+    // The timestamp IS the state, so there is no second boolean that can
+    // disagree with it. Absent — including from a server that predates the
+    // column — reads as not finished.
+    completed: raw.completed_at != null,
     askCandidate: raw.ask_candidate ?? null,
     // `?? null` covers a server that predates the column, which reads as
     // never arranged rather than as position zero.
@@ -142,9 +152,9 @@ export function byMostRecent(a: ConversationSummary, b: ConversationSummary): nu
  * order among themselves, so the newest is first.
  *
  * Two chats can legitimately hold the same position: the rail renumbers only
- * the chats it is showing, one archive scope at a time, so an archived chat
- * may share a value with an active one. They meet only under "All", and
- * recency breaks the tie so the list never wobbles between two answers.
+ * the chats it is showing, one scope at a time, so a done chat may share a
+ * value with an open one. They meet only under "All", and recency breaks the
+ * tie so the list never wobbles between two answers.
  */
 export function byArrangement(a: ConversationSummary, b: ConversationSummary): number {
   const ao = a.sortOrder;

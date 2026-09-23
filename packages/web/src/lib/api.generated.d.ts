@@ -784,6 +784,7 @@ export interface paths {
           codebaseId?: string;
           mine?: 'true' | 'false';
           archived?: 'active' | 'archived' | 'all';
+          state?: 'open' | 'done' | 'all';
         };
         header?: never;
         path?: never;
@@ -954,7 +955,7 @@ export interface paths {
     };
     options?: never;
     head?: never;
-    /** Update a conversation (title) */
+    /** Update a conversation (title, color, archived, completed) */
     patch: {
       parameters: {
         query?: never;
@@ -3508,6 +3509,8 @@ export interface components {
       sort_order: number | null;
       title_pinned: boolean | null;
       /** Format: date-time */
+      completed_at: string | null;
+      /** Format: date-time */
       deleted_at: string | null;
       /** Format: date-time */
       last_activity_at: string | null;
@@ -3534,6 +3537,7 @@ export interface components {
       /** @enum {string|null} */
       color?: 'magenta' | 'violet' | 'blue' | 'green' | 'amber' | 'red' | null;
       archived?: boolean;
+      completed?: boolean;
     };
     SetConversationOrderBody: {
       ids: string[];

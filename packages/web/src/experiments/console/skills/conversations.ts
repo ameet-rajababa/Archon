@@ -82,12 +82,20 @@ export async function createConversation(
   });
 }
 
+/**
+ * A project's chats, filtered by where they are in their lifecycle.
+ *
+ * `archived=active` is not a choice the console offers any more — it never
+ * lists a soft-deleted row. Deleting a chat is an API operation with no
+ * control in the rail, so a deleted chat is gone from the console rather than
+ * sitting in a scope nothing navigates to.
+ */
 export async function listConversations(
   projectId: string,
-  archived: 'active' | 'archived' | 'all' = 'active'
+  state: 'open' | 'done' | 'all' = 'open'
 ): Promise<ConversationSummary[]> {
   const raw = await requestJson<Parameters<typeof toConversationSummary>[0][]>(
-    `/api/conversations?codebaseId=${encodeURIComponent(projectId)}&mine=true&archived=${archived}`
+    `/api/conversations?codebaseId=${encodeURIComponent(projectId)}&mine=true&archived=active&state=${state}`
   );
   return raw.map(toConversationSummary);
 }
@@ -108,16 +116,19 @@ export async function setConversationOrder(ids: readonly string[]): Promise<void
 }
 
 /**
- * Archive or restore a conversation. Symmetric by design — an archive the user
- * cannot undo is a delete wearing a friendlier word.
+ * Mark a chat's unit of work finished, or reopen it.
+ *
+ * The console's whole chat lifecycle: a chat is open or done, and this is the
+ * only thing that moves it either way. Marking it done takes it out of the
+ * default list, which is the job archiving used to do under a second name.
  */
-export async function setConversationArchived(
+export async function setConversationCompleted(
   conversationPlatformId: string,
-  archived: boolean
+  completed: boolean
 ): Promise<void> {
   await requestJson<{ success: boolean }>(
     `/api/conversations/${encodeURIComponent(conversationPlatformId)}`,
-    { method: 'PATCH', body: JSON.stringify({ archived }) }
+    { method: 'PATCH', body: JSON.stringify({ completed }) }
   );
 }
 

@@ -56,6 +56,19 @@ export const conversationRowSchema = z.object({
    * does not have to.
    */
   title_pinned: z.boolean().nullable(),
+  /**
+   * When a human said this chat's unit of work was finished.
+   *
+   * A chat is one issue or one cluster of them, and "finished" is a judgement
+   * only a person can make — nothing the server can observe distinguishes
+   * "the work landed" from "nothing is running at this instant", which is
+   * what an absent run already says.
+   *
+   * Independent of `deleted_at`, because the two answer different questions:
+   * done says the work landed, archived says stop showing it. A finished
+   * chat you still want in the rail is the normal case.
+   */
+  completed_at: z.date().nullable(),
   deleted_at: z.date().nullable(),
   last_activity_at: z.date().nullable(),
   user_id: z.string().nullable(),

@@ -111,6 +111,81 @@ describe('SqliteAdapter upgrade path', () => {
     expect(objects).toContain('remote_agent_workflow_events_assign_order');
   });
 
+  /**
+   * The console has one chat lifecycle — open or done — and no longer lists
+   * soft-deleted rows at all. A database written before `completed_at` existed
+   * records "I am finished with this" as `deleted_at`, so leaving those rows
+   * alone would make every archived chat visible nowhere. The backfill reads
+   * "you filed it away" as "you were finished with it", which is the only
+   * reading that cannot lose a chat.
+   */
+  test('an archived chat from before completed_at becomes a finished one', async () => {
+    const path = await upgradeFixturePath();
+    await new SqliteAdapter(path).close(); // writes the current schema
+    const raw = new Database(path);
+    try {
+      raw.run('ALTER TABLE remote_agent_conversations DROP COLUMN completed_at');
+      raw.run(
+        `INSERT INTO remote_agent_conversations (id, platform_type, platform_conversation_id, deleted_at)
+         VALUES ('filed', 'web', 'web-filed', '2026-06-06T10:00:00Z'),
+                ('live', 'web', 'web-live', NULL)`
+      );
+    } finally {
+      raw.close();
+    }
+    expect(columnsOf(path, 'remote_agent_conversations')).not.toContain('completed_at');
+
+    await new SqliteAdapter(path).close();
+
+    const rows = raw_query(
+      path,
+      'SELECT id, completed_at, deleted_at FROM remote_agent_conversations ORDER BY id'
+    ) as { id: string; completed_at: string | null; deleted_at: string | null }[];
+
+    const filed = rows.find(r => r.id === 'filed');
+    expect(filed?.completed_at).toBe('2026-06-06T10:00:00Z');
+    // Cleared with it, so the column means deleted again rather than quietly
+    // meaning archived — and the chat is reachable under Done.
+    expect(filed?.deleted_at).toBeNull();
+
+    // A chat that was never archived is untouched, not swept into Done.
+    const live = rows.find(r => r.id === 'live');
+    expect(live?.completed_at).toBeNull();
+    expect(live?.deleted_at).toBeNull();
+  });
+
+  test('the backfill runs once — a chat reopened after it stays open', async () => {
+    // Guarded by the column-add check, so reopening a chat is not undone by
+    // the next startup. Without the guard every restart would re-finish it.
+    const path = await upgradeFixturePath();
+    await new SqliteAdapter(path).close();
+    const raw = new Database(path);
+    try {
+      raw.run('ALTER TABLE remote_agent_conversations DROP COLUMN completed_at');
+      raw.run(
+        `INSERT INTO remote_agent_conversations (id, platform_type, platform_conversation_id, deleted_at)
+         VALUES ('filed', 'web', 'web-filed', '2026-06-06T10:00:00Z')`
+      );
+    } finally {
+      raw.close();
+    }
+
+    await new SqliteAdapter(path).close();
+    const reopen = new Database(path);
+    try {
+      reopen.run("UPDATE remote_agent_conversations SET completed_at = NULL WHERE id = 'filed'");
+    } finally {
+      reopen.close();
+    }
+    await new SqliteAdapter(path).close();
+
+    const rows = raw_query(
+      path,
+      "SELECT completed_at FROM remote_agent_conversations WHERE id = 'filed'"
+    ) as { completed_at: string | null }[];
+    expect(rows[0]?.completed_at).toBeNull();
+  });
+
   test('adds the authored outcome column idempotently to an existing workflow-runs table', async () => {
     const path = await upgradeFixturePath();
     await new SqliteAdapter(path).close();
@@ -622,8 +697,16 @@ describe('SqliteAdapter', () => {
         columnsByTable.set(table, columns);
       }
 
+      // `IF NOT EXISTS` is OPTIONAL here, and that is the whole point of this
+      // being a separate pattern from the CREATE TABLE scan. A column added
+      // inside a `DO $$ ... $$` guard writes a bare `ADD COLUMN` — the guard is
+      // what makes it safe to re-run, so the clause would be redundant — and a
+      // regex that demanded the clause silently stopped seeing those columns.
+      // Silently, because this test only reports SQLite columns Postgres LACKS:
+      // a parser that loses a Postgres column invents drift that is not there,
+      // which is how `completed_at` first showed up here as a phantom finding.
       const addColumnRe =
-        /ALTER TABLE\s+"?([a-z0-9_]+)"?\s+ADD COLUMN IF NOT EXISTS\s+"?([a-z_][a-z0-9_]*)"?/gi;
+        /ALTER TABLE\s+"?([a-z0-9_]+)"?\s+ADD COLUMN(?:\s+IF NOT EXISTS)?\s+"?([a-z_][a-z0-9_]*)"?/gi;
       for (const match of sql.matchAll(addColumnRe)) {
         const table = match[1].toLowerCase();
         if (!table.startsWith('remote_agent_')) continue;

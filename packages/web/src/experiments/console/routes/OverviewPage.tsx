@@ -62,9 +62,11 @@ export function OverviewPage(): ReactElement {
   const { data: issueData } = useEntity<IssuesResponse>(K.issues(projectId), () =>
     skill.listIssues(projectId)
   );
+  // Open chats, not every chat: the overview is where you resume, and a
+  // finished one is not something to resume.
   const { data: chats } = useEntity<ConversationSummary[]>(
-    `${K.conversations(projectId)}:active`,
-    () => skill.listConversations(projectId, 'active')
+    `${K.conversations(projectId)}:open`,
+    () => skill.listConversations(projectId, 'open')
   );
 
   const runs = feed?.runs ?? [];

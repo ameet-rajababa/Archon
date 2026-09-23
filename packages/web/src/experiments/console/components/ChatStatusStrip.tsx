@@ -7,7 +7,7 @@ import type { InlineToolCall } from '../primitives/message';
 const TRACE_LIMIT = 12;
 
 interface ChatStatusStripProps {
-  /** What the chat is doing, in the same three words the rail uses. */
+  /** Where the chat is, in the same words the rail's dot stands for. */
   status: ChatStatus;
   /** When the current turn started, as epoch ms. Only read while working. */
   since?: number | null;
@@ -81,7 +81,7 @@ function agoLabel(iso: string | null | undefined): string | null {
 }
 
 /**
- * The one place the chat says what it is doing, in all three states.
+ * The one place the chat says where it is, in every state.
  *
  * It exists because of the single failure this screen is never allowed to have:
  * looking finished while the agent is mid-turn. So it renders when idle too,
@@ -104,7 +104,10 @@ export function ChatStatusStrip({
   trailing,
 }: ChatStatusStripProps): ReactElement {
   const elapsed = useElapsed(status === 'working' ? since : null);
-  const ago = status === 'idle' ? agoLabel(lastActivityAt) : null;
+  // Both settled states earn the timestamp: "Done" and "Idle" each say that
+  // nothing is happening, and how long ago it stopped is the one fact neither
+  // word carries. The two live states have a clock or a tool name instead.
+  const ago = status === 'idle' || status === 'done' ? agoLabel(lastActivityAt) : null;
   const latest = trace[trace.length - 1];
 
   // Working is the one state that can say something more specific than its own

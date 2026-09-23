@@ -2627,8 +2627,8 @@ export async function handleMessage(
             });
             return successorId;
           },
-          archive: async (): Promise<void> => {
-            await db.setConversationArchived(conversation.id, true);
+          markDone: async (): Promise<void> => {
+            await db.setConversationCompleted(conversation.id, true);
           },
         }),
         // The other half of the handoff, and what pays for it firing without
@@ -2641,11 +2641,11 @@ export async function handleMessage(
             const seed = await messageDb.getFirstUserMessage(conversation.id);
             return seed === null ? null : readLineage(seed.metadata);
           },
-          restore: async (predecessorId): Promise<void> => {
-            await db.setConversationArchived(predecessorId, false);
+          reopen: async (predecessorId): Promise<void> => {
+            await db.setConversationCompleted(predecessorId, false);
           },
-          archiveSelf: async (): Promise<void> => {
-            await db.setConversationArchived(conversation.id, true);
+          markSelfDone: async (): Promise<void> => {
+            await db.setConversationCompleted(conversation.id, true);
           },
         }),
         buildManageRunTool({

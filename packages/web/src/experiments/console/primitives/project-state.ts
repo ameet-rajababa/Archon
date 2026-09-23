@@ -2,9 +2,16 @@
  * Where a project is, in one word.
  *
  * A project does not work, idle or wait — its CHATS and RUNS do. So the word
- * is not a project vocabulary at all: it is the roll-up of the three states a
- * chat already has, borrowed from `chat-status.ts` rather than restated here.
- * One vocabulary means it is learned once, in the rail, and read everywhere.
+ * is not a project vocabulary at all: it is borrowed from `chat-status.ts`
+ * rather than restated here. One vocabulary means it is learned once, in the
+ * rail, and read everywhere.
+ *
+ * Three of a chat's four states roll up; `done` does not, and deliberately.
+ * The chip prints NOTHING unless a project wants attention, and a project
+ * whose every chat has landed wants none — the green would be a mark on every
+ * finished project, which is the decoration this chip exists to refuse. It is
+ * also a roll-up nothing can compute yet: the counts endpoint reports chats,
+ * runs and open issues, not which chats a human has marked finished.
  *
  * One word, never two. There used to be a second "health" word — `At risk`
  * for one failed run, `Off track` for a streak — and it had to be special-

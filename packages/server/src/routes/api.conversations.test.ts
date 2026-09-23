@@ -24,6 +24,8 @@ const mockFindConversationIdsByPlatformIds = mock(
 );
 const mockSetConversationOrder = mock(async (_ids: readonly string[]) => {});
 const mockUpdateConversationTitle = mock(async (_id: string, _title: string) => {});
+const mockSetConversationCompleted = mock(async (_id: string, _completed: boolean) => {});
+const mockSetConversationArchived = mock(async (_id: string, _archived: boolean) => {});
 
 const mockGenerateAndSetTitle = mock(async (..._args: unknown[]) => {});
 const mockResolveTitleRequest = mock(async () => ({
@@ -74,6 +76,8 @@ mock.module('@archon/core/db/conversations', () => ({
   updateConversationTitle: mockUpdateConversationTitle,
   findConversationIdsByPlatformIds: mockFindConversationIdsByPlatformIds,
   setConversationOrder: mockSetConversationOrder,
+  setConversationCompleted: mockSetConversationCompleted,
+  setConversationArchived: mockSetConversationArchived,
   listConversations: mock(async () => []),
   getOrCreateConversation: mock(async () => ({
     id: 'internal-uuid-123',
@@ -275,6 +279,72 @@ describe('PATCH /api/conversations/:id', () => {
     const body = (await response.json()) as { success: boolean };
     expect(body).toEqual({ success: true });
     expect(mockUpdateConversationTitle.mock.calls.length).toBe(callsBefore);
+  });
+
+  test('marks a chat done and reopens it through the same field', async () => {
+    for (const completed of [true, false]) {
+      mockFindConversationByPlatformId.mockImplementationOnce(async () => MOCK_CONV);
+      mockSetConversationCompleted.mockClear();
+
+      const app = new OpenAPIHono();
+      registerApiRoutes(app, {} as WebAdapter, {} as ConversationLockManager);
+
+      const response = await app.request('/api/conversations/web-test-abc', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ completed }),
+      });
+      expect(response.status).toBe(200);
+      expect(mockSetConversationCompleted).toHaveBeenCalledWith('internal-uuid-123', completed);
+    }
+  });
+
+  test('done does not archive, and archiving does not mark done', async () => {
+    // Two fields, two questions. Work that landed is usually still listed, and
+    // a chat tidied away has not necessarily finished; if either call reached
+    // the other's writer, each would silently imply the other.
+    mockFindConversationByPlatformId.mockImplementationOnce(async () => MOCK_CONV);
+    mockSetConversationCompleted.mockClear();
+    mockSetConversationArchived.mockClear();
+
+    const app = new OpenAPIHono();
+    registerApiRoutes(app, {} as WebAdapter, {} as ConversationLockManager);
+
+    await app.request('/api/conversations/web-test-abc', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ completed: true }),
+    });
+    expect(mockSetConversationCompleted).toHaveBeenCalledTimes(1);
+    expect(mockSetConversationArchived).not.toHaveBeenCalled();
+
+    mockFindConversationByPlatformId.mockImplementationOnce(async () => MOCK_CONV);
+    mockSetConversationCompleted.mockClear();
+
+    await app.request('/api/conversations/web-test-abc', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ archived: true }),
+    });
+    expect(mockSetConversationArchived).toHaveBeenCalledTimes(1);
+    expect(mockSetConversationCompleted).not.toHaveBeenCalled();
+  });
+
+  test('an omitted `completed` leaves the done state alone', async () => {
+    // The same rule `archived` already follows: a rename must not decide
+    // whether the work has landed.
+    mockFindConversationByPlatformId.mockImplementationOnce(async () => MOCK_CONV);
+    mockSetConversationCompleted.mockClear();
+
+    const app = new OpenAPIHono();
+    registerApiRoutes(app, {} as WebAdapter, {} as ConversationLockManager);
+
+    await app.request('/api/conversations/web-test-abc', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Renamed' }),
+    });
+    expect(mockSetConversationCompleted).not.toHaveBeenCalled();
   });
 
   test('truncates title to 255 characters', async () => {

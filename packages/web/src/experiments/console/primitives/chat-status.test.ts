@@ -1,19 +1,42 @@
 import { describe, expect, test } from 'bun:test';
-import { askAwaitingIds, awaitingInputIds, chatStatus } from './chat-status';
+import { askAwaitingIds, awaitingInputIds, chatStatus, completedIds } from './chat-status';
 
-const sets = (working: string[], awaiting: string[]) => ({
+const sets = (working: string[], awaiting: string[], done: string[] = []) => ({
   working: new Set(working),
   awaiting: new Set(awaiting),
+  done: new Set(done),
 });
 
 describe('chatStatus', () => {
   test('awaiting outranks working — the half that needs a human wins', () => {
     expect(chatStatus('a', sets(['a'], ['a']))).toBe('awaiting');
   });
-  test('the three states', () => {
+  test('the four states', () => {
     expect(chatStatus('a', sets(['a'], []))).toBe('working');
     expect(chatStatus('a', sets([], ['a']))).toBe('awaiting');
+    expect(chatStatus('a', sets([], [], ['a']))).toBe('done');
     expect(chatStatus('a', sets([], []))).toBe('idle');
+  });
+  // Green is a claim about the WORK; the other two are claims about right now,
+  // and right now wins. A chat marked done that is asked another question has
+  // to say so, or the mark is a lie for as long as the turn lasts.
+  test('both live states outrank done', () => {
+    expect(chatStatus('a', sets(['a'], [], ['a']))).toBe('working');
+    expect(chatStatus('a', sets([], ['a'], ['a']))).toBe('awaiting');
+  });
+  test('done still outranks idle', () => {
+    expect(chatStatus('a', sets([], [], ['a']))).toBe('done');
+  });
+});
+
+describe('completedIds', () => {
+  test('only the chats a human has marked', () => {
+    expect([
+      ...completedIds([
+        { id: 'a', completed: true },
+        { id: 'b', completed: false },
+      ]),
+    ]).toEqual(['a']);
   });
 });
 
@@ -102,14 +125,16 @@ describe('chatStatus when the working signal is missing', () => {
   // chat being actively worked on announced that it needed a human for the
   // seconds after a reconnect.
   test('the agent having spoken last is not a call for help', () => {
-    expect(chatStatus('a', { working: none, awaiting: none })).toBe('idle');
+    expect(chatStatus('a', { working: none, awaiting: none, done: none })).toBe('idle');
   });
 
   test('an unknown answer falls to silence, never to amber', () => {
-    expect(chatStatus('unheard-of', { working: none, awaiting: none })).toBe('idle');
+    expect(chatStatus('unheard-of', { working: none, awaiting: none, done: none })).toBe('idle');
   });
 
   test('a gate still outranks working', () => {
-    expect(chatStatus('a', { working: new Set(['a']), awaiting: new Set(['a']) })).toBe('awaiting');
+    expect(chatStatus('a', { working: new Set(['a']), awaiting: new Set(['a']), done: none })).toBe(
+      'awaiting'
+    );
   });
 });

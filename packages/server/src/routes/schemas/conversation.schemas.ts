@@ -11,6 +11,7 @@ export const conversationSchema = conversationRowSchema
     created_at: z.string().datetime(),
     updated_at: z.string().datetime(),
     deleted_at: z.string().datetime().nullable(),
+    completed_at: z.string().datetime().nullable(),
     last_activity_at: z.string().datetime().nullable(),
   })
   .openapi('Conversation');
@@ -26,6 +27,11 @@ export const listConversationsQuerySchema = z.object({
   // Which archived state to list. Omitted behaves exactly as before, so every
   // existing caller keeps seeing active conversations only.
   archived: z.enum(['active', 'archived', 'all']).optional(),
+  // Where in its lifecycle a chat is: `open` has no completion recorded,
+  // `done` has one. Omitted does not ask, so an existing caller keeps every
+  // row it already got. Separate from `archived` because it is a separate
+  // question on a separate column — removed versus finished.
+  state: z.enum(['open', 'done', 'all']).optional(),
 });
 
 /** GET /api/conversations response. */
@@ -60,6 +66,10 @@ export const createConversationResponseSchema = z
  * `color: null` clears the color — distinct from omitting the field, which
  * leaves it untouched. Without that distinction a color could be set but never
  * removed.
+ *
+ * `archived` and `completed` are separate fields because they are separate
+ * questions: done says the chat's unit of work landed, archived says stop
+ * listing it. Either can be true without the other.
  */
 export const updateConversationBodySchema = z
   .object({
@@ -68,6 +78,10 @@ export const updateConversationBodySchema = z
     // true archives, false restores. Omitted leaves the state alone, so a
     // rename cannot accidentally resurrect an archived chat.
     archived: z.boolean().optional(),
+    // true marks the chat's unit of work finished, false reopens it. Omitted
+    // leaves it alone — the same rule as `archived`, and for the same reason:
+    // a rename must not decide whether the work is done.
+    completed: z.boolean().optional(),
   })
   .openapi('UpdateConversationBody');
 

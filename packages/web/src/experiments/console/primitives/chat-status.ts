@@ -1,10 +1,11 @@
 /**
- * What a chat is doing, in three states.
+ * What a chat is, in four states.
  *
  *   working   the server is executing a turn for it right now
  *   awaiting  it is your move — a run it started is paused on a gate, or the
  *             agent asked a question and has not been answered
- *   idle      neither
+ *   done      a human said this chat's unit of work has landed
+ *   idle      none of those
  *
  * Exclusive and ordered: a chat that is both working and awaiting is awaiting,
  * because the half that needs a human outranks the half that does not.
@@ -14,6 +15,14 @@
  * is true even for a turn this browser did not start. "Awaiting" means a chat
  * has asked for something SPECIFIC: a run paused on a gate, or an unanswered
  * ask block. Both are things a human can act on and then be done with.
+ *
+ * "Done" is the odd one and is meant to be. The other three are claims about
+ * this instant, which the server can observe; done is a claim about the WORK,
+ * which it cannot. A chat is one unit of work — an issue, or a cluster of
+ * them — and whether that work has landed is a judgement. Nothing the server
+ * can see distinguishes "the issue is closed" from "no run happens to be
+ * executing", and that second thing is exactly what idle already says. So it
+ * is recorded, by a person, on the row.
  *
  * A chat whose last word was merely the agent's is NOT awaiting. That rule
  * existed twice and failed the same way both times: every finished chat ends
@@ -26,7 +35,7 @@
 import { splitReply } from './ask';
 import { runMessageConversationId } from './run';
 
-export type ChatStatus = 'working' | 'awaiting' | 'idle';
+export type ChatStatus = 'working' | 'awaiting' | 'done' | 'idle';
 
 export interface ChatStatusSets {
   /** Platform conversation ids the server is executing a turn for. */
@@ -37,25 +46,47 @@ export interface ChatStatusSets {
    * ask is not running.
    */
   awaiting: ReadonlySet<string>;
+  /**
+   * Chats a human has marked finished. Ranked BELOW both live states: green
+   * is a claim about the work, and what a chat is doing right now outranks
+   * it, so a finished chat that starts moving again says so and returns to
+   * green when it stops.
+   */
+  done: ReadonlySet<string>;
 }
 
 /**
- * Exclusive and ordered, and the order ends at two.
+ * Exclusive and ordered: awaiting, working, done, idle.
  *
- * There was a third set — chats whose last word was the agent's — ranked below
- * working so a streaming chat would not go amber mid-sentence. The ranking was
- * right and the STATE was wrong: every finished chat ends with the agent, so
- * every finished chat was amber, and idle became unreachable. It also needed a
- * `liveKnown` flag to be safe, because `working` is polled and an unanswered
- * poll would have read as a finished turn — machinery whose only job was to
- * stop a signal lying, which is a signal worth deleting instead.
+ * The two live states come first because they are about right now, and right
+ * now outranks a claim about the work as a whole. Done sits above idle because
+ * "this landed" is strictly more than "nothing is pending".
  *
- * What is left says something a person can act on and then be finished with.
+ * There was once another set — chats whose last word was the agent's — ranked
+ * below working so a streaming chat would not go amber mid-sentence. The
+ * ranking was right and the STATE was wrong: every finished chat ends with the
+ * agent, so every finished chat was amber, and idle became unreachable. It
+ * also needed a `liveKnown` flag to be safe, because `working` is polled and an
+ * unanswered poll would have read as a finished turn — machinery whose only
+ * job was to stop a signal lying, which is a signal worth deleting instead.
+ *
+ * Every state that is left says something a person can act on, or something a
+ * person has already said.
  */
 export function chatStatus(conversationId: string, sets: ChatStatusSets): ChatStatus {
   if (sets.awaiting.has(conversationId)) return 'awaiting';
   if (sets.working.has(conversationId)) return 'working';
+  if (sets.done.has(conversationId)) return 'done';
   return 'idle';
+}
+
+/** Chats a human has marked finished, as the set `chatStatus` reads. */
+export function completedIds(
+  conversations: readonly { id: string; completed: boolean }[]
+): Set<string> {
+  const out = new Set<string>();
+  for (const c of conversations) if (c.completed) out.add(c.id);
+  return out;
 }
 
 /**
@@ -124,12 +155,13 @@ export function awaitingInputIds(
  *
  * Sentence case because the project chip renders it as a label in a header;
  * the rail's stamp lower-cases it in CSS, which is where a purely
- * presentational choice belongs. Two label maps for three states would be two
- * vocabularies again, which is the thing this file exists to prevent.
+ * presentational choice belongs. Two label maps for one set of states would be
+ * two vocabularies again, which is the thing this file exists to prevent.
  */
 export const STATUS_LABEL: Readonly<Record<ChatStatus, string>> = {
   working: 'Working',
   awaiting: 'Needs you',
+  done: 'Done',
   idle: 'Idle',
 };
 
@@ -137,11 +169,13 @@ export const STATUS_LABEL: Readonly<Record<ChatStatus, string>> = {
 export const STATUS_COLOR: Readonly<Record<ChatStatus, string>> = {
   working: 'var(--running)',
   awaiting: 'var(--warning)',
+  done: 'var(--success)',
   idle: 'var(--text-tertiary)',
 };
 
 export const STATUS_TITLE: Readonly<Record<ChatStatus, string>> = {
   working: 'The agent is working on this chat right now',
   awaiting: 'This chat is waiting for your answer',
+  done: "This chat's work is finished",
   idle: 'Nothing is running in this chat',
 };

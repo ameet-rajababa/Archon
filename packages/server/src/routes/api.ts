@@ -640,7 +640,7 @@ const updateConversationRoute = createRoute({
   method: 'patch',
   path: '/api/conversations/{id}',
   tags: ['Conversations'],
-  summary: 'Update a conversation (title)',
+  summary: 'Update a conversation (title, color, archived, completed)',
   request: {
     params: conversationIdParamsSchema,
     body: {
@@ -2697,6 +2697,7 @@ export function registerApiRoutes(
       created_at: toISOString(row.created_at),
       updated_at: toISOString(row.updated_at),
       deleted_at: toISOString(row.deleted_at),
+      completed_at: toISOString(row.completed_at),
       last_activity_at: toISOString(row.last_activity_at),
     };
   }
@@ -2777,13 +2778,18 @@ export function registerApiRoutes(
       const archivedParam = c.req.query('archived');
       const archived =
         archivedParam === 'archived' || archivedParam === 'all' ? archivedParam : 'active';
+      // Omitted asks nothing, which is what every caller that predates the
+      // lifecycle filter needs: it keeps the rows it already got.
+      const stateParam = c.req.query('state');
+      const state = stateParam === 'open' || stateParam === 'done' ? stateParam : 'all';
       const conversations = await conversationDb.listConversations(
         50,
         platformType,
         codebaseId,
         true,
         userId,
-        archived
+        archived,
+        state
       );
       const facts = await lastMessageFacts(conversations);
       return c.json(
@@ -2895,10 +2901,10 @@ export function registerApiRoutes(
     }
   });
 
-  // PATCH /api/conversations/:id - Update conversation (title, color)
+  // PATCH /api/conversations/:id - Update conversation (title, color, archived, completed)
   registerOpenApiRoute(updateConversationRoute, async c => {
     const platformId = c.req.param('id') ?? '';
-    const { title, color, archived } = getValidatedBody(c, updateConversationBodySchema);
+    const { title, color, archived, completed } = getValidatedBody(c, updateConversationBodySchema);
     try {
       const conv = await conversationDb.findConversationByPlatformId(platformId);
       if (!conv) {
@@ -2921,6 +2927,14 @@ export function registerApiRoutes(
       // archive is never a one-way door the user cannot walk back through.
       if (archived !== undefined) {
         await conversationDb.setConversationArchived(conv.id, archived);
+      }
+      // Done and archived are set independently, in whichever combination the
+      // caller asked for. A chat whose work has landed is very often one you
+      // still want listed, and one you have tidied away is not necessarily
+      // finished; collapsing the two into one field would make each imply the
+      // other.
+      if (completed !== undefined) {
+        await conversationDb.setConversationCompleted(conv.id, completed);
       }
       return c.json({ success: true });
     } catch (error) {
