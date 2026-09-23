@@ -26,6 +26,12 @@ export interface Run {
   /** DB id of the conversation this run belongs to. */
   conversationId: string | null;
   /**
+   * DB id of the chat that launched this run. Distinct from `conversationId`:
+   * that is the per-run WORKER conversation, which no user was ever in. Null
+   * for runs with no originating chat (every CLI-launched run).
+   */
+  parentConversationId: string | null;
+  /**
    * Platform-level conversation id (e.g. `cli-1776237248436-q61o4h`). This is
    * the id the `/api/conversations/:id/messages` route accepts in its URL
    * path — the server looks conversations up by platform id, not DB id, on
@@ -112,6 +118,8 @@ interface RawWorkflowRun {
   workflow_name: string;
   codebase_id: string | null;
   conversation_id?: string | null;
+  /** Originating chat's conversation DB id; null/absent for CLI-launched runs. */
+  parent_conversation_id?: string | null;
   /** Platform-level conversation id — exposed on the getRun response only. */
   conversation_platform_id?: string | null;
   /** Worker conversation platform id — getRun response only, web runs only. */
@@ -253,6 +261,7 @@ export function toRun(raw: RawWorkflowRun): Run {
     projectName: raw.codebase_name ?? null,
     costUsd: readCost(raw.metadata),
     conversationId: raw.conversation_id ?? null,
+    parentConversationId: raw.parent_conversation_id ?? null,
     conversationPlatformId: raw.conversation_platform_id ?? null,
     workerPlatformId: raw.worker_platform_id ?? null,
     workflow: raw.workflow_name,

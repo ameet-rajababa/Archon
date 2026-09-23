@@ -138,6 +138,9 @@
       "src/db/workflows.adoption-timestamp.integration.test.ts"
     ],
     [
+      "src/db/workflows.dashboard-parent-conversation.integration.test.ts"
+    ],
+    [
       "src/utils/path-validation.test.ts"
     ],
     [

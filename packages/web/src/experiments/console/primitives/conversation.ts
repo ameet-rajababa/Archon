@@ -33,7 +33,10 @@ export interface ConversationSummary {
    * id the `/api/conversations/:id/messages` and `/api/stream/:id` routes accept.
    */
   id: string;
-  /** Database id. Workflow runs reference this, not the platform id. */
+  /**
+   * Conversation DB uuid. This is what a run's `parent_conversation_id` points
+   * at, so it — not `id` — is the key for "runs launched from this chat".
+   */
   dbId: string;
   title: string | null;
   platformType: string;
@@ -203,4 +206,19 @@ export function matchesFilter(c: ConversationSummary, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (q.length === 0) return true;
   return conversationLabel(c).toLowerCase().includes(q);
+}
+
+/**
+ * The DB uuid behind a platform conversation id. A run's
+ * `parent_conversation_id` points at the uuid, while the routes that carry a
+ * chat around the console carry the platform id, so every "runs launched from
+ * this chat" lookup has to cross this one join. Returns `null` when no chat is
+ * open, or for the moment between creating one and the list refetching.
+ */
+export function resolveConversationDbId(
+  conversations: ConversationSummary[],
+  platformConversationId: string | null
+): string | null {
+  if (platformConversationId === null) return null;
+  return conversations.find(c => c.id === platformConversationId)?.dbId ?? null;
 }

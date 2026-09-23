@@ -20,10 +20,10 @@ interface FeedData {
 interface WorkflowDockProps {
   projectId: string;
   /**
-   * Database id of the chat being read. A run belongs to the conversation that
-   * started it, so showing every project run in every chat attributed work to
-   * chats that never asked for it. A run started outside a chat (CLI, webhook)
-   * has no conversation and belongs in none.
+   * Database id of the chat being read, matched against each run's
+   * `parentConversationId`. Showing every project run in every chat attributed
+   * work to chats that never asked for it. A run started outside a chat (CLI,
+   * webhook) has no parent conversation and belongs in none.
    */
   conversationDbId: string | null;
 }
@@ -60,10 +60,13 @@ export function WorkflowDock({
   const active = (data?.runs ?? []).filter(
     r =>
       (r.status === 'running' || r.status === 'paused') &&
-      // A run belongs to the chat that started it. One with no conversation was
-      // started outside chat entirely and belongs in none of them.
-      r.conversationId !== null &&
-      r.conversationId === conversationDbId
+      // A run belongs to the chat that started it, which is
+      // `parentConversationId` — `conversationId` is the per-run WORKER
+      // conversation no user was ever in, and differs for every chat-launched
+      // run. One with no parent was started outside chat entirely (CLI,
+      // webhook) and belongs in none of them.
+      r.parentConversationId !== null &&
+      r.parentConversationId === conversationDbId
   );
   if (active.length === 0) return null;
 

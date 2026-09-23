@@ -11,7 +11,10 @@ const parallelRun: Run = {
   projectId: 'project-parallel',
   projectName: 'Archon',
   costUsd: null,
-  conversationId: 'conv-parallel',
+  // The per-run WORKER conversation, deliberately NOT the chat: the two are
+  // different rows for every chat-launched run, and the dock joins on the chat.
+  conversationId: 'conv-worker',
+  parentConversationId: 'conv-parallel',
   conversationPlatformId: 'web-parallel',
   workerPlatformId: null,
   workflow: 'implement',
@@ -85,7 +88,7 @@ describe('WorkflowDock — a run belongs to the chat that started it', () => {
 
   test('a run from another chat is not shown', () => {
     const key = 'project-scoped';
-    seed([{ ...parallelRun, id: 'run-other', conversationId: 'conv-other' }], key);
+    seed([{ ...parallelRun, id: 'run-other', parentConversationId: 'conv-other' }], key);
     try {
       expect(render(key, 'conv-mine')).toBe('');
     } finally {
@@ -95,7 +98,7 @@ describe('WorkflowDock — a run belongs to the chat that started it', () => {
 
   test('a run from this chat is shown', () => {
     const key = 'project-mine';
-    seed([{ ...parallelRun, id: 'run-mine', conversationId: 'conv-mine' }], key);
+    seed([{ ...parallelRun, id: 'run-mine', parentConversationId: 'conv-mine' }], key);
     try {
       expect(render(key, 'conv-mine')).toContain('parallel-a');
     } finally {
@@ -107,7 +110,7 @@ describe('WorkflowDock — a run belongs to the chat that started it', () => {
     // CLI and webhook runs have no conversation; attributing them to whichever
     // chat happens to be open would claim work that chat never asked for.
     const key = 'project-cli';
-    seed([{ ...parallelRun, id: 'run-cli', conversationId: null }], key);
+    seed([{ ...parallelRun, id: 'run-cli', parentConversationId: null }], key);
     try {
       expect(render(key, 'conv-mine')).toBe('');
       expect(render(key, null)).toBe('');

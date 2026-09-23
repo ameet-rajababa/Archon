@@ -7,6 +7,7 @@ import { ConversationRail, type ChatScope } from '../components/ConversationRail
 import { ChatStatusStrip } from '../components/ChatStatusStrip';
 import { ContextBar } from '../components/ContextBar';
 import { WorkflowDock } from '../components/WorkflowDock';
+import { ChatRunsPanel } from '../components/ChatRunsPanel';
 import { EmptyState } from '../components/EmptyState';
 import { StreamContextProvider } from '../lib/stream-context';
 import { useConversationSSE } from '../lib/sse';
@@ -31,6 +32,7 @@ import {
   type LiveSegment,
   type LiveEvent,
 } from '../primitives/live-text';
+import { resolveConversationDbId } from '../primitives/conversation';
 
 // While a turn is active, refetch messages on this cadence so streamed replies
 // still surface if a per-conversation SSE event is dropped (cross-origin
@@ -230,6 +232,13 @@ export function ChatPage(): ReactElement {
       }
     })();
   };
+
+  // Derived rather than tracked as second state, so the platform id and the DB
+  // uuid can't drift apart.
+  const activeConvDbId = useMemo<string | null>(
+    () => resolveConversationDbId(conversations ?? [], activeConvId),
+    [conversations, activeConvId]
+  );
 
   const { data: messages, error: messagesError } = useEntity<Message[]>(
     activeConvId !== null ? K.messages(activeConvId) : 'noop:no-conv',
@@ -717,7 +726,11 @@ export function ChatPage(): ReactElement {
           ) : null}
         </div>
 
-        <WorkflowDock projectId={projectId} conversationDbId={activeConversation?.dbId ?? null} />
+        {activeConvDbId !== null ? (
+          <ChatRunsPanel conversationDbId={activeConvDbId} projectId={projectId} />
+        ) : null}
+
+        <WorkflowDock projectId={projectId} conversationDbId={activeConvDbId} />
 
         {error !== null || loadError !== undefined ? (
           <div className="shrink-0 border-t border-error/30 bg-error/[0.06] px-6 py-2 font-mono text-[11px] text-error">

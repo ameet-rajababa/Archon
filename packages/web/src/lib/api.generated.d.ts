@@ -1637,6 +1637,7 @@ export interface paths {
         query?: {
           status?: string;
           codebaseId?: string;
+          parentConversationId?: string;
           search?: string;
           after?: string;
           before?: string;

@@ -9,6 +9,7 @@ import {
   conversationMonogram,
   matchesFilter,
   parseConversationColor,
+  resolveConversationDbId,
   UNTITLED_CHAT,
   type ConversationSummary,
 } from './conversation';
@@ -233,5 +234,43 @@ describe('byArrangement', () => {
     expect(
       order(placed('a', 0, '2026-01-01T10:00:00Z'), placed('b', -2, '2026-01-01T10:00:00Z'))
     ).toEqual(['b', 'a']);
+  });
+});
+
+describe('toConversationSummary — ids', () => {
+  test('keeps the platform id and the DB uuid apart', () => {
+    const summarized = toConversationSummary({
+      id: '0f4c9f2e-3b41-4d0a-9a11-0b4c2e7d1a55',
+      platform_conversation_id: 'web-1750000000-abc',
+      platform_type: 'web',
+      title: 'Ship the console',
+      last_activity_at: '2026-06-05T10:00:00Z',
+      color: null,
+      ai_assistant_type: 'claude',
+    });
+
+    expect(summarized.id).toBe('web-1750000000-abc');
+    expect(summarized.dbId).toBe('0f4c9f2e-3b41-4d0a-9a11-0b4c2e7d1a55');
+  });
+});
+
+describe('resolveConversationDbId', () => {
+  const conversations = [
+    conv({ id: 'web-1750000000-abc', dbId: 'db-uuid-abc' }),
+    conv({ id: 'web-1750000001-def', dbId: 'db-uuid-def' }),
+  ];
+
+  test('matches on the platform id and returns the DB uuid, not the platform id', () => {
+    expect(resolveConversationDbId(conversations, 'web-1750000001-def')).toBe('db-uuid-def');
+  });
+
+  test('does not match a DB uuid against the platform id', () => {
+    expect(resolveConversationDbId(conversations, 'db-uuid-def')).toBeNull();
+  });
+
+  test('is null for an unknown chat, an empty list, and no active chat', () => {
+    expect(resolveConversationDbId(conversations, 'web-nope')).toBeNull();
+    expect(resolveConversationDbId([], 'web-1750000000-abc')).toBeNull();
+    expect(resolveConversationDbId(conversations, null)).toBeNull();
   });
 });
