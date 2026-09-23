@@ -61,8 +61,18 @@ export async function createCodebase(data: {
  */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * SQLite generates ids from `lower(hex(randomblob(16)))` — the same 128 bits,
+ * written without the dashes. Every id SQLite has ever issued fails `UUID_RE`,
+ * so testing that alone turned this guard from "reject a name" into "reject
+ * every row" on the default backend: `getCodebase` answered null for ids it had
+ * just created, and `archon workflow run --folder` reported "not in a git
+ * repository" for a folder project it had registered one line earlier.
+ */
+const SQLITE_ROW_ID_RE = /^[0-9a-f]{32}$/i;
+
 export function looksLikeRowId(id: string): boolean {
-  return UUID_RE.test(id);
+  return UUID_RE.test(id) || SQLITE_ROW_ID_RE.test(id);
 }
 
 export async function getCodebase(id: string): Promise<Codebase | null> {
