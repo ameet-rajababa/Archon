@@ -11,11 +11,11 @@ import type { ReactElement, ReactNode } from 'react';
 
 /** Free-text field (design v5 .set-input). */
 export const INPUT_CLASS =
-  'w-full rounded-[9px] border border-border bg-surface px-3.5 py-[11px] font-mono text-[13px] text-text-primary placeholder:text-text-tertiary transition-all focus:border-accent-bright/50 focus:outline-none focus:shadow-[0_0_0_3px_color-mix(in_oklch,var(--brand-magenta),transparent_92%)]';
+  'w-full rounded-[9px] border border-border bg-surface px-3.5 py-[11px] font-mono text-[13px] text-text-primary placeholder:text-text-tertiary transition-all focus:border-accent-bright/50 focus:outline-none focus:shadow-[0_0_0_3px_color-mix(in_oklch,var(--accent),transparent_92%)]';
 
 /** Row-sized select (tier/alias provider + effort selects). */
 export const SELECT_CLASS =
-  'w-full cursor-pointer appearance-none rounded-[9px] border border-border bg-surface-elevated py-[11px] pl-3.5 pr-8 font-mono text-[13px] font-semibold text-text-primary transition-all focus:border-accent-bright/50 focus:outline-none focus:shadow-[0_0_0_3px_color-mix(in_oklch,var(--brand-magenta),transparent_92%)]';
+  'w-full cursor-pointer appearance-none rounded-[9px] border border-border bg-surface-elevated py-[11px] pl-3.5 pr-8 font-mono text-[13px] font-semibold text-text-primary transition-all focus:border-accent-bright/50 focus:outline-none focus:shadow-[0_0_0_3px_color-mix(in_oklch,var(--accent),transparent_92%)]';
 
 /**
  * Compact select base — the Defaults panel's codex effort / web-search options
@@ -23,7 +23,7 @@ export const SELECT_CLASS =
  * (`py-[11px] pl-3.5 text-[13.5px]`) appended.
  */
 export const SELECT_CLASS_COMPACT =
-  'w-full cursor-pointer appearance-none rounded-[9px] border border-border bg-surface-elevated py-[7px] pl-3 pr-8 font-mono text-[12.5px] font-semibold text-text-primary transition-all focus:border-accent-bright/50 focus:outline-none focus:shadow-[0_0_0_3px_color-mix(in_oklch,var(--brand-magenta),transparent_92%)]';
+  'w-full cursor-pointer appearance-none rounded-[9px] border border-border bg-surface-elevated py-[7px] pl-3 pr-8 font-mono text-[12.5px] font-semibold text-text-primary transition-all focus:border-accent-bright/50 focus:outline-none focus:shadow-[0_0_0_3px_color-mix(in_oklch,var(--accent),transparent_92%)]';
 
 /**
  * Relative wrapper that overlays the design chevron on an appearance-none

@@ -36,7 +36,7 @@ interface StreamToolbarProps {
 // Compact native select styled with brand tokens — mirrors AssistantConfigPanel's
 // SelectShell/SELECT_CLASS, tuned for the toolbar row height.
 const SELECT_CLASS =
-  'max-w-[180px] cursor-pointer appearance-none truncate rounded-[7px] border border-border bg-surface-elevated py-[3px] pl-2.5 pr-7 font-mono text-[11.5px] font-medium text-text-primary transition-all focus:border-accent-bright/50 focus:outline-none focus:shadow-[0_0_0_3px_color-mix(in_oklch,var(--brand-magenta),transparent_92%)]';
+  'max-w-[180px] cursor-pointer appearance-none truncate rounded-[7px] border border-border bg-surface-elevated py-[3px] pl-2.5 pr-7 font-mono text-[11.5px] font-medium text-text-primary transition-all focus:border-accent-bright/50 focus:outline-none focus:shadow-[0_0_0_3px_color-mix(in_oklch,var(--accent),transparent_92%)]';
 
 function SelectShell({ children }: { children: ReactNode }): ReactElement {
   return (

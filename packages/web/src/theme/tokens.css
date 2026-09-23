@@ -1,9 +1,11 @@
 /*
  * Appearance token layer — three families of variable, in three layers.
  *
- *   LAYER 1  PRIMITIVES   raw ramps. No component ever names these.
+ *   LAYER 1  PRIMITIVES   label hues. No component ever names these.
  *   LAYER 2  SEMANTIC     what the UI asks for (--surface, --accent, --text-*).
- *                         Redefined once per [data-theme][data-mode] pair.
+ *                         GENERATED, not authored — see presets.generated.css
+ *                         and theme/generate.ts. Only the status palette, which
+ *                         must not follow an accent, is still written by hand.
  *   LAYER 3  COMPONENT    type scale, shape, density. Resolved from layer 2.
  *
  * WHY A NEW FILE RATHER THAN EDITS TO theme.css: upstream develops
@@ -21,33 +23,6 @@
 
 /* ══ LAYER 1 — PRIMITIVES ══════════════════════════════════════════════ */
 :root {
-  /* Linear family — near-neutral surfaces, faint cool cast (hue 265).
-     Chroma stays at or below 0.008 on every surface. That restraint is the
-     whole "easy on the eyes" property; it is not an accident of taste. */
-  --ln-0: oklch(1 0 0);
-  --ln-1: oklch(0.98 0.002 265);
-  --ln-2: oklch(0.965 0.003 265);
-  --ln-3: oklch(0.94 0.004 265);
-  --ln-4: oklch(0.915 0.004 265);
-  --ln-5: oklch(0.78 0.006 265);
-  --ln-6: oklch(0.62 0.008 265);
-  --ln-7: oklch(0.48 0.008 265);
-  --ln-8: oklch(0.32 0.007 265);
-  --ln-9: oklch(0.255 0.006 265);
-  --ln-10: oklch(0.19 0.005 265);
-  --ln-11: oklch(0.145 0.004 265);
-  --ln-12: oklch(0.12 0.004 265);
-  --ln-accent: oklch(0.58 0.145 278);
-  --ln-accent-lt: oklch(0.52 0.155 278);
-
-  /* Archon family — the brand magenta, chroma calmed 0.295 -> 0.22. The
-     original is near the top of the displayable range and reads as a hazard
-     rather than a brand when it lands on every focus ring and primary button. */
-  --ar-magenta: oklch(0.64 0.22 330);
-  --ar-magenta-lt: oklch(0.52 0.21 330);
-  --ar-violet: oklch(0.56 0.19 305);
-  --ar-teal: oklch(0.755 0.15 168);
-
   /* Label palette — eight hues that must stay mutually distinguishable in
      BOTH modes, so they are defined once and never aliased to a status token.
      (A 'green' label and a 'teal' one rendered the same pixel when --success
@@ -63,127 +38,35 @@
 }
 
 /* ══ LAYER 2 — SEMANTIC ════════════════════════════════════════════════
-   Four blocks: family x mode. `system` is a resolver, not a fifth palette —
-   appearance.ts writes only `light` or `dark` into data-mode.
+   The per-theme surface, text and accent tokens are GENERATED from three
+   inputs — accent, background, contrast — by theme/generate.ts. The five named
+   themes are compiled to presets.generated.css by scripts/generate-theme-css.ts;
+   a Custom theme is generated in the browser into a <style> element with the
+   same selector, so the two are interchangeable rather than subtly different.
+
+   `data-mode` is still written, and 55 rules still key off it, but it is now
+   DERIVED from the background's lightness rather than chosen. See appearance.ts.
+
+   presets.generated.css is imported by main.tsx beside this file rather than
+   with an @import here: @import is only valid at the top of a stylesheet, and
+   the generated blocks must load AFTER this file's .console-root defaults.
    ══════════════════════════════════════════════════════════════════════ */
 
-[data-theme='linear'][data-mode='dark'] .console-root {
-  /* .brand-bar is a flat fill in this theme (see the brand-alias note below).
-     Its labels are white, and --accent at L .58 leaves them at 4.45:1 — just
-     under AA. One shade darker clears it without moving --accent, which is
-     the brand value and is used for borders and fills that are not text. */
-  --brand-gradient: oklch(0.57 0.145 278);
-  --surface: var(--ln-11);
-  --surface-inset: var(--ln-12);
-  --surface-elevated: var(--ln-10);
-  --surface-hover: var(--ln-9);
-  --surface-variant: var(--ln-10);
-  --surface-bright: var(--ln-8);
-  --border: var(--ln-9);
-  --border-bright: var(--ln-8);
-  --outline-variant: var(--ln-7);
-  --text-primary: oklch(0.97 0.002 265);
-  --text-secondary: var(--ln-5);
-  --text-tertiary: oklch(0.636 0.008 265); /* was --ln-6 (.62) — 4.33:1 on hover */
-  --accent: var(--ln-accent);
-  /* --accent is the brand fill; --accent-bright is the same hue lifted until it
-     clears AA as text on --surface-hover, the darkest surface it lands on. */
-  --accent-bright: oklch(0.644 0.145 278);
-  --accent-hover: oklch(0.64 0.15 278);
-  --accent-muted: oklch(0.58 0.145 278 / 0.3);
-  --accent-soft: oklch(0.58 0.145 278 / 0.16);
-  --accent-ring: oklch(0.58 0.145 278 / 0.4);
-  --primary: var(--ln-accent);
+/* Derived from --accent by the same arithmetic in every theme, so they belong
+   here once rather than in each generated block. Tints and rings are the
+   accent at an opacity; there is no per-theme judgement left in them. */
+.console-root {
+  --accent-muted: color-mix(in oklch, var(--accent), transparent 70%);
+  --accent-soft: color-mix(in oklch, var(--accent), transparent 86%);
+  --accent-ring: color-mix(in oklch, var(--accent), transparent 60%);
+  --primary: var(--accent);
+  --ring: var(--accent);
+  --foreground: var(--text-primary);
+  --destructive: var(--error);
+  /* Text that sits ON the accent, not beside it. White survives every accent
+     the generator will produce, because --accent is a fill and fills are the
+     one place a strong colour is safe. */
   --primary-foreground: oklch(0.99 0 0);
-  --ring: var(--ln-accent);
-  --background: var(--ln-11);
-}
-
-[data-theme='linear'][data-mode='light'] .console-root {
-  /* The surface ladder INVERTS in light mode, and getting it wrong is subtle.
-     In dark, `inset` is the darkest and `elevated` the lightest, so an elevated
-     tile pops off an inset rail. Carrying that ordering into light mode pushes
-     `elevated` toward pure white while `inset` is already near-white — and the
-     project monogram (elevated) disappeared into the rail (inset), 1.5% apart.
-     Light mode wants a genuinely tinted recess and a white raised surface. */
-  --surface: var(--ln-0);
-  --surface-inset: oklch(0.958 0.004 265);
-  --surface-elevated: oklch(0.995 0.001 265);
-  --surface-hover: oklch(0.945 0.005 265);
-  --surface-variant: var(--ln-2);
-  --surface-bright: oklch(0.9 0.005 265);
-  --border: var(--ln-4);
-  --border-bright: var(--ln-5);
-  --outline-variant: var(--ln-6);
-  --text-primary: oklch(0.22 0.006 265);
-  --text-secondary: var(--ln-7);
-  /* NOT var(--ln-6). That step is tuned for dark, where it reads 5.5:1 against
-     the dark inset. Inherited unchanged into light it lands at 3.2:1 — counts,
-     timestamps and every other tertiary label failed AA. One ramp step cannot
-     serve both modes here because contrast runs the other way. Solved against
-     the WORST light surface in the theme (--surface-hover), not the average. */
-  --text-tertiary: oklch(0.529 0.008 265);
-  --accent: var(--ln-accent-lt);
-  --accent-bright: var(--ln-accent-lt);
-  --accent-hover: oklch(0.46 0.16 278);
-  --accent-muted: oklch(0.52 0.155 278 / 0.26);
-  --accent-soft: oklch(0.52 0.155 278 / 0.1);
-  --accent-ring: oklch(0.52 0.155 278 / 0.32);
-  --primary: var(--ln-accent-lt);
-  --primary-foreground: oklch(1 0 0);
-  --ring: var(--ln-accent-lt);
-  --background: var(--ln-0);
-}
-
-[data-theme='archon'][data-mode='dark'] .console-root {
-  --surface: oklch(0.175 0.007 265);
-  --surface-inset: oklch(0.13 0.006 265);
-  --surface-elevated: oklch(0.205 0.009 265);
-  --surface-hover: oklch(0.235 0.01 265);
-  --surface-variant: oklch(0.21 0.009 265);
-  --surface-bright: oklch(0.275 0.012 265);
-  --border: oklch(0.275 0.012 265);
-  --border-bright: oklch(0.355 0.016 265);
-  --outline-variant: oklch(0.4 0.018 265);
-  --text-primary: oklch(0.975 0.004 265);
-  --text-secondary: oklch(0.745 0.014 265);
-  --text-tertiary: oklch(0.622 0.017 265); /* .56 failed dark, .602 failed on hover */
-  --accent: var(--ar-magenta);
-  --accent-bright: oklch(0.65 0.22 330); /* lifted from .64 — 4.42:1 on hover */
-  --accent-hover: oklch(0.7 0.21 330);
-  --accent-muted: oklch(0.64 0.22 330 / 0.3);
-  --accent-soft: oklch(0.64 0.22 330 / 0.14);
-  --accent-ring: oklch(0.64 0.22 330 / 0.4);
-  --primary: var(--ar-magenta);
-  --primary-foreground: oklch(0.99 0 0);
-  --ring: var(--ar-magenta);
-  --background: oklch(0.145 0.006 265);
-}
-
-[data-theme='archon'][data-mode='light'] .console-root {
-  /* Same inversion as the Linear light block above — see the note there. */
-  --surface: oklch(0.998 0.001 320);
-  --surface-inset: oklch(0.955 0.006 320);
-  --surface-elevated: oklch(1 0 0);
-  --surface-hover: oklch(0.94 0.008 320);
-  --surface-variant: oklch(0.975 0.004 320);
-  --surface-bright: oklch(0.9 0.008 320);
-  --border: oklch(0.91 0.006 320);
-  --border-bright: oklch(0.8 0.01 320);
-  --outline-variant: oklch(0.7 0.012 320);
-  --text-primary: oklch(0.225 0.01 320);
-  --text-secondary: oklch(0.48 0.012 320);
-  --text-tertiary: oklch(0.526 0.012 320); /* was .62 — 3.2:1 on the inset */
-  --accent: var(--ar-magenta-lt);
-  --accent-bright: var(--ar-magenta-lt);
-  --accent-hover: oklch(0.46 0.22 330);
-  --accent-muted: oklch(0.52 0.21 330 / 0.26);
-  --accent-soft: oklch(0.52 0.21 330 / 0.1);
-  --accent-ring: oklch(0.52 0.21 330 / 0.3);
-  --primary: var(--ar-magenta-lt);
-  --primary-foreground: oklch(1 0 0);
-  --ring: var(--ar-magenta-lt);
-  --background: oklch(0.998 0.001 320);
 }
 
 /* ══ STATUS — distinct from accent so a theme swap cannot break meaning ══
@@ -253,69 +136,33 @@
   --type-task: var(--warning);
 }
 
-/* ══ BRAND ALIASES — a deliberate shim, not the end state ═══════════════
- * 69 references across 18 files name `var(--brand-magenta)` and friends
- * directly, and 31 more use the .brand-bar / .brand-text gradient utilities.
- * A component naming a brand primitive renders THAT COLOUR IN EVERY THEME,
- * which would have made every input in the Linear theme glow magenta on focus.
- *
- * Re-pointing all 100 by hand means editing 29 files, 11 of them in upstream's
- * 90-day hot set — a large conflict surface landing in one merge window.
- * Redefining the primitives per family instead makes all 100 resolve correctly
- * with zero component edits.
- *
- * THIS IS A SHIM. Components still say "brand" when they mean "accent", which
- * is wrong and reads as wrong. Those 29 files are all opened during phases 3
- * and 4; re-point each reference then, while already in the file.
- */
-[data-theme='linear'] .console-root {
-  --brand-magenta: var(--accent);
-  --brand-magenta-2: var(--accent-hover);
-  --brand-violet: var(--accent);
-  --brand-teal: var(--success);
-  --brand-teal-2: var(--success);
-  --brand-blue: var(--running);
-  --brand-green: var(--lbl-olive);
-  /* Decision, 2026-09-19: the duotone gradient is Archon-only. Resolving it to
-     a flat accent here means it CANNOT appear in the Linear theme — the
-     restriction holds by construction rather than by remembering to obey it. */
-  --brand-gradient: var(--accent);
-  --brand-gradient-soft: var(--accent-soft);
+/* ══ BRAND UTILITIES ═══════════════════════════════════════════════════
+   `.brand-text`, `.brand-bar` and `.brand-bar-soft` are defined in theme.css
+   as the three-stop magenta duotone. There is one accent now and it is chosen,
+   so a fixed brand gradient would be the one thing on screen that ignores the
+   theme — which is exactly the bug the deleted alias shim existed to avoid.
+   Re-pointed here rather than edited there: this file loads later at equal
+   specificity, and leaving theme.css untouched keeps the conflict surface with
+   upstream at one import line.
+
+   `.brand-text` clips a background to its glyphs, so it needs a background and
+   not a color — a flat accent still works through background-clip. */
+.console-root .brand-text {
+  background: var(--accent);
 }
-[data-theme='archon'] .console-root {
-  --brand-magenta: var(--ar-magenta);
-  --brand-magenta-2: oklch(0.72 0.2 335);
-  --brand-violet: var(--ar-violet);
-  --brand-teal: var(--ar-teal);
-  --brand-teal-2: oklch(0.7 0.14 175);
-  --brand-blue: oklch(0.72 0.155 245);
-  --brand-green: oklch(0.72 0.17 150);
-  --brand-gradient: linear-gradient(
-    135deg,
-    var(--ar-magenta) 0%,
-    var(--ar-violet) 50%,
-    var(--ar-teal) 100%
-  );
-  --brand-gradient-soft: linear-gradient(
-    135deg,
-    oklch(0.64 0.22 330 / 0.18) 0%,
-    oklch(0.56 0.19 305 / 0.12) 50%,
-    oklch(0.755 0.15 168 / 0.18) 100%
-  );
+.console-root .brand-bar {
+  background: var(--accent);
 }
-[data-theme='archon'][data-mode='light'] .console-root {
-  --brand-magenta: var(--ar-magenta-lt);
-  --brand-gradient: linear-gradient(
-    135deg,
-    var(--ar-magenta-lt) 0%,
-    var(--ar-violet) 50%,
-    var(--ar-teal) 100%
-  );
+.console-root .brand-bar-soft {
+  background: var(--accent-soft);
 }
 
-/* ══ TYPOGRAPHY — one family per theme ═════════════════════════════════
-   theme.css sets Geist on `.console-root`. Same-element override again. */
-[data-theme='linear'] .console-root {
+/* ══ TYPOGRAPHY ════════════════════════════════════════════════════════
+   One family now that the Archon theme is gone. Still written here rather than
+   in theme.css, which sets Geist on `.console-root`: this file wins by loading
+   later at equal specificity, and not editing theme.css keeps the conflict
+   surface with upstream at one import line. */
+.console-root {
   font-family:
     'Inter',
     ui-sans-serif,
@@ -326,11 +173,11 @@
   font-feature-settings: normal;
   letter-spacing: -0.005em;
 }
-[data-theme='linear'] .console-root .font-mono,
-[data-theme='linear'] .console-root code,
-[data-theme='linear'] .console-root pre,
-[data-theme='linear'] .console-root kbd,
-[data-theme='linear'] .console-root samp {
+.console-root .font-mono,
+.console-root code,
+.console-root pre,
+.console-root kbd,
+.console-root samp {
   font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   font-feature-settings: normal;
 }
@@ -372,12 +219,28 @@
   --row-gap: 2px;
   --sec-gap: 18px;
   --hdr-h: 46px;
+  /* Chat geometry. In REM, unlike the rail's pixel values above, because the
+     transcript is the one surface where the text-size control has to move the
+     spacing too — type that grows inside gaps that do not just looks crowded.
+     --msg-gap separates messages WITHIN one sender's group; --group-gap
+     separates one sender from the next, and has to be clearly the larger of
+     the two or the grouping reads as arbitrary line breaks. */
+  --msg-gap: 0.625rem;
+  --group-gap: 1.5rem;
+  --bubble-x: 1rem;
+  --bubble-y: 0.75rem;
+  --chat-pad: 1.75rem;
 }
 [data-density='compact'] {
   --row-y: 3px;
   --row-gap: 1px;
   --sec-gap: 12px;
   --hdr-h: 40px;
+  --msg-gap: 0.3125rem;
+  --group-gap: 0.875rem;
+  --bubble-x: 0.75rem;
+  --bubble-y: 0.5rem;
+  --chat-pad: 1.25rem;
 }
 
 /* FIVE steps, ported from the prototype. 6% apart: small enough that any

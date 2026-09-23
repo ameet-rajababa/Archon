@@ -320,7 +320,7 @@ export function RunStream({
         if (entry.kind === 'message') {
           return (
             <div key={entry.key} className="py-4">
-              <MessageItem message={entry.message} variant="log" />
+              <MessageItem message={entry.message} />
             </div>
           );
         }

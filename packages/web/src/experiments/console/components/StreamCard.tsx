@@ -51,7 +51,7 @@ const KIND_STYLES: Record<StreamCardProps['kind'], KindStyle> = {
     // Top-only teal hairline anchors system rows as framework bookends
     // without shouting. Other sides are intentionally omitted.
     borderClass: 'border-t',
-    borderColor: 'color-mix(in oklch, var(--brand-teal), transparent 55%)',
+    borderColor: 'color-mix(in oklch, var(--success), transparent 55%)',
   },
   tool: {
     label: 'Tool',

@@ -1,6 +1,7 @@
 import { Fragment, type ReactElement } from 'react';
-import { MessageItem } from './MessageItem';
+import { ChatGroup } from './ChatGroup';
 import { ConsoleWorkflowResultCard } from './ConsoleWorkflowResultCard';
+import { groupMessages } from '../primitives/message-groups';
 import { isSystemCategory, type Message } from '../primitives/message';
 
 interface ChatStreamProps {
@@ -11,7 +12,7 @@ interface ChatStreamProps {
 
 /**
  * Message-only stream for the chat view. A pure chat has no RunEvent[] to merge
- * (unlike RunStream); each message renders as a MessageItem.
+ * (unlike RunStream); consecutive messages from one sender render as a group.
  *
  * Tool calls and framework chatter never render here. They belong to the turn,
  * not to the conversation, so ChatStatusStrip lists them under its own
@@ -32,21 +33,26 @@ export function ChatStream({ messages, onAnswer }: ChatStreamProps): ReactElemen
       (!isSystemCategory(m.category) && m.content.trim().length > 0)
   );
 
+  // Grouped AFTER filtering: hidden chatter between two agent messages must not
+  // break them into separate groups, since it never appears on screen.
   return (
-    <div className="flex flex-col gap-[14px]">
-      {visible.map(message => (
-        <Fragment key={message.id}>
-          {message.category === 'workflow_result' && message.workflowResult !== null ? (
-            <ConsoleWorkflowResultCard
-              runId={message.workflowResult.runId}
-              workflowName={message.workflowResult.workflowName}
-              summary={message.content}
-            />
-          ) : (
-            <MessageItem message={message} onAnswer={onAnswer} />
-          )}
-        </Fragment>
-      ))}
+    <div className="flex flex-col gap-[var(--group-gap)]">
+      {groupMessages(visible).map(group => {
+        const first = group.messages[0];
+        return (
+          <Fragment key={group.key}>
+            {first?.category === 'workflow_result' && first.workflowResult !== null ? (
+              <ConsoleWorkflowResultCard
+                runId={first.workflowResult.runId}
+                workflowName={first.workflowResult.workflowName}
+                summary={first.content}
+              />
+            ) : (
+              <ChatGroup group={group} onAnswer={onAnswer} />
+            )}
+          </Fragment>
+        );
+      })}
     </div>
   );
 }

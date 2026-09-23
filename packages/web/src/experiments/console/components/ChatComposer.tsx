@@ -228,7 +228,7 @@ export function ChatComposer({
 
   return (
     <div
-      className="shrink-0 border-t border-border bg-surface px-[30px] py-[14px]"
+      className="shrink-0 border-t border-border bg-surface px-[var(--chat-pad)] py-[var(--bubble-y)]"
       title={disabledReason}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
@@ -236,15 +236,15 @@ export function ChatComposer({
     >
       <div className="mx-auto max-w-[940px]">
         {files.length > 0 ? (
-          <div className="mb-[10px] flex flex-wrap gap-[6px]">
+          <div className="mb-[10px] flex flex-wrap gap-[0.375rem]">
             {files.map((f, i) => (
               <span
                 key={`${f.name}-${String(i)}`}
-                className="flex items-center gap-[6px] rounded-[8px] border bg-[color:var(--surface-elevated)] py-[4px] pl-[9px] pr-[5px] text-[11.5px]"
+                className="flex items-center gap-[0.375rem] rounded-[var(--radius-card)] border bg-[color:var(--surface-elevated)] py-[0.25rem] pl-[9px] pr-[5px] text-[length:var(--text-small)]"
                 style={{ borderColor: 'var(--border-bright)' }}
               >
                 <span className="max-w-[180px] truncate text-text-primary">{f.name}</span>
-                <span className="font-mono text-[10px] text-text-tertiary">
+                <span className="font-mono text-[length:var(--text-micro)] text-text-tertiary">
                   {formatBytes(f.size)}
                 </span>
                 <button
@@ -253,9 +253,9 @@ export function ChatComposer({
                     removeFile(i);
                   }}
                   aria-label={`Remove ${f.name}`}
-                  className="rounded p-[1px] text-text-tertiary transition-colors hover:bg-[color:var(--surface-hover)] hover:text-text-primary"
+                  className="rounded p-[0.0625rem] text-text-tertiary transition-colors hover:bg-[color:var(--surface-hover)] hover:text-text-primary"
                 >
-                  <span aria-hidden className="text-[11px] leading-none">
+                  <span aria-hidden className="text-[length:var(--text-micro)] leading-none">
                     ✕
                   </span>
                 </button>
@@ -264,23 +264,23 @@ export function ChatComposer({
           </div>
         ) : null}
         {fileError !== null ? (
-          <div className="mb-[8px] font-mono text-[11px] text-error">{fileError}</div>
+          <div className="mb-[8px] font-mono text-[length:var(--text-micro)] text-error">
+            {fileError}
+          </div>
         ) : null}
         <div
-          className={`flex items-end gap-[10px] rounded-[14px] border bg-[color:var(--surface-elevated)] py-[8px] pl-[14px] pr-[8px] transition-[border-color,box-shadow] focus-within:border-[color:color-mix(in_oklch,var(--brand-magenta),transparent_40%)] focus-within:shadow-[0_0_0_4px_color-mix(in_oklch,var(--brand-magenta),transparent_92%)]${
-            dragging
-              ? ' shadow-[0_0_0_4px_color-mix(in_oklch,var(--brand-magenta),transparent_92%)]'
-              : ''
+          className={`flex items-end gap-[0.625rem] rounded-[var(--radius-panel)] border bg-[color:var(--surface-elevated)] py-[0.5rem] pl-[14px] pr-[8px] transition-[border-color,box-shadow] focus-within:border-[color:color-mix(in_oklch,var(--accent),transparent_40%)] focus-within:shadow-[0_0_0_4px_color-mix(in_oklch,var(--accent),transparent_92%)]${
+            dragging ? ' shadow-[0_0_0_4px_color-mix(in_oklch,var(--accent),transparent_92%)]' : ''
           }`}
           style={{
             // Inline, because the inline border-color would otherwise win over
             // any class-based drag state.
             borderColor: dragging
-              ? 'color-mix(in oklch, var(--brand-magenta), transparent 40%)'
+              ? 'color-mix(in oklch, var(--accent), transparent 40%)'
               : 'var(--border-bright)',
           }}
         >
-          <div className="flex shrink-0 items-end gap-[6px] pb-[7px] text-text-tertiary">
+          <div className="flex shrink-0 items-end gap-[0.375rem] pb-[7px] text-text-tertiary">
             <button
               type="button"
               onClick={() => {
@@ -309,7 +309,7 @@ export function ChatComposer({
               aria-label="Commands"
               disabled
               title="Commands (coming soon)"
-              className="flex h-[22px] items-center justify-center rounded-md px-[2px] text-[17px] leading-none transition-colors hover:bg-[color:var(--surface-hover)] hover:text-text-primary disabled:cursor-default disabled:opacity-50"
+              className="flex h-[22px] items-center justify-center rounded-md px-[0.125rem] text-[length:var(--text-large)] leading-none transition-colors hover:bg-[color:var(--surface-hover)] hover:text-text-primary disabled:cursor-default disabled:opacity-50"
             >
               /
             </button>
@@ -326,7 +326,7 @@ export function ChatComposer({
             onPaste={onPaste}
             rows={1}
             placeholder={placeholder}
-            className="min-h-0 flex-1 resize-none bg-transparent py-[7px] text-[14.5px] leading-[1.5] text-text-primary placeholder:text-text-tertiary focus:outline-none disabled:opacity-50"
+            className="min-h-0 flex-1 resize-none bg-transparent py-[0.4375rem] text-[length:var(--text-medium)] leading-[1.5] text-text-primary placeholder:text-text-tertiary focus:outline-none disabled:opacity-50"
             style={{ maxHeight: `${MAX_HEIGHT.toString()}px` }}
           />
           <button
@@ -334,26 +334,26 @@ export function ChatComposer({
             onClick={submit}
             disabled={disabled || value.trim().length === 0}
             title="Send · Enter"
-            className="brand-bar flex h-[36px] shrink-0 items-center gap-[7px] rounded-[10px] px-[15px] text-[13px] font-bold text-white shadow-[0_6px_18px_-8px_color-mix(in_oklch,var(--brand-magenta),transparent_30%)] transition-[filter,transform] hover:brightness-110 active:translate-y-[1px] disabled:opacity-45 disabled:shadow-none disabled:hover:brightness-100"
+            className="brand-bar flex h-[36px] shrink-0 items-center gap-[0.4375rem] rounded-[var(--radius-panel)] px-[var(--bubble-x)] text-[length:var(--text-body)] font-bold text-white shadow-[0_6px_18px_-8px_color-mix(in_oklch,var(--accent),transparent_30%)] transition-[filter,transform] hover:brightness-110 active:translate-y-[1px] disabled:opacity-45 disabled:shadow-none disabled:hover:brightness-100"
           >
             Send
-            <span aria-hidden className="font-mono text-[10px] opacity-70">
+            <span aria-hidden className="font-mono text-[length:var(--text-micro)] opacity-70">
               ↵
             </span>
           </button>
         </div>
-        <div className="mt-[9px] flex items-center justify-between px-[2px] font-mono text-[11px] text-text-tertiary">
+        <div className="mt-[9px] flex items-center justify-between px-[0.125rem] font-mono text-[length:var(--text-micro)] text-text-tertiary">
           <span />
           <span>
             <span
-              className="mr-1 inline-flex items-center rounded border px-[5px] py-[1px] font-mono text-[10.5px] text-text-secondary"
+              className="mr-1 inline-flex items-center rounded border px-[0.3125rem] py-[0.0625rem] font-mono text-[length:var(--text-micro)] text-text-secondary"
               style={{ borderColor: 'var(--border-bright)' }}
             >
               ↵
             </span>
             send{' '}
             <span
-              className="ml-1 inline-flex items-center rounded border px-[5px] py-[1px] font-mono text-[10.5px] text-text-secondary"
+              className="ml-1 inline-flex items-center rounded border px-[0.3125rem] py-[0.0625rem] font-mono text-[length:var(--text-micro)] text-text-secondary"
               style={{ borderColor: 'var(--border-bright)' }}
             >
               ⇧↵

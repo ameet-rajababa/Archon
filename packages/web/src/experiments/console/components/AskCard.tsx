@@ -43,7 +43,7 @@ const PRIMARY_BUTTON =
 function primaryStyle(disabled: boolean): CSSProperties {
   return disabled
     ? { background: 'var(--surface-bright)', color: 'var(--text-tertiary)' }
-    : { background: 'var(--brand-magenta)', color: 'var(--background)' };
+    : { background: 'var(--accent)', color: 'var(--background)' };
 }
 
 /** Keycap letters. Ten options is far past the point the list stops being readable. */
@@ -437,7 +437,7 @@ function QuestionBlock({
         {question.allowOwn === false || readOnly ? null : ownOpen ? (
           <div
             className="grid grid-cols-[30px_1fr] items-start gap-x-3 gap-y-[3px] rounded-lg border px-3.5 py-3"
-            style={{ borderColor: 'var(--brand-magenta)' }}
+            style={{ borderColor: 'var(--accent)' }}
           >
             <Keycap slot={ownSlot} tone="chosen" />
             <span className="text-[14.5px] font-semibold text-text-primary">Your own answer</span>
@@ -533,9 +533,9 @@ function Keycap({
       style={{
         borderColor:
           tone === 'recommended'
-            ? 'color-mix(in oklch, var(--brand-teal), transparent 45%)'
+            ? 'color-mix(in oklch, var(--success), transparent 45%)'
             : tone === 'chosen'
-              ? 'var(--brand-magenta)'
+              ? 'var(--accent)'
               : 'var(--border-bright)',
       }}
     >
@@ -568,14 +568,14 @@ function OptionRow({
   // Chosen wins over recommended: once the user has picked, the card should
   // show what they decided, not keep arguing for the suggestion.
   const borderColor = chosen
-    ? 'var(--brand-magenta)'
+    ? 'var(--accent)'
     : recommended
-      ? 'color-mix(in oklch, var(--brand-teal), transparent 55%)'
+      ? 'color-mix(in oklch, var(--success), transparent 55%)'
       : 'var(--border)';
   const background = chosen
-    ? 'color-mix(in oklch, var(--brand-magenta), var(--surface-elevated) 90%)'
+    ? 'color-mix(in oklch, var(--accent), var(--surface-elevated) 90%)'
     : recommended
-      ? 'color-mix(in oklch, var(--brand-teal), var(--surface-elevated) 94%)'
+      ? 'color-mix(in oklch, var(--success), var(--surface-elevated) 94%)'
       : 'var(--surface-elevated)';
 
   return (

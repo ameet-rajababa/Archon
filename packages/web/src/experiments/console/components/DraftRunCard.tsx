@@ -344,8 +344,8 @@ export function DraftRunCard({ projectId, projectCwd }: DraftRunCardProps): Reac
         // strip is painted as an absolute child so the card can keep
         // `overflow: visible` (the workflow picker's dropdown escapes these
         // bounds). Glow per design (.draft-card box-shadow).
-        borderColor: 'color-mix(in oklch, var(--brand-magenta), transparent 60%)',
-        boxShadow: '0 10px 36px -18px color-mix(in oklch, var(--brand-magenta), transparent 50%)',
+        borderColor: 'color-mix(in oklch, var(--accent), transparent 60%)',
+        boxShadow: '0 10px 36px -18px color-mix(in oklch, var(--accent), transparent 50%)',
       }}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
@@ -631,7 +631,7 @@ export function DraftRunCard({ projectId, projectCwd }: DraftRunCardProps): Reac
                   ? `Fill in ${missingRequired.join(', ')} first`
                   : undefined
               }
-              className="brand-bar flex items-center gap-1.5 rounded-[9px] px-[15px] py-[9px] text-[13px] font-bold text-white shadow-[0_6px_18px_-8px_color-mix(in_oklch,var(--brand-magenta),transparent_30%)] transition-all hover:-translate-y-px hover:brightness-110 active:brightness-95 disabled:translate-y-0 disabled:opacity-50 disabled:shadow-none"
+              className="brand-bar flex items-center gap-1.5 rounded-[9px] px-[15px] py-[9px] text-[13px] font-bold text-white shadow-[0_6px_18px_-8px_color-mix(in_oklch,var(--accent),transparent_30%)] transition-all hover:-translate-y-px hover:brightness-110 active:brightness-95 disabled:translate-y-0 disabled:opacity-50 disabled:shadow-none"
             >
               {submitting ? 'Starting…' : 'Start run'}
               <span aria-hidden className="text-[10px] leading-none opacity-80">

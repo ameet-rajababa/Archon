@@ -26,7 +26,6 @@ import {
 } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router';
 import { Settings, PenTool, type LucideIcon } from 'lucide-react';
-import { AgentAvatar } from './AgentAvatar';
 import { ProjectRow } from './ProjectRow';
 import { ProjectCountHeader } from './ProjectCountCells';
 import type { RunCounts } from '../skills';
@@ -390,13 +389,6 @@ export function ProjectRail({ onAddProject, onSearch }: ProjectRailProps): React
                 Archon
               </span>
             </button>
-            {/* Archon's own face, on Archon's own row — the same panel the
-                project rows open, pointed at the assistant instead. Hidden
-                when collapsed, like every other label in the rail: the toggle
-                is the only thing that survives a collapse. */}
-            <span className="rail-hide">
-              <AgentAvatar size={18} />
-            </span>
           </div>
           {/* A ROW, not a text field. The box was permanent chrome for something
             done occasionally, and the palette already jumps to a project by

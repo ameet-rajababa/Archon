@@ -1,11 +1,8 @@
 import { type ReactElement } from 'react';
 import { SettingsSection } from './SettingsSection';
-import {
-  setAppearance,
-  useAppearance,
-  type ModePref,
-  type ThemeName,
-} from '../../../theme/appearance';
+import { setAppearance, useAppearance, type ThemeChoice } from '../../../theme/appearance';
+import { PRESETS } from '../../../theme/presets';
+import { ThemeCustomiser } from './ThemeCustomiser';
 import {
   formatClockIn,
   getClockFormat,
@@ -19,15 +16,17 @@ const CLOCK_OPTIONS: readonly { value: ClockFormat; label: string }[] = [
   { value: '24', label: '24-hour' },
 ];
 
-const THEME_OPTIONS: readonly { value: ThemeName; label: string }[] = [
-  { value: 'linear', label: 'Linear' },
-  { value: 'archon', label: 'Archon' },
-];
-
-const MODE_OPTIONS: readonly { value: ModePref; label: string }[] = [
-  { value: 'light', label: 'Light' },
-  { value: 'dark', label: 'Dark' },
-  { value: 'system', label: 'System' },
+/**
+ * One flat list, not a theme axis crossed with a mode axis.
+ *
+ * `System` can sit beside the named palettes because a background IS a
+ * polarity — see the note in theme/appearance.ts. It leads because it is the
+ * default, and `Custom` trails because it opens three more controls.
+ */
+const THEME_OPTIONS: readonly { value: ThemeChoice; label: string }[] = [
+  { value: 'system', label: 'System preference' },
+  ...PRESETS.map(p => ({ value: p.id as ThemeChoice, label: p.label })),
+  { value: 'custom', label: 'Custom' },
 ];
 
 /**
@@ -137,19 +136,28 @@ export function AppearancePanel(): ReactElement {
   return (
     <SettingsSection title="Appearance">
       <Row
-        title="Theme"
-        hint="Linear is a restrained neutral palette. Archon carries the brand magenta and its gradient."
+        title="Interface theme"
+        hint="Every theme is generated from an accent, a background and a contrast. Light or dark follows the background."
         divided={false}
       >
-        <Segmented
-          label="Theme"
-          options={THEME_OPTIONS}
-          active={appearance.theme}
-          onPick={theme => {
-            setAppearance({ theme });
+        {/* A select, not the Segmented control the other rows use: seven
+            options do not fit on one line, and the list grows with presets. */}
+        <select
+          aria-label="Interface theme"
+          value={appearance.theme}
+          onChange={e => {
+            setAppearance({ theme: e.target.value as ThemeChoice });
           }}
-        />
+          className="shrink-0 rounded-[8px] border border-border bg-surface-inset px-2.5 py-1 font-mono text-[11px] text-text-primary transition-colors hover:border-border-bright"
+        >
+          {THEME_OPTIONS.map(o => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
       </Row>
+      {appearance.theme === 'custom' ? <ThemeCustomiser value={appearance.custom} /> : null}
       <Row
         title="Text size"
         hint="Scales the whole interface, not just the text. Five steps, 6% apart."
@@ -173,16 +181,6 @@ export function AppearancePanel(): ReactElement {
           active={appearance.density}
           onPick={density => {
             setAppearance({ density });
-          }}
-        />
-      </Row>
-      <Row title="Mode" hint="System follows your operating system, and changes with it.">
-        <Segmented
-          label="Mode"
-          options={MODE_OPTIONS}
-          active={appearance.mode}
-          onPick={mode => {
-            setAppearance({ mode });
           }}
         />
       </Row>

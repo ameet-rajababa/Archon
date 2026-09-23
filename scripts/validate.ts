@@ -57,6 +57,11 @@ export const VALIDATE_CHECKS: readonly ValidateCheck[] = [
     command: ['bun', 'run', 'check:capability-matrix'],
   },
   {
+    id: 'theme-css',
+    label: 'Theme preset CSS is regenerated',
+    command: ['bun', 'run', 'check:theme-css'],
+  },
+  {
     id: 'api-types',
     label: 'Generated API types match the schemas',
     command: ['bun', 'run', 'check:api-types'],

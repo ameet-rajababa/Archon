@@ -195,7 +195,7 @@ export function AddProjectDialog({
           {isGit ? 'Repository URL' : 'Local folder path'}
         </label>
         <div
-          className="flex h-[46px] items-center gap-2.5 rounded-[11px] border bg-surface px-3.5 transition-all focus-within:shadow-[0_0_0_4px_color-mix(in_oklch,var(--brand-magenta),transparent_91%)]"
+          className="flex h-[46px] items-center gap-2.5 rounded-[11px] border bg-surface px-3.5 transition-all focus-within:shadow-[0_0_0_4px_color-mix(in_oklch,var(--accent),transparent_91%)]"
           style={{ borderColor: 'var(--border-bright)' }}
         >
           <span aria-hidden className="flex text-text-tertiary">
@@ -256,7 +256,7 @@ export function AddProjectDialog({
           <button
             type="submit"
             disabled={submitting || value.trim().length === 0}
-            className="brand-bar inline-flex items-center gap-[7px] rounded-[10px] px-[18px] py-2.5 text-[13px] font-bold text-white shadow-[0_8px_22px_-10px_color-mix(in_oklch,var(--brand-magenta),transparent_20%)] transition-all hover:-translate-y-px hover:brightness-110 disabled:translate-y-0 disabled:opacity-45 disabled:shadow-none"
+            className="brand-bar inline-flex items-center gap-[7px] rounded-[10px] px-[18px] py-2.5 text-[13px] font-bold text-white shadow-[0_8px_22px_-10px_color-mix(in_oklch,var(--accent),transparent_20%)] transition-all hover:-translate-y-px hover:brightness-110 disabled:translate-y-0 disabled:opacity-45 disabled:shadow-none"
           >
             <span aria-hidden className="text-[14px] leading-none">
               +

@@ -15,45 +15,75 @@
       /* Appearance, applied BEFORE first paint. An imported module cannot run
          before the bundle loads, so this logic is deliberately duplicated from
          src/theme/appearance.ts rather than imported — keep the two in step.
-         Without it every reload flashes the wrong theme. */
+         Without it every reload flashes the wrong theme.
+
+         It resolves which theme, never what the theme LOOKS like: the five
+         presets are compiled into presets.generated.css, and a custom theme
+         needs only its stored background hex to paint the flash guard. No
+         colour maths runs here. */
       (function () {
-        var d = { theme: 'linear', mode: 'system', text: 'm', density: 'comfortable' };
+        var PRESETS = {
+          'pure-light': '#FFFFFF',
+          light: '#F4F5F7',
+          dark: '#090A0C',
+          'classic-dark': '#1A1A1A',
+          'magic-blue': '#191A22',
+        };
+        var LIGHT_PRESET = 'light';
+        var DARK_PRESET = 'dark';
+        var d = { theme: 'system', custom: { background: '#090A0C' }, text: 'm', density: 'comfortable' };
         var a = d;
         try {
           var raw = localStorage.getItem('archon.console.appearance');
           if (raw) {
             var p = JSON.parse(raw);
             if (p && typeof p === 'object') {
+              var t = p.theme;
+              /* Migrate the old {theme, mode} pair. The Archon family is gone,
+                 so only its polarity can be carried across. */
+              if (t === 'archon' || t === 'linear') {
+                t = p.mode === 'light' ? 'light' : p.mode === 'dark' ? 'dark' : 'system';
+              }
+              var known = t === 'system' || t === 'custom' || PRESETS[t] !== undefined;
               a = {
-                theme: p.theme === 'archon' || p.theme === 'linear' ? p.theme : d.theme,
-                mode:
-                  p.mode === 'light' || p.mode === 'dark' || p.mode === 'system' ? p.mode : d.mode,
-                text:
-                  p.text === 'small' || p.text === 'default' || p.text === 'large'
-                    ? p.text
-                    : d.text,
+                theme: known ? t : d.theme,
+                custom:
+                  p.custom && /^#[0-9a-fA-F]{6}$/.test(p.custom.background)
+                    ? p.custom
+                    : d.custom,
+                text: p.text,
+                density: p.density,
               };
             }
           }
         } catch (e) {
           a = d;
         }
-        var mode = a.mode;
-        if (mode === 'system') {
-          mode = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        var theme = a.theme;
+        if (theme === 'system') {
+          theme = window.matchMedia('(prefers-color-scheme: dark)').matches
+            ? DARK_PRESET
+            : LIGHT_PRESET;
         }
+        var bg = theme === 'custom' ? a.custom.background : PRESETS[theme];
+        /* Polarity from the background's own lightness, the same rule
+           generate.ts applies — not a stored mode that could disagree with it.
+           Rec. 601 luma is enough for a threshold test and needs no oklch. */
+        var n = parseInt(bg.slice(1), 16);
+        var luma =
+          (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
         var r = document.documentElement;
-        r.dataset.theme = a.theme;
-        r.dataset.mode = mode;
+        r.dataset.theme = theme;
+        r.dataset.mode = luma < 0.5 ? 'dark' : 'light';
         /* Coerce: a value stored by the old three-step scale ('default') no
            longer matches any [data-text] rule, which leaves --ui-scale unset
            and the whole UI at 16px until the app hydrates. */
         var sizes = ['xs', 's', 'm', 'l', 'xl'];
         r.dataset.text = sizes.indexOf(a.text) === -1 ? 'm' : a.text;
         r.dataset.density = a.density === 'compact' ? 'compact' : 'comfortable';
-        /* Paint the page background immediately. A hardcoded dark hex here used
-           to guarantee a dark flash on the way into light mode. */
-        r.style.background = mode === 'dark' ? '#111216' : '#ffffff';
+        /* Paint the real background immediately. A hardcoded hex here used to
+           guarantee a flash on the way into any theme that was not it. */
+        r.style.background = bg;
       })();
     </script>
   </head>

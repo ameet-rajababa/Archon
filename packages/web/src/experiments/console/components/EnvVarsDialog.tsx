@@ -230,7 +230,7 @@ function EnvVarsBody({ projectId, projectName, onClose }: BodyProps): ReactEleme
               placeholder="NAME"
               autoFocus
               spellCheck={false}
-              className="w-[40%] rounded-lg border bg-surface-elevated px-[11px] py-[9px] font-mono text-[13px] tracking-[0.03em] text-text-primary placeholder:tracking-normal placeholder:text-text-tertiary focus:border-accent-bright/50 focus:outline-none focus:shadow-[0_0_0_3px_color-mix(in_oklch,var(--brand-magenta),transparent_92%)]"
+              className="w-[40%] rounded-lg border bg-surface-elevated px-[11px] py-[9px] font-mono text-[13px] tracking-[0.03em] text-text-primary placeholder:tracking-normal placeholder:text-text-tertiary focus:border-accent-bright/50 focus:outline-none focus:shadow-[0_0_0_3px_color-mix(in_oklch,var(--accent),transparent_92%)]"
               style={{ borderColor: 'var(--border-bright)' }}
             />
             <input
@@ -243,7 +243,7 @@ function EnvVarsBody({ projectId, projectName, onClose }: BodyProps): ReactEleme
               onKeyDown={onAddKeyKey}
               placeholder="value (encrypted at rest)"
               spellCheck={false}
-              className="min-w-0 flex-1 rounded-lg border bg-surface-elevated px-[11px] py-[9px] font-mono text-[13px] text-text-primary placeholder:text-text-tertiary focus:border-accent-bright/50 focus:outline-none focus:shadow-[0_0_0_3px_color-mix(in_oklch,var(--brand-magenta),transparent_92%)]"
+              className="min-w-0 flex-1 rounded-lg border bg-surface-elevated px-[11px] py-[9px] font-mono text-[13px] text-text-primary placeholder:text-text-tertiary focus:border-accent-bright/50 focus:outline-none focus:shadow-[0_0_0_3px_color-mix(in_oklch,var(--accent),transparent_92%)]"
               style={{ borderColor: 'var(--border-bright)' }}
             />
           </div>

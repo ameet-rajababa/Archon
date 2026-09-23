@@ -64,9 +64,9 @@ function ToolCallItemImpl({ call, timestamp }: ToolCallItemProps): ReactElement 
           // Inline because the console scope's wildcard border-color rule
           // repaints Tailwind border utilities (see theme.css).
           style={{
-            color: 'var(--brand-violet)',
-            background: 'color-mix(in oklch, var(--brand-violet), transparent 86%)',
-            borderColor: 'color-mix(in oklch, var(--brand-violet), transparent 70%)',
+            color: 'var(--accent)',
+            background: 'color-mix(in oklch, var(--accent), transparent 86%)',
+            borderColor: 'color-mix(in oklch, var(--accent), transparent 70%)',
           }}
         >
           Tool

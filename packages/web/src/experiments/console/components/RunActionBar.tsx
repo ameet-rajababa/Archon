@@ -78,7 +78,7 @@ export function RunActionBar({ run }: RunActionBarProps): ReactElement | null {
               type="button"
               onClick={() => void call('resume')}
               disabled={busy !== null}
-              className="brand-bar rounded-[9px] px-5 py-2.5 text-[13px] font-bold text-white shadow-[0_6px_18px_-8px_color-mix(in_oklch,var(--brand-magenta),transparent_20%)] transition-all hover:-translate-y-px hover:brightness-110 disabled:translate-y-0 disabled:opacity-50 disabled:shadow-none"
+              className="brand-bar rounded-[9px] px-5 py-2.5 text-[13px] font-bold text-white shadow-[0_6px_18px_-8px_color-mix(in_oklch,var(--accent),transparent_20%)] transition-all hover:-translate-y-px hover:brightness-110 disabled:translate-y-0 disabled:opacity-50 disabled:shadow-none"
             >
               {busy === 'resume' ? 'Resuming…' : 'Resume'}
             </button>

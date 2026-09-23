@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import './index.css';
 import './theme/tokens.css';
+import './theme/presets.generated.css';
 import { applyAppearance, watchSystemMode } from './theme/appearance';
 
 // index.html already applied the stored appearance before first paint. Re-apply
