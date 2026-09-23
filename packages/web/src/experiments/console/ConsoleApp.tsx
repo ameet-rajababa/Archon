@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactElement } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useState, type ReactElement } from 'react';
 import { Navigate, Routes, Route, useLocation, useNavigate } from 'react-router';
 import { ProjectRail } from './components/ProjectRail';
 import { AddProjectDialog } from './components/AddProjectDialog';
@@ -10,6 +10,14 @@ import { ProjectLayout } from './routes/ProjectLayout';
 import { RunDetailPage } from './routes/RunDetailPage';
 import { ChatPage } from './routes/ChatPage';
 import { FilesPage } from './routes/FilesPage';
+// v2 is lazy on purpose: react-arborist + CodeMirror are ~160 kB gzip, and a
+// session that never opens the tab must not pay for them. This import is the
+// only thing keeping them out of the initial bundle.
+/* eslint-disable-next-line @typescript-eslint/naming-convention --
+   A lazily-imported component has to be a module-level const (calling lazy()
+   per render would remount the chunk every time), and JSX requires the
+   PascalCase name the `variable` rule forbids. */
+const FilesV2Page = lazy(() => import('./routes/FilesV2Page'));
 import { IssuesPage } from './routes/IssuesPage';
 import { OverviewPage } from './routes/OverviewPage';
 import { PreviewPage } from './routes/PreviewPage';
@@ -128,6 +136,20 @@ export function ConsoleApp(): ReactElement {
               <Route path="p/:projectId/chat" element={<ChatPage />} />
               <Route path="p/:projectId/issues" element={<IssuesPage />} />
               <Route path="p/:projectId/files" element={<FilesPage />} />
+              <Route
+                path="p/:projectId/files-v2"
+                element={
+                  <Suspense
+                    fallback={
+                      <p className="px-6 py-4 font-mono text-[12px] text-text-tertiary">
+                        Loading the v2 viewer...
+                      </p>
+                    }
+                  >
+                    <FilesV2Page />
+                  </Suspense>
+                }
+              />
               <Route path="p/:projectId/overview" element={<OverviewPage />} />
               <Route path="p/:projectId/r/:runId" element={<RunDetailPage />} />
             </Route>
