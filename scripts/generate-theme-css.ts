@@ -23,6 +23,7 @@
  */
 import { readFile, writeFile } from 'fs/promises';
 import { join, resolve } from 'path';
+import prettier from 'prettier';
 import { generateTheme, polarityOf, tokensToCss } from '../packages/web/src/theme/generate';
 import { PRESETS } from '../packages/web/src/theme/presets';
 
@@ -30,6 +31,15 @@ const REPO_ROOT = resolve(import.meta.dir, '..');
 const OUTPUT_PATH = join(REPO_ROOT, 'packages/web/src/theme/presets.generated.css');
 const CHECK_ONLY = process.argv.includes('--check');
 
+/**
+ * The output is run through Prettier rather than hand-matched to it.
+ *
+ * `bun run validate` checks formatting across the repo, so a generated file
+ * that does not conform fails the gate on every run and cannot be fixed by
+ * editing it — the next regeneration puts it back. Guessing the rules is the
+ * same trap one step removed: Prettier lowercases CSS hex today and may
+ * normalise something else tomorrow. Asking it directly cannot drift.
+ */
 function build(): string {
   const blocks = PRESETS.map(preset => {
     const tokens = generateTheme(preset);
@@ -50,7 +60,9 @@ function build(): string {
 }
 
 async function main(): Promise<void> {
-  const contents = build();
+  const raw = build();
+  const options = await prettier.resolveConfig(OUTPUT_PATH);
+  const contents = await prettier.format(raw, { ...options, filepath: OUTPUT_PATH });
   if (CHECK_ONLY) {
     let existing: string | null = null;
     try {

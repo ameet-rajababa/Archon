@@ -7,14 +7,22 @@
  *
  * Names, not hex: the server stores the name and the UI owns the rendering, so
  * re-theming never has to rewrite stored rows.
+ *
+ * EVERY TOKEN COMES FROM THE LABEL PALETTE, and none from --accent or a status
+ * colour. Six labels only work if they stay mutually distinguishable, and a
+ * label borrowing a token that answers to something else cannot promise that:
+ * pointing magenta and violet at --accent rendered them the same pixel, and
+ * amber on --warning would have followed a status retune into green. The
+ * --lbl-* ramp in tokens.css exists for this and answers to nothing else.
+ * `conversation.test.ts` fails if any two share a token.
  */
 export const CONVERSATION_COLORS = [
-  { value: 'magenta', label: 'Magenta', token: 'var(--brand-magenta)' },
-  { value: 'violet', label: 'Violet', token: 'var(--brand-violet)' },
-  { value: 'blue', label: 'Blue', token: 'var(--brand-blue)' },
-  { value: 'green', label: 'Green', token: 'var(--brand-green)' },
-  { value: 'amber', label: 'Amber', token: 'var(--warning)' },
-  { value: 'red', label: 'Red', token: 'var(--error)' },
+  { value: 'magenta', label: 'Magenta', token: 'var(--lbl-plum)' },
+  { value: 'violet', label: 'Violet', token: 'var(--lbl-violet)' },
+  { value: 'blue', label: 'Blue', token: 'var(--lbl-blue)' },
+  { value: 'green', label: 'Green', token: 'var(--lbl-olive)' },
+  { value: 'amber', label: 'Amber', token: 'var(--lbl-amber)' },
+  { value: 'red', label: 'Red', token: 'var(--lbl-rose)' },
 ] as const;
 
 export type ConversationColor = (typeof CONVERSATION_COLORS)[number]['value'];

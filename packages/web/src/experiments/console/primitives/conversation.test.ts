@@ -4,6 +4,7 @@ import {
   byArrangement,
   byMostRecent,
   colorToken,
+  CONVERSATION_COLORS,
   conversationLabel,
   conversationMonogram,
   matchesFilter,
@@ -86,13 +87,30 @@ describe('parseConversationColor', () => {
 
 describe('colorToken', () => {
   test('maps a color to a design token, never a raw hex', () => {
-    expect(colorToken('magenta')).toBe('var(--brand-magenta)');
-    expect(colorToken('blue')).toBe('var(--brand-blue)');
-    expect(colorToken('green')).toBe('var(--brand-green)');
+    expect(colorToken('magenta')).toBe('var(--lbl-plum)');
+    expect(colorToken('blue')).toBe('var(--lbl-blue)');
+    expect(colorToken('green')).toBe('var(--lbl-olive)');
   });
 
   test('no color maps to no token', () => {
     expect(colorToken(null)).toBeNull();
+  });
+
+  // Six labels are only useful while they stay telling apart. Pointing two of
+  // them at the same token is a one-character mistake that looks fine in a
+  // diff and renders as two identical dots — which is exactly what happened
+  // when magenta and violet were both re-pointed at --accent.
+  test('no two colors share a token', () => {
+    const tokens = CONVERSATION_COLORS.map(c => c.token);
+    expect(new Set(tokens).size).toBe(tokens.length);
+  });
+
+  // A label must answer to nothing but itself. On --warning or --accent it
+  // follows a status or theme retune somewhere it was never meant to go.
+  test('every token comes from the label palette', () => {
+    for (const { value, token } of CONVERSATION_COLORS) {
+      expect(`${value}: ${token}`).toMatch(/: var\(--lbl-[a-z]+\)$/);
+    }
   });
 });
 

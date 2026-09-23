@@ -6,104 +6,104 @@
 /* Pure Light — accent #5E6AD2, background #FFFFFF, contrast 95 */
 [data-theme='pure-light'] .console-root {
   color-scheme: light;
-  --surface-inset: #EFF1F5;
-  --surface: #FFFFFF;
-  --surface-elevated: #FBFEFF;
-  --surface-variant: #F1F3F8;
-  --surface-hover: #EBEDF1;
-  --surface-bright: #DCDEE2;
-  --border: #E1E3E7;
-  --border-bright: #B5B7BB;
-  --outline-variant: #84868A;
-  --text-tertiary: #6A6B6E;
-  --text-secondary: #5C5D60;
-  --text-primary: #1A1B1C;
-  --background: #FFFFFF;
-  --accent: #5E6AD2;
-  --accent-bright: #5661C8;
-  --accent-hover: #4E58BE;
+  --surface-inset: #eff1f5;
+  --surface: #ffffff;
+  --surface-elevated: #fbfeff;
+  --surface-variant: #f1f3f8;
+  --surface-hover: #ebedf1;
+  --surface-bright: #dcdee2;
+  --border: #e1e3e7;
+  --border-bright: #b5b7bb;
+  --outline-variant: #84868a;
+  --text-tertiary: #6a6b6e;
+  --text-secondary: #5c5d60;
+  --text-primary: #1a1b1c;
+  --background: #ffffff;
+  --accent: #5e6ad2;
+  --accent-bright: #5661c8;
+  --accent-hover: #4e58be;
 }
 
 /* Light — accent #5E6AD2, background #F4F5F7, contrast 92 */
 [data-theme='light'] .console-root {
   color-scheme: light;
-  --surface-inset: #E6E7E9;
-  --surface: #F4F5F7;
-  --surface-elevated: #F2F3F5;
-  --surface-variant: #E9EAEC;
-  --surface-hover: #E2E3E5;
-  --surface-bright: #D4D5D7;
-  --border: #D9DADC;
-  --border-bright: #AFB0B2;
+  --surface-inset: #e6e7e9;
+  --surface: #f4f5f7;
+  --surface-elevated: #f2f3f5;
+  --surface-variant: #e9eaec;
+  --surface-hover: #e2e3e5;
+  --surface-bright: #d4d5d7;
+  --border: #d9dadc;
+  --border-bright: #afb0b2;
   --outline-variant: #808182;
   --text-tertiary: #666769;
-  --text-secondary: #595A5B;
-  --text-primary: #19191B;
-  --background: #F4F5F7;
-  --accent: #5E6AD2;
-  --accent-bright: #515BC1;
-  --accent-hover: #4E58BE;
+  --text-secondary: #595a5b;
+  --text-primary: #19191b;
+  --background: #f4f5f7;
+  --accent: #5e6ad2;
+  --accent-bright: #515bc1;
+  --accent-hover: #4e58be;
 }
 
 /* Dark — accent #5E6AD2, background #090A0C, contrast 95 */
 [data-theme='dark'] .console-root {
   color-scheme: dark;
   --surface-inset: #050607;
-  --surface: #090A0C;
+  --surface: #090a0c;
   --surface-elevated: #131416;
   --surface-variant: #131416;
   --surface-hover: #212325;
   --surface-bright: #313335;
   --border: #212325;
   --border-bright: #313335;
-  --outline-variant: #5C5D60;
-  --text-tertiary: #898B8D;
-  --text-secondary: #B6B7BA;
-  --text-primary: #F3F5F8;
-  --background: #090A0C;
-  --accent: #5E6AD2;
-  --accent-bright: #7381EC;
-  --accent-hover: #6F7DE6;
+  --outline-variant: #5c5d60;
+  --text-tertiary: #898b8d;
+  --text-secondary: #b6b7ba;
+  --text-primary: #f3f5f8;
+  --background: #090a0c;
+  --accent: #5e6ad2;
+  --accent-bright: #7381ec;
+  --accent-hover: #6f7de6;
 }
 
 /* Classic Dark — accent #5E6AD2, background #1A1A1A, contrast 90 */
 [data-theme='classic-dark'] .console-root {
   color-scheme: dark;
   --surface-inset: #131518;
-  --surface: #1A1A1A;
+  --surface: #1a1a1a;
   --surface-elevated: #232427;
   --surface-variant: #232427;
   --surface-hover: #323336;
   --surface-bright: #424347;
   --border: #323336;
   --border-bright: #424347;
-  --outline-variant: #6B6D71;
-  --text-tertiary: #98999C;
-  --text-secondary: #C3C4C7;
-  --text-primary: #FDFFFF;
-  --background: #1A1A1A;
-  --accent: #5E6AD2;
-  --accent-bright: #8392FF;
-  --accent-hover: #6F7DE6;
+  --outline-variant: #6b6d71;
+  --text-tertiary: #98999c;
+  --text-secondary: #c3c4c7;
+  --text-primary: #fdffff;
+  --background: #1a1a1a;
+  --accent: #5e6ad2;
+  --accent-bright: #8392ff;
+  --accent-hover: #6f7de6;
 }
 
 /* Magic Blue — accent #575AC6, background #191A22, contrast 95 */
 [data-theme='magic-blue'] .console-root {
   color-scheme: dark;
   --surface-inset: #141519;
-  --surface: #191A22;
+  --surface: #191a22;
   --surface-elevated: #242529;
   --surface-variant: #242529;
-  --surface-hover: #34353A;
-  --surface-bright: #45464B;
-  --border: #34353A;
-  --border-bright: #45464B;
+  --surface-hover: #34353a;
+  --surface-bright: #45464b;
+  --border: #34353a;
+  --border-bright: #45464b;
   --outline-variant: #727378;
-  --text-tertiary: #A1A2A4;
-  --text-secondary: #CFCFD2;
-  --text-primary: #FEFFFF;
-  --background: #191A22;
-  --accent: #575AC6;
-  --accent-bright: #8B94FF;
-  --accent-hover: #676CDA;
+  --text-tertiary: #a1a2a4;
+  --text-secondary: #cfcfd2;
+  --text-primary: #feffff;
+  --background: #191a22;
+  --accent: #575ac6;
+  --accent-bright: #8b94ff;
+  --accent-hover: #676cda;
 }

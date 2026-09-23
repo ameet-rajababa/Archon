@@ -473,7 +473,7 @@ export function ConversationRail({
           <div
             className="mb-0.5 flex items-center gap-2.5 rounded-[10px] border px-2.5 py-2"
             style={{
-              borderColor: 'color-mix(in oklch, var(--brand-magenta), transparent 55%)',
+              borderColor: 'color-mix(in oklch, var(--accent), transparent 55%)',
               background: 'var(--surface-elevated)',
             }}
           >

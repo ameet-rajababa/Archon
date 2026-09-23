@@ -31,7 +31,12 @@
         };
         var LIGHT_PRESET = 'light';
         var DARK_PRESET = 'dark';
-        var d = { theme: 'system', custom: { background: '#090A0C' }, text: 'm', density: 'comfortable' };
+        var d = {
+          theme: 'system',
+          custom: { background: '#090A0C' },
+          text: 'm',
+          density: 'comfortable',
+        };
         var a = d;
         try {
           var raw = localStorage.getItem('archon.console.appearance');
@@ -48,9 +53,7 @@
               a = {
                 theme: known ? t : d.theme,
                 custom:
-                  p.custom && /^#[0-9a-fA-F]{6}$/.test(p.custom.background)
-                    ? p.custom
-                    : d.custom,
+                  p.custom && /^#[0-9a-fA-F]{6}$/.test(p.custom.background) ? p.custom : d.custom,
                 text: p.text,
                 density: p.density,
               };
@@ -70,8 +73,7 @@
            generate.ts applies — not a stored mode that could disagree with it.
            Rec. 601 luma is enough for a threshold test and needs no oklch. */
         var n = parseInt(bg.slice(1), 16);
-        var luma =
-          (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+        var luma = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
         var r = document.documentElement;
         r.dataset.theme = theme;
         r.dataset.mode = luma < 0.5 ? 'dark' : 'light';
