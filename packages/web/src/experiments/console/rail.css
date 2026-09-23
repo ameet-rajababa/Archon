@@ -615,11 +615,19 @@
   line-height: 1.35;
 }
 /* The kind glyph is smaller and quieter than a project's, so a chat and a
-   project read as different KINDS of thing rather than as two lists. */
+   project read as different KINDS of thing rather than as two lists.
+
+   Centred on the title's FIRST LINE the same way `.chat-status` is, and for
+   the same reason: the row is `align-items: flex-start`, so a glyph with no
+   slot sits at the top of a two-line card rather than on the line it belongs
+   to. A hand-tuned `margin-top: 1px` was doing that job and was 1.28px out —
+   the line box is 17.55px and a 15px glyph needs 2.28px above it. Derived from
+   the two values that decide where the line sits, so it follows a change to
+   the title's size or leading instead of drifting from it. */
 .chat-kind {
   flex: 0 0 auto;
   width: 15px;
-  margin-top: 1px;
+  height: calc(var(--text-body) * 1.35);
   display: grid;
   place-items: center;
   color: var(--text-tertiary);
