@@ -107,3 +107,37 @@ export function formatBytes(size: number | null): string {
   if (size < 1024 * 1024) return `${String(Math.round(size / 1024))} KB`;
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
+
+/**
+ * File kinds the viewer renders as something other than source text.
+ *
+ * Raster images only, matching the server's raw route exactly. SVG is absent
+ * from BOTH lists deliberately: it is a script-bearing document, so it is
+ * served and shown as text rather than as a picture.
+ */
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'ico']);
+
+function extensionOfPath(path: string): string {
+  const name = path.slice(path.lastIndexOf('/') + 1);
+  const dot = name.lastIndexOf('.');
+  return dot <= 0 ? '' : name.slice(dot + 1).toLowerCase();
+}
+
+export function isImagePath(path: string): boolean {
+  return IMAGE_EXTENSIONS.has(extensionOfPath(path));
+}
+
+export function isMarkdownPath(path: string): boolean {
+  const ext = extensionOfPath(path);
+  return ext === 'md' || ext === 'markdown';
+}
+
+export function isHtmlPath(path: string): boolean {
+  const ext = extensionOfPath(path);
+  return ext === 'html' || ext === 'htm';
+}
+
+/** True when the file has something to show besides its source. */
+export function hasPreview(path: string): boolean {
+  return isMarkdownPath(path) || isHtmlPath(path);
+}

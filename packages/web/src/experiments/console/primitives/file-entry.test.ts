@@ -4,6 +4,10 @@ import {
   formatBytes,
   joinPath,
   languageFor,
+  hasPreview,
+  isHtmlPath,
+  isImagePath,
+  isMarkdownPath,
   parentPath,
   toFileEntry,
 } from './file-entry';
@@ -67,5 +71,29 @@ describe('formatBytes', () => {
     expect(formatBytes(512)).toBe('512 B');
     expect(formatBytes(2048)).toBe('2 KB');
     expect(formatBytes(3 * 1024 * 1024)).toBe('3.0 MB');
+  });
+});
+
+describe('file kinds the viewer treats specially', () => {
+  test('raster images are images', () => {
+    expect(isImagePath('a/logo.png')).toBe(true);
+    expect(isImagePath('shot.JPEG')).toBe(true);
+    expect(isImagePath('notes.md')).toBe(false);
+  });
+
+  test('SVG is NOT an image here', () => {
+    // It is a script-bearing document. Both this and the server's raw route
+    // leave it out, so it is read as source instead of rendered.
+    expect(isImagePath('icon.svg')).toBe(false);
+  });
+
+  test('markdown and html have a preview, source files do not', () => {
+    expect(isMarkdownPath('README.md')).toBe(true);
+    expect(isHtmlPath('page.html')).toBe(true);
+    expect(isHtmlPath('page.htm')).toBe(true);
+    expect(hasPreview('README.md')).toBe(true);
+    expect(hasPreview('page.html')).toBe(true);
+    expect(hasPreview('index.ts')).toBe(false);
+    expect(hasPreview('logo.png')).toBe(false);
   });
 });

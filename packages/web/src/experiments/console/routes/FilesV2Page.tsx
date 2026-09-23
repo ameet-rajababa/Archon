@@ -24,7 +24,17 @@ import * as skill from '../skills';
 import { EmptyState } from '../components/EmptyState';
 import { HttpError } from '../lib/http';
 import { loadLanguage } from '../lib/code-language';
-import { formatBytes, type FileEntry } from '../primitives/file-entry';
+import ReactMarkdown, { type Components } from 'react-markdown';
+import { MD_COMPONENTS, MD_REHYPE_PLUGINS, MD_REMARK_PLUGINS } from '../components/Markdown';
+import {
+  formatBytes,
+  hasPreview,
+  isHtmlPath,
+  isImagePath,
+  parentPath,
+  joinPath,
+  type FileEntry,
+} from '../primitives/file-entry';
 
 /** A node as react-arborist wants it. `children === undefined` means leaf. */
 interface Node {
@@ -100,6 +110,68 @@ function Row({ node, style }: NodeRendererProps<Node>): ReactElement {
   );
 }
 
+/**
+ * Rendered view of a file that has one.
+ *
+ * HTML goes in a SANDBOXED IFRAME with neither `allow-scripts` nor
+ * `allow-same-origin`. Repo HTML is untrusted input: rendered on this origin it
+ * would run with the console's cookies and DOM. Those two flags together are
+ * the combination that hands it exactly that, so neither is present - the
+ * frame paints markup and CSS and can do nothing else.
+ *
+ * Markdown is rendered in-process because it is not executable: the same
+ * react-markdown path the rest of the console already uses, with relative
+ * image sources rewritten onto the raw route so a README's screenshots resolve.
+ */
+function Preview({
+  projectId,
+  path,
+  text,
+}: {
+  projectId: string;
+  path: string;
+  text: string;
+}): ReactElement {
+  if (isHtmlPath(path)) {
+    return (
+      <iframe
+        title={`Preview of ${path}`}
+        sandbox=""
+        srcDoc={text}
+        className="h-full w-full border-0 bg-white"
+      />
+    );
+  }
+
+  const dir = parentPath(path) ?? '';
+  // The console's own markdown stack, plus one rule it has never needed: a
+  // README's relative image is a file in the repo, which the browser cannot
+  // fetch by that path.
+  const components: Components = {
+    ...MD_COMPONENTS,
+    img: ({ src, alt }) => {
+      const raw = typeof src === 'string' ? src : '';
+      const isAbsolute = /^[a-z]+:|^\/\//i.test(raw);
+      const resolved = isAbsolute
+        ? raw
+        : skill.rawFileUrl(projectId, joinPath(dir, raw.replace(/^\.\//, '')));
+      return <img src={resolved} alt={alt ?? ''} className="max-w-full" />;
+    },
+  };
+
+  return (
+    <div className="chat-markdown h-full overflow-auto px-6 py-4 text-[13px] leading-relaxed text-text-primary">
+      <ReactMarkdown
+        remarkPlugins={MD_REMARK_PLUGINS}
+        rehypePlugins={MD_REHYPE_PLUGINS}
+        components={components}
+      >
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
 export function FilesV2Page(): ReactElement {
   const { projectId } = useParams<{ projectId: string }>();
   // The open file lives in the URL, so a file is linkable and survives a
@@ -120,6 +192,9 @@ export function FilesV2Page(): ReactElement {
   const [viewerError, setViewerError] = useState<string | null>(null);
   const [language, setLanguage] = useState<Extension[]>([]);
   const [filter, setFilter] = useState('');
+  // Preview is the default for files that HAVE one: opening a README to read
+  // its source is the unusual case, not the common one.
+  const [showSource, setShowSource] = useState(false);
 
   const load = useCallback(
     (dir: string) => {
@@ -151,6 +226,12 @@ export function FilesV2Page(): ReactElement {
     let live = true;
     setContent(null);
     setViewerError(null);
+    setShowSource(false);
+    if (isImagePath(selected)) {
+      // The text route would refuse this as binary, correctly. Asking it
+      // anyway would paint a refusal over a file the viewer can show.
+      return;
+    }
     void skill.readFileContent(projectId, selected).then(
       res => {
         if (!live) return;
@@ -167,6 +248,7 @@ export function FilesV2Page(): ReactElement {
     void loadLanguage(selected).then(ext => {
       if (live) setLanguage(ext);
     });
+    setShowSource(false);
     return (): void => {
       live = false;
     };
@@ -280,6 +362,17 @@ export function FilesV2Page(): ReactElement {
           <span className="min-w-0 truncate font-mono text-[12px] text-text-secondary">
             {selected ?? 'No file selected'}
           </span>
+          {selected !== null && hasPreview(selected) ? (
+            <button
+              type="button"
+              onClick={() => {
+                setShowSource(v => !v);
+              }}
+              className="shrink-0 rounded border border-border px-2 py-0.5 font-mono text-[11px] text-text-secondary transition-colors hover:text-text-primary"
+            >
+              {showSource ? 'Preview' : 'Source'}
+            </button>
+          ) : null}
           {dirty ? (
             <span
               aria-label="Unsaved changes"
@@ -316,8 +409,22 @@ export function FilesV2Page(): ReactElement {
           />
         ) : viewerError !== null ? (
           <p className="px-6 py-4 font-mono text-[12px] text-error">{viewerError}</p>
+        ) : isImagePath(selected) ? (
+          // Images never reach the text route - the server refuses them as
+          // binary - so they are loaded by URL from the raw route instead.
+          <div className="min-h-0 flex-1 overflow-auto bg-surface-inset/30 p-6">
+            <img
+              src={skill.rawFileUrl(projectId, selected)}
+              alt={selected}
+              className="max-w-full"
+            />
+          </div>
         ) : content === null ? (
           <p className="px-6 py-4 font-mono text-[12px] text-text-tertiary">Loading...</p>
+        ) : hasPreview(selected) && !showSource ? (
+          <div className="min-h-0 flex-1">
+            <Preview projectId={projectId} path={selected} text={draft} />
+          </div>
         ) : (
           <div className="min-h-0 flex-1 overflow-hidden">
             <CodeMirror

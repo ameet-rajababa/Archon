@@ -64,3 +64,12 @@ export async function writeFileContent(
     { method: 'PUT', body: JSON.stringify({ content, etag }) }
   );
 }
+
+/**
+ * URL for an image's raw bytes. A URL rather than a fetch: the browser loads
+ * it as an `<img src>`, and the server refuses anything that is not a raster
+ * image on its own allow-list.
+ */
+export function rawFileUrl(projectId: string, path: string): string {
+  return `/api/codebases/${encodeURIComponent(projectId)}/raw?path=${encodeURIComponent(path)}`;
+}

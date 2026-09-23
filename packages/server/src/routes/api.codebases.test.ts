@@ -1003,3 +1003,76 @@ describe('Files tab - PUT /api/codebases/:id/file', () => {
     expect(left).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Tests: raw image bytes (#23 phase 3)
+// ---------------------------------------------------------------------------
+
+describe('Files tab - GET /api/codebases/:id/raw', () => {
+  let root: string;
+  let outside: string;
+
+  const asCodebase = (over: Record<string, unknown>): never =>
+    ({ ...MOCK_CODEBASE, ...over }) as never;
+
+  // A one-pixel PNG. Real bytes, so the NUL check and the content type are
+  // exercised against something a browser would actually accept.
+  const PNG = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64'
+  );
+
+  beforeAll(async () => {
+    root = await mkdtemp(join(tmpdir(), 'archon-raw-root-'));
+    outside = await mkdtemp(join(tmpdir(), 'archon-raw-outside-'));
+    await writeFile(join(root, 'logo.png'), PNG);
+    await writeFile(join(root, 'notes.md'), '# hi\n');
+    await writeFile(join(root, 'drawing.svg'), '<svg onload="alert(1)"></svg>');
+    await writeFile(join(outside, 'secret.png'), PNG);
+    await symlink(join(outside, 'secret.png'), join(root, 'escape.png'));
+  });
+
+  afterAll(async () => {
+    await removeTempTree(root);
+    await removeTempTree(outside);
+  });
+
+  beforeEach(() => {
+    mockGetCodebase.mockReset();
+  });
+
+  const raw = async (path: string): Promise<Response> => {
+    mockGetCodebase.mockImplementationOnce(async () => asCodebase({ default_cwd: root }));
+    return makeApp().request(`/api/codebases/codebase-uuid-1/raw?path=${encodeURIComponent(path)}`);
+  };
+
+  test('serves an image with its own content type, and refuses to be sniffed', async () => {
+    const response = await raw('logo.png');
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Content-Type')).toBe('image/png');
+    expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    // A checkout changes under live runs, so a cached image would lie.
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array(PNG));
+  });
+
+  test('SVG is refused - it is a script-bearing document, not a picture', async () => {
+    // Serving it from this origin would let a repo file run with the console's
+    // cookies. It is text, so the editor shows it instead.
+    const response = await raw('drawing.svg');
+    expect(response.status).toBe(415);
+  });
+
+  test('a non-image is refused by type before the file is resolved', async () => {
+    expect((await raw('notes.md')).status).toBe(415);
+  });
+
+  test('traversal and symlink escape are refused here too', async () => {
+    expect((await raw('../secret.png')).status).toBe(400);
+    expect((await raw('escape.png')).status).toBe(404);
+  });
+
+  test('a missing image is 404', async () => {
+    expect((await raw('nope.png')).status).toBe(404);
+  });
+});

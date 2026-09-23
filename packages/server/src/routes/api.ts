@@ -3584,6 +3584,100 @@ export function registerApiRoutes(
     }
   });
 
+  /**
+   * Raw bytes, for images the viewer shows inline.
+   *
+   * NOT an OpenAPI route: the body is bytes, not JSON, so there is nothing for
+   * the generated client types to describe. The browser consumes this as an
+   * `<img src>`, never as a typed fetch.
+   *
+   * ONLY RASTER IMAGES. The content type is chosen from a fixed allow-list, so
+   * a file in the repo can never dictate what this route claims to be serving.
+   * SVG is deliberately absent: it is a script-bearing document, and serving it
+   * from this origin would let a repo file run with the console's cookies. SVG
+   * is text, so it opens in the editor like any other source file.
+   */
+  const IMAGE_TYPES: Readonly<Record<string, string>> = {
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    avif: 'image/avif',
+    bmp: 'image/bmp',
+    ico: 'image/x-icon',
+  };
+  /** Images are bigger than source. Separate from MAX_FILE_BYTES on purpose. */
+  const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+
+  app.get('/api/codebases/:id/raw', async c => {
+    const id = c.req.param('id');
+    const rawPath = c.req.query('path') ?? '';
+    try {
+      if (rawPath === '') {
+        return apiError(c, 400, 'Invalid path');
+      }
+      const extension = rawPath.slice(rawPath.lastIndexOf('.') + 1).toLowerCase();
+      const contentType = IMAGE_TYPES[extension];
+      if (contentType === undefined) {
+        // Refused by TYPE before the file is even resolved: this route exists
+        // for images, and an allow-list that is consulted first cannot be
+        // talked into serving something else.
+        return apiError(c, 415, 'Not an image this route serves');
+      }
+
+      const root = await codebaseRoot(id);
+      if (root === null) {
+        return apiError(c, 404, 'Codebase not found');
+      }
+
+      const contained = await resolveContainedPath(root, rawPath);
+      if (!contained.ok) {
+        if (contained.reason === 'invalid' || contained.reason === 'escaped') {
+          getLog().warn({ codebaseId: id, path: rawPath }, 'codebase_files.path_escape_blocked');
+          return apiError(c, 400, 'Invalid path');
+        }
+        if (contained.reason === 'symlink-escape') {
+          getLog().warn({ codebaseId: id, path: rawPath }, 'codebase_files.symlink_escape_blocked');
+          return apiError(c, 404, 'File not found');
+        }
+        if (contained.reason === 'missing') {
+          return apiError(c, 404, 'File not found');
+        }
+        getLog().error(
+          { err: contained.err, codebaseId: id, path: rawPath },
+          'codebase_files.raw_failed'
+        );
+        return apiError(c, 500, 'Failed to read file');
+      }
+
+      const info = await stat(contained.realPath);
+      if (!info.isFile()) {
+        return apiError(c, 404, 'File not found');
+      }
+      if (info.size > MAX_IMAGE_BYTES) {
+        return apiError(c, 413, `Image is ${String(info.size)} bytes; the limit is 10 MB`);
+      }
+
+      const bytes = await readFile(contained.realPath);
+      return new Response(new Uint8Array(bytes), {
+        status: 200,
+        headers: {
+          'Content-Type': contentType,
+          // The browser must not re-sniff a type we chose deliberately.
+          'X-Content-Type-Options': 'nosniff',
+          'Content-Disposition': 'inline',
+          // A checkout changes under live runs; a cached image would show the
+          // file as it was rather than as it is.
+          'Cache-Control': 'no-store',
+        },
+      });
+    } catch (error) {
+      getLog().error({ err: error, codebaseId: id }, 'codebase_files.raw_failed');
+      return apiError(c, 500, 'Failed to read file');
+    }
+  });
+
   registerOpenApiRoute(writeCodebaseFileRoute, async c => {
     const id = c.req.param('id') ?? '';
     const rawPath = c.req.query('path') ?? '';
