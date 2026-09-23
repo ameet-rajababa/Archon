@@ -1,8 +1,10 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Project header — prototype</title>
-<!--
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Project header — prototype</title>
+    <!--
   A design prototype for the console's project header, kept in the repo so a
   deploy stops eating it. It lives under public/assets/ because the server
   serves /assets/* statically and falls back to the SPA shell for everything
@@ -16,237 +18,631 @@
 
   Served at /assets/header-proto.html.
 -->
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&family=Geist+Mono:wght@400..600&display=swap" rel="stylesheet">
-<style>
-:root{
-  --surface: oklch(0.175 0.007 265);
-  --surface-inset: oklch(0.13 0.006 265);
-  --surface-elevated: oklch(0.205 0.009 265);
-  --surface-hover: oklch(0.225 0.01 265);
-  --background: oklch(0.145 0.006 265);
-  --border: oklch(0.275 0.012 265);
-  --border-bright: oklch(0.355 0.016 265);
-  --text-primary: oklch(0.975 0.004 265);
-  --text-secondary: oklch(0.745 0.014 265);
-  --text-tertiary: oklch(0.56 0.017 265);
-  --brand-magenta: oklch(0.64 0.295 330);
-  --brand-violet: oklch(0.56 0.215 305);
-  --brand-teal: oklch(0.755 0.165 168);
-  --running: oklch(0.72 0.155 245);
-  --warning: oklch(0.8 0.14 85);
-  --brand-gradient: linear-gradient(135deg,var(--brand-magenta) 0%,var(--brand-violet) 50%,var(--brand-teal) 100%);
-}
-*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-[hidden]{display:none!important}
-body{background:var(--background);color:var(--text-primary);
- font-family:'Geist',ui-sans-serif,system-ui,sans-serif;padding:20px 16px 64px;
- font-feature-settings:'ss01','cv11'}
-.mono{font-family:'Geist Mono',ui-monospace,'SF Mono',Menlo,monospace}
-.wrap{max-width:1180px;margin:0 auto}
-.ctl{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-start;
- background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:8px}
-.grp{display:flex;flex-direction:column;gap:7px}
-.lbl{font-family:'Geist Mono',monospace;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-tertiary)}
-.chips{display:flex;gap:6px;flex-wrap:wrap}
-button.chip{font:inherit;font-size:12px;font-weight:500;cursor:pointer;
- background:var(--surface-elevated);color:var(--text-secondary);border:1px solid transparent;
- border-radius:6px;padding:6px 11px;transition:.13s}
-button.chip:hover{background:var(--surface-hover);color:var(--text-primary)}
-button.chip[aria-pressed=true]{color:var(--text-primary);border-color:var(--border-bright);background:var(--surface-hover);box-shadow:inset 0 -2px 0 0 var(--brand-magenta)}
-button.chip .k{font-family:'Geist Mono',monospace;font-size:10px;opacity:.65;margin-right:5px}
-label.sw{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text-secondary);cursor:pointer;user-select:none}
-label.sw input{accent-color:var(--brand-magenta);width:14px;height:14px}
-.note{border:1px solid var(--border);border-left:2px solid var(--brand-magenta);background:var(--surface);
- border-radius:0 8px 8px 0;padding:11px 14px;margin-bottom:18px;font-size:13px;line-height:1.55;color:var(--text-secondary)}
-.note b{color:var(--text-primary);font-weight:600}
-.note .warnt{color:var(--warning)}
-.stage{display:flex;justify-content:center}
-.device{width:100%;max-width:1120px;transition:max-width .22s ease;
- background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;
- display:flex;flex-direction:column;height:520px}
-.device.tablet{max-width:768px}
-.device.phone{max-width:390px}
-header.h{flex:none;display:flex;flex-direction:column;border-bottom:1px solid var(--border);padding:16px 24px 0}
-.phone header.h{padding:14px 16px 0}
-.row1{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
-.idw{display:flex;align-items:center;gap:10px;min-width:0}
-svg.key{width:24px;height:24px;flex:none;stroke:var(--brand-magenta);stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
-.name{font-size:20px;font-weight:600;letter-spacing:-.012em;white-space:nowrap}
-.chip-run{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--running);font-weight:500;white-space:nowrap}
-.dot{width:7px;height:7px;border-radius:99px;background:currentColor}
-.live{animation:pulse 1.9s ease-in-out infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
-.path{font-size:12px;color:var(--text-tertiary);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tabs{display:flex;align-items:center;gap:4px;margin-top:12px}
-.tab{position:relative;font-size:11px;font-weight:500;letter-spacing:.09em;text-transform:uppercase;
- color:var(--text-tertiary);padding:5px 8px;border-radius:4px;cursor:pointer;background:none;border:0;font-family:inherit;transition:.12s}
-.tab:hover{color:var(--text-primary)}
-.tab[aria-current=page]{background:var(--surface-elevated);color:var(--text-primary)}
-.tab .n{font-family:'Geist Mono',monospace;font-size:10.5px;font-weight:400;opacity:.7;margin-left:5px}
-.tab .bar{position:absolute;left:4px;right:4px;bottom:-1px;height:2px;border-radius:99px;background:var(--brand-gradient);display:none}
-.tab[aria-current=page] .bar{display:block}
-.tabrow{display:flex;align-items:flex-end;justify-content:space-between;gap:16px}
-.tabrow .tabs{flex:1;min-width:0}
-.tailpath{font-family:'Geist Mono',monospace;font-size:11px;color:var(--text-tertiary);
- white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-bottom:7px;max-width:46%}
-.copybtn{display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-family:'Geist Mono',monospace;
- font-size:10px;letter-spacing:.06em;color:var(--text-tertiary);background:none;
- border:1px solid var(--border-bright);border-radius:5px;padding:3px 7px;transition:.13s}
-.copybtn:hover{color:var(--text-primary);border-color:var(--text-tertiary);background:var(--surface-elevated)}
-.copybtn svg{width:11px;height:11px;stroke:currentColor;stroke-width:2;fill:none}
-.copybtn.done{color:var(--brand-teal);border-color:var(--brand-teal)}
-.page{flex:1;min-height:0;overflow:hidden;padding:14px 24px;display:flex;flex-direction:column;gap:9px}
-.phone .page{padding:12px 16px}
-.filters{display:flex;gap:6px;margin-bottom:2px}
-.f{font-family:'Geist Mono',monospace;font-size:11px;padding:4px 9px;border-radius:5px;color:var(--text-tertiary)}
-.f.on{background:var(--surface-elevated);color:var(--text-primary)}
-.card{border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:var(--surface-inset)}
-.card .t{font-size:13px;font-weight:500}
-.card .s{font-size:11.5px;color:var(--text-tertiary);margin-top:3px}
-.ruler{position:relative;height:0}
-.rulerline{position:absolute;left:-24px;right:-24px;height:0;border-top:1px dashed var(--warning);opacity:.75}
-.rulertag{position:absolute;right:0;top:2px;font-family:'Geist Mono',monospace;font-size:9px;letter-spacing:.08em}
-.hint{text-align:center;font-size:11.5px;color:var(--text-tertiary);margin-top:12px;font-family:'Geist Mono',monospace;letter-spacing:.04em}
-</style></head><body>
-<div class="wrap">
-
-  <div class="ctl">
-    <div class="grp">
-      <span class="lbl">Version</span>
-      <div class="chips" id="opts">
-        <button class="chip" data-opt="A"><span class="k">A</span>Before</button>
-        <button class="chip" data-opt="B"><span class="k">B</span>Hover-reveal</button>
-        <button class="chip" data-opt="C"><span class="k">C</span>Copy button</button>
-        <button class="chip" data-opt="D"><span class="k">D</span>On the tab row</button>
-        <button class="chip" data-opt="E"><span class="k">E</span>Short path</button>
-        <button class="chip" data-opt="F"><span class="k">F</span>D + E</button>
-      </div>
-    </div>
-    <div class="grp">
-      <span class="lbl">Width</span>
-      <div class="chips" id="widths">
-        <button class="chip" data-w="desktop">Desktop</button>
-        <button class="chip" data-w="tablet">Tablet</button>
-        <button class="chip" data-w="phone">Phone</button>
-      </div>
-    </div>
-    <div class="grp">
-      <span class="lbl">Overlays</span>
-      <div class="chips">
-        <label class="sw"><input type="checkbox" id="reserve">Reserve the line (B)</label>
-        <label class="sw"><input type="checkbox" id="ruler">Show shift ruler</label>
-      </div>
-    </div>
-  </div>
-
-  <div class="note" id="note"></div>
-
-  <div class="stage">
-    <div class="device" id="device">
-      <header class="h" id="hdr">
-        <div class="row1">
-          <div class="idw">
-            <svg class="key" viewBox="0 0 24 24" aria-hidden="true"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg>
-            <span class="name">wix-access</span>
-            <span class="chip-run"><span class="dot live"></span>Working</span>
-            <button class="copybtn" id="copy" type="button" title="/.archon/workspaces/rajababa-io/wix-access/source" hidden>
-              <svg viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span id="copytxt">PATH</span>
-            </button>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&family=Geist+Mono:wght@400..600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --surface: oklch(0.175 0.007 265);
+        --surface-inset: oklch(0.13 0.006 265);
+        --surface-elevated: oklch(0.205 0.009 265);
+        --surface-hover: oklch(0.225 0.01 265);
+        --background: oklch(0.145 0.006 265);
+        --border: oklch(0.275 0.012 265);
+        --border-bright: oklch(0.355 0.016 265);
+        --text-primary: oklch(0.975 0.004 265);
+        --text-secondary: oklch(0.745 0.014 265);
+        --text-tertiary: oklch(0.56 0.017 265);
+        --brand-magenta: oklch(0.64 0.295 330);
+        --brand-violet: oklch(0.56 0.215 305);
+        --brand-teal: oklch(0.755 0.165 168);
+        --running: oklch(0.72 0.155 245);
+        --warning: oklch(0.8 0.14 85);
+        --brand-gradient: linear-gradient(
+          135deg,
+          var(--brand-magenta) 0%,
+          var(--brand-violet) 50%,
+          var(--brand-teal) 100%
+        );
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+        -webkit-tap-highlight-color: transparent;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      body {
+        background: var(--background);
+        color: var(--text-primary);
+        font-family: 'Geist', ui-sans-serif, system-ui, sans-serif;
+        padding: 20px 16px 64px;
+        font-feature-settings: 'ss01', 'cv11';
+      }
+      .mono {
+        font-family: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+      }
+      .wrap {
+        max-width: 1180px;
+        margin: 0 auto;
+      }
+      .ctl {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 18px;
+        align-items: flex-start;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 14px 16px;
+        margin-bottom: 8px;
+      }
+      .grp {
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+      }
+      .lbl {
+        font-family: 'Geist Mono', monospace;
+        font-size: 9.5px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--text-tertiary);
+      }
+      .chips {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      button.chip {
+        font: inherit;
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        background: var(--surface-elevated);
+        color: var(--text-secondary);
+        border: 1px solid transparent;
+        border-radius: 6px;
+        padding: 6px 11px;
+        transition: 0.13s;
+      }
+      button.chip:hover {
+        background: var(--surface-hover);
+        color: var(--text-primary);
+      }
+      button.chip[aria-pressed='true'] {
+        color: var(--text-primary);
+        border-color: var(--border-bright);
+        background: var(--surface-hover);
+        box-shadow: inset 0 -2px 0 0 var(--brand-magenta);
+      }
+      button.chip .k {
+        font-family: 'Geist Mono', monospace;
+        font-size: 10px;
+        opacity: 0.65;
+        margin-right: 5px;
+      }
+      label.sw {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 12px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        user-select: none;
+      }
+      label.sw input {
+        accent-color: var(--brand-magenta);
+        width: 14px;
+        height: 14px;
+      }
+      .note {
+        border: 1px solid var(--border);
+        border-left: 2px solid var(--brand-magenta);
+        background: var(--surface);
+        border-radius: 0 8px 8px 0;
+        padding: 11px 14px;
+        margin-bottom: 18px;
+        font-size: 13px;
+        line-height: 1.55;
+        color: var(--text-secondary);
+      }
+      .note b {
+        color: var(--text-primary);
+        font-weight: 600;
+      }
+      .note .warnt {
+        color: var(--warning);
+      }
+      .stage {
+        display: flex;
+        justify-content: center;
+      }
+      .device {
+        width: 100%;
+        max-width: 1120px;
+        transition: max-width 0.22s ease;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        height: 520px;
+      }
+      .device.tablet {
+        max-width: 768px;
+      }
+      .device.phone {
+        max-width: 390px;
+      }
+      header.h {
+        flex: none;
+        display: flex;
+        flex-direction: column;
+        border-bottom: 1px solid var(--border);
+        padding: 16px 24px 0;
+      }
+      .phone header.h {
+        padding: 14px 16px 0;
+      }
+      .row1 {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+      }
+      .idw {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+      svg.key {
+        width: 24px;
+        height: 24px;
+        flex: none;
+        stroke: var(--brand-magenta);
+        stroke-width: 2;
+        fill: none;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .name {
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: -0.012em;
+        white-space: nowrap;
+      }
+      .chip-run {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        color: var(--running);
+        font-weight: 500;
+        white-space: nowrap;
+      }
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 99px;
+        background: currentColor;
+      }
+      .live {
+        animation: pulse 1.9s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.35;
+        }
+      }
+      .path {
+        font-size: 12px;
+        color: var(--text-tertiary);
+        margin-top: 3px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .tabs {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        margin-top: 12px;
+      }
+      .tab {
+        position: relative;
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+        color: var(--text-tertiary);
+        padding: 5px 8px;
+        border-radius: 4px;
+        cursor: pointer;
+        background: none;
+        border: 0;
+        font-family: inherit;
+        transition: 0.12s;
+      }
+      .tab:hover {
+        color: var(--text-primary);
+      }
+      .tab[aria-current='page'] {
+        background: var(--surface-elevated);
+        color: var(--text-primary);
+      }
+      .tab .n {
+        font-family: 'Geist Mono', monospace;
+        font-size: 10.5px;
+        font-weight: 400;
+        opacity: 0.7;
+        margin-left: 5px;
+      }
+      .tab .bar {
+        position: absolute;
+        left: 4px;
+        right: 4px;
+        bottom: -1px;
+        height: 2px;
+        border-radius: 99px;
+        background: var(--brand-gradient);
+        display: none;
+      }
+      .tab[aria-current='page'] .bar {
+        display: block;
+      }
+      .tabrow {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 16px;
+      }
+      .tabrow .tabs {
+        flex: 1;
+        min-width: 0;
+      }
+      .tailpath {
+        font-family: 'Geist Mono', monospace;
+        font-size: 11px;
+        color: var(--text-tertiary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        padding-bottom: 7px;
+        max-width: 46%;
+      }
+      .copybtn {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        cursor: pointer;
+        font-family: 'Geist Mono', monospace;
+        font-size: 10px;
+        letter-spacing: 0.06em;
+        color: var(--text-tertiary);
+        background: none;
+        border: 1px solid var(--border-bright);
+        border-radius: 5px;
+        padding: 3px 7px;
+        transition: 0.13s;
+      }
+      .copybtn:hover {
+        color: var(--text-primary);
+        border-color: var(--text-tertiary);
+        background: var(--surface-elevated);
+      }
+      .copybtn svg {
+        width: 11px;
+        height: 11px;
+        stroke: currentColor;
+        stroke-width: 2;
+        fill: none;
+      }
+      .copybtn.done {
+        color: var(--brand-teal);
+        border-color: var(--brand-teal);
+      }
+      .page {
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+        padding: 14px 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 9px;
+      }
+      .phone .page {
+        padding: 12px 16px;
+      }
+      .filters {
+        display: flex;
+        gap: 6px;
+        margin-bottom: 2px;
+      }
+      .f {
+        font-family: 'Geist Mono', monospace;
+        font-size: 11px;
+        padding: 4px 9px;
+        border-radius: 5px;
+        color: var(--text-tertiary);
+      }
+      .f.on {
+        background: var(--surface-elevated);
+        color: var(--text-primary);
+      }
+      .card {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 10px 12px;
+        background: var(--surface-inset);
+      }
+      .card .t {
+        font-size: 13px;
+        font-weight: 500;
+      }
+      .card .s {
+        font-size: 11.5px;
+        color: var(--text-tertiary);
+        margin-top: 3px;
+      }
+      .ruler {
+        position: relative;
+        height: 0;
+      }
+      .rulerline {
+        position: absolute;
+        left: -24px;
+        right: -24px;
+        height: 0;
+        border-top: 1px dashed var(--warning);
+        opacity: 0.75;
+      }
+      .rulertag {
+        position: absolute;
+        right: 0;
+        top: 2px;
+        font-family: 'Geist Mono', monospace;
+        font-size: 9px;
+        letter-spacing: 0.08em;
+      }
+      .hint {
+        text-align: center;
+        font-size: 11.5px;
+        color: var(--text-tertiary);
+        margin-top: 12px;
+        font-family: 'Geist Mono', monospace;
+        letter-spacing: 0.04em;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="ctl">
+        <div class="grp">
+          <span class="lbl">Version</span>
+          <div class="chips" id="opts">
+            <button class="chip" data-opt="A"><span class="k">A</span>Before</button>
+            <button class="chip" data-opt="B"><span class="k">B</span>Hover-reveal</button>
+            <button class="chip" data-opt="C"><span class="k">C</span>Copy button</button>
+            <button class="chip" data-opt="D"><span class="k">D</span>On the tab row</button>
+            <button class="chip" data-opt="E"><span class="k">E</span>Short path</button>
+            <button class="chip" data-opt="F"><span class="k">F</span>D + E</button>
           </div>
         </div>
-        <p class="path mono" id="path"></p>
-        <div class="tabrow">
-          <div class="tabs" id="tabs">
-            <button class="tab" type="button">Overview<span class="bar"></span></button>
-            <button class="tab" type="button">Runs<span class="n">1</span><span class="bar"></span></button>
-            <button class="tab" type="button" aria-current="page">Chat<span class="n">11</span><span class="bar"></span></button>
-            <button class="tab" type="button">Issues<span class="n">74</span><span class="bar"></span></button>
+        <div class="grp">
+          <span class="lbl">Width</span>
+          <div class="chips" id="widths">
+            <button class="chip" data-w="desktop">Desktop</button>
+            <button class="chip" data-w="tablet">Tablet</button>
+            <button class="chip" data-w="phone">Phone</button>
           </div>
-          <span class="tailpath" id="tailpath" hidden></span>
         </div>
-      </header>
-      <div class="page">
-        <div class="ruler"><div class="rulerline" id="rl" hidden></div><div class="rulertag" id="rt" hidden></div></div>
-        <div class="filters"><span class="f on">Open 1</span><span class="f">Done 34</span><span class="f">All</span></div>
-        <div class="card"><div class="t">Wix API access — token scopes</div><div class="s">3 messages · 2 days ago</div></div>
-        <div class="card"><div class="t">Members endpoint returns 428</div><div class="s">11 messages · yesterday</div></div>
-        <div class="card"><div class="t">Deploy checklist</div><div class="s">6 messages · 4 hours ago</div></div>
+        <div class="grp">
+          <span class="lbl">Overlays</span>
+          <div class="chips">
+            <label class="sw"><input type="checkbox" id="reserve" />Reserve the line (B)</label>
+            <label class="sw"><input type="checkbox" id="ruler" />Show shift ruler</label>
+          </div>
+        </div>
       </div>
+
+      <div class="note" id="note"></div>
+
+      <div class="stage">
+        <div class="device" id="device">
+          <header class="h" id="hdr">
+            <div class="row1">
+              <div class="idw">
+                <svg class="key" viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="7.5" cy="15.5" r="5.5" />
+                  <path d="m21 2-9.6 9.6" />
+                  <path d="m15.5 7.5 3 3L22 7l-3-3" />
+                </svg>
+                <span class="name">wix-access</span>
+                <span class="chip-run"><span class="dot live"></span>Working</span>
+                <button
+                  class="copybtn"
+                  id="copy"
+                  type="button"
+                  title="/.archon/workspaces/rajababa-io/wix-access/source"
+                  hidden
+                >
+                  <svg viewBox="0 0 24 24">
+                    <rect x="9" y="9" width="12" height="12" rx="2" />
+                    <path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg
+                  ><span id="copytxt">PATH</span>
+                </button>
+              </div>
+            </div>
+            <p class="path mono" id="path"></p>
+            <div class="tabrow">
+              <div class="tabs" id="tabs">
+                <button class="tab" type="button">Overview<span class="bar"></span></button>
+                <button class="tab" type="button">
+                  Runs<span class="n">1</span><span class="bar"></span>
+                </button>
+                <button class="tab" type="button" aria-current="page">
+                  Chat<span class="n">11</span><span class="bar"></span>
+                </button>
+                <button class="tab" type="button">
+                  Issues<span class="n">74</span><span class="bar"></span>
+                </button>
+              </div>
+              <span class="tailpath" id="tailpath" hidden></span>
+            </div>
+          </header>
+          <div class="page">
+            <div class="ruler">
+              <div class="rulerline" id="rl" hidden></div>
+              <div class="rulertag" id="rt" hidden></div>
+            </div>
+            <div class="filters">
+              <span class="f on">Open 1</span><span class="f">Done 34</span
+              ><span class="f">All</span>
+            </div>
+            <div class="card">
+              <div class="t">Wix API access — token scopes</div>
+              <div class="s">3 messages · 2 days ago</div>
+            </div>
+            <div class="card">
+              <div class="t">Members endpoint returns 428</div>
+              <div class="s">11 messages · yesterday</div>
+            </div>
+            <div class="card">
+              <div class="t">Deploy checklist</div>
+              <div class="s">6 messages · 4 hours ago</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="hint" id="hint"></p>
     </div>
-  </div>
-  <p class="hint" id="hint"></p>
-</div>
 
-<script>
-const FULL = '/.archon/workspaces/rajababa-io/wix-access/source';
-const SHORT = '…/wix-access/source';
-const TAIL  = '…/rajababa-io/wix-access/source';
+    <script>
+      const FULL = '/.archon/workspaces/rajababa-io/wix-access/source';
+      const SHORT = '…/wix-access/source';
+      const TAIL = '…/rajababa-io/wix-access/source';
 
-const NOTES = {
-  A:'<b>A · Before.</b> Three stacked lines. The path repeats <span class="mono">rajababa-io/wix-access</span>, which the title above already says, under a constant <span class="mono">/.archon/workspaces/</span> prefix that is identical on every project page.',
-  B:'<b>B · Hover-reveal.</b> Move the pointer onto the header and back off. Watch the cards below jump. <span class="warnt">At phone width there is no hover at all — the path is simply gone.</span> Tick <b>Reserve the line</b> to stop the jump, and notice it gives back all the whitespace it gained.',
-  C:'<b>C · Copy button.</b> The path line is deleted and a real target sits beside the status chip. Tap it — it copies the absolute path, and its tooltip shows it. Works on touch, reachable by keyboard, same height in every state.',
-  D:'<b>D · Parked on the tab row.</b> Nothing hidden, one line reclaimed. The path moves to the right end of a row that was already half empty. Drop to phone width and watch it yield space to the tabs.',
-  E:'<b>E · Short path.</b> Same three lines as before, but the constant prefix is gone. Smallest possible change, no layout risk.',
-  F:'<b>F · D + E together.</b> Short path, parked on the tab row. <b>This is what shipped</b> — the header is two lines everywhere, nothing is hidden from anyone, and no interaction has to be discovered.'
-};
-const HINTS = { A:'', B:'↑ hover the header · then try it at phone width', C:'↑ click PATH — it really copies', D:'', E:'', F:'' };
+      const NOTES = {
+        A: '<b>A · Before.</b> Three stacked lines. The path repeats <span class="mono">rajababa-io/wix-access</span>, which the title above already says, under a constant <span class="mono">/.archon/workspaces/</span> prefix that is identical on every project page.',
+        B: '<b>B · Hover-reveal.</b> Move the pointer onto the header and back off. Watch the cards below jump. <span class="warnt">At phone width there is no hover at all — the path is simply gone.</span> Tick <b>Reserve the line</b> to stop the jump, and notice it gives back all the whitespace it gained.',
+        C: '<b>C · Copy button.</b> The path line is deleted and a real target sits beside the status chip. Tap it — it copies the absolute path, and its tooltip shows it. Works on touch, reachable by keyboard, same height in every state.',
+        D: '<b>D · Parked on the tab row.</b> Nothing hidden, one line reclaimed. The path moves to the right end of a row that was already half empty. Drop to phone width and watch it yield space to the tabs.',
+        E: '<b>E · Short path.</b> Same three lines as before, but the constant prefix is gone. Smallest possible change, no layout risk.',
+        F: '<b>F · D + E together.</b> Short path, parked on the tab row. <b>This is what shipped</b> — the header is two lines everywhere, nothing is hidden from anyone, and no interaction has to be discovered.',
+      };
+      const HINTS = {
+        A: '',
+        B: '↑ hover the header · then try it at phone width',
+        C: '↑ click PATH — it really copies',
+        D: '',
+        E: '',
+        F: '',
+      };
 
-let opt='A', w='desktop';
-const device=document.getElementById('device'), hdr=document.getElementById('hdr');
-const pathEl=document.getElementById('path'), tailEl=document.getElementById('tailpath');
-const copyEl=document.getElementById('copy'), noteEl=document.getElementById('note');
-const reserveEl=document.getElementById('reserve'), rulerEl=document.getElementById('ruler');
-const rl=document.getElementById('rl'), rt=document.getElementById('rt'), hint=document.getElementById('hint');
-let hovering=false;
+      let opt = 'A',
+        w = 'desktop';
+      const device = document.getElementById('device'),
+        hdr = document.getElementById('hdr');
+      const pathEl = document.getElementById('path'),
+        tailEl = document.getElementById('tailpath');
+      const copyEl = document.getElementById('copy'),
+        noteEl = document.getElementById('note');
+      const reserveEl = document.getElementById('reserve'),
+        rulerEl = document.getElementById('ruler');
+      const rl = document.getElementById('rl'),
+        rt = document.getElementById('rt'),
+        hint = document.getElementById('hint');
+      let hovering = false;
 
-function render(){
-  device.className='device'+(w==='desktop'?'':' '+w);
-  document.querySelectorAll('#opts .chip').forEach(b=>b.setAttribute('aria-pressed',b.dataset.opt===opt));
-  document.querySelectorAll('#widths .chip').forEach(b=>b.setAttribute('aria-pressed',b.dataset.w===w));
-  noteEl.innerHTML=NOTES[opt];
-  hint.textContent=HINTS[opt]||'';
-  reserveEl.parentElement.style.opacity = opt==='B'?1:.35;
+      function render() {
+        device.className = 'device' + (w === 'desktop' ? '' : ' ' + w);
+        document
+          .querySelectorAll('#opts .chip')
+          .forEach(b => b.setAttribute('aria-pressed', b.dataset.opt === opt));
+        document
+          .querySelectorAll('#widths .chip')
+          .forEach(b => b.setAttribute('aria-pressed', b.dataset.w === w));
+        noteEl.innerHTML = NOTES[opt];
+        hint.textContent = HINTS[opt] || '';
+        reserveEl.parentElement.style.opacity = opt === 'B' ? 1 : 0.35;
 
-  let txt=null;
-  if(opt==='A') txt=FULL;
-  else if(opt==='E') txt=SHORT;
-  else if(opt==='B') txt=hovering?FULL:(reserveEl.checked?' ':null);
-  pathEl.hidden = txt===null;
-  if(txt!==null) pathEl.textContent=txt;
+        let txt = null;
+        if (opt === 'A') txt = FULL;
+        else if (opt === 'E') txt = SHORT;
+        else if (opt === 'B') txt = hovering ? FULL : reserveEl.checked ? ' ' : null;
+        pathEl.hidden = txt === null;
+        if (txt !== null) pathEl.textContent = txt;
 
-  const tail = opt==='D'?TAIL : opt==='F'?SHORT : null;
-  tailEl.hidden = tail===null;
-  if(tail!==null) tailEl.textContent=tail;
+        const tail = opt === 'D' ? TAIL : opt === 'F' ? SHORT : null;
+        tailEl.hidden = tail === null;
+        if (tail !== null) tailEl.textContent = tail;
 
-  copyEl.hidden = opt!=='C';
+        copyEl.hidden = opt !== 'C';
 
-  const shifty = opt==='B' && !reserveEl.checked;
-  rl.hidden=rt.hidden=!rulerEl.checked;
-  rt.textContent = shifty ? 'THIS LINE MOVES ON HOVER' : 'STABLE IN EVERY STATE';
-  rt.style.color = shifty ? 'var(--warning)' : 'var(--brand-teal)';
-  rl.style.borderTopColor = shifty ? 'var(--warning)' : 'var(--brand-teal)';
-}
+        const shifty = opt === 'B' && !reserveEl.checked;
+        rl.hidden = rt.hidden = !rulerEl.checked;
+        rt.textContent = shifty ? 'THIS LINE MOVES ON HOVER' : 'STABLE IN EVERY STATE';
+        rt.style.color = shifty ? 'var(--warning)' : 'var(--brand-teal)';
+        rl.style.borderTopColor = shifty ? 'var(--warning)' : 'var(--brand-teal)';
+      }
 
-document.getElementById('opts').addEventListener('click',e=>{
-  const b=e.target.closest('[data-opt]'); if(!b)return; opt=b.dataset.opt; render();});
-document.getElementById('widths').addEventListener('click',e=>{
-  const b=e.target.closest('[data-w]'); if(!b)return; w=b.dataset.w; render();});
-reserveEl.addEventListener('change',render);
-rulerEl.addEventListener('change',render);
-hdr.addEventListener('pointerenter',e=>{if(e.pointerType==='mouse'){hovering=true;render();}});
-hdr.addEventListener('pointerleave',e=>{if(e.pointerType==='mouse'){hovering=false;render();}});
-document.getElementById('tabs').addEventListener('click',e=>{
-  const t=e.target.closest('.tab'); if(!t)return;
-  document.querySelectorAll('.tab').forEach(x=>x.removeAttribute('aria-current'));
-  t.setAttribute('aria-current','page');});
-copyEl.addEventListener('click',async()=>{
-  try{await navigator.clipboard.writeText(FULL);}catch{}
-  copyEl.classList.add('done');document.getElementById('copytxt').textContent='COPIED';
-  setTimeout(()=>{copyEl.classList.remove('done');document.getElementById('copytxt').textContent='PATH';},1400);});
+      document.getElementById('opts').addEventListener('click', e => {
+        const b = e.target.closest('[data-opt]');
+        if (!b) return;
+        opt = b.dataset.opt;
+        render();
+      });
+      document.getElementById('widths').addEventListener('click', e => {
+        const b = e.target.closest('[data-w]');
+        if (!b) return;
+        w = b.dataset.w;
+        render();
+      });
+      reserveEl.addEventListener('change', render);
+      rulerEl.addEventListener('change', render);
+      hdr.addEventListener('pointerenter', e => {
+        if (e.pointerType === 'mouse') {
+          hovering = true;
+          render();
+        }
+      });
+      hdr.addEventListener('pointerleave', e => {
+        if (e.pointerType === 'mouse') {
+          hovering = false;
+          render();
+        }
+      });
+      document.getElementById('tabs').addEventListener('click', e => {
+        const t = e.target.closest('.tab');
+        if (!t) return;
+        document.querySelectorAll('.tab').forEach(x => x.removeAttribute('aria-current'));
+        t.setAttribute('aria-current', 'page');
+      });
+      copyEl.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(FULL);
+        } catch {}
+        copyEl.classList.add('done');
+        document.getElementById('copytxt').textContent = 'COPIED';
+        setTimeout(() => {
+          copyEl.classList.remove('done');
+          document.getElementById('copytxt').textContent = 'PATH';
+        }, 1400);
+      });
 
-render();
-</script>
-</body></html>
+      render();
+    </script>
+  </body>
+</html>
