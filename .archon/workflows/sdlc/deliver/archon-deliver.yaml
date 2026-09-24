@@ -402,6 +402,7 @@ nodes:
           runtime: bun
           with:
             pr_url: "$pr.output.url"
+            repo_path: "$pr.output.repo.path"
           # The probe's only in-process wait is the single 60 s registration
           # grace; headroom over the 120 s script default keeps that honest.
           timeout: 180000
@@ -431,6 +432,7 @@ nodes:
     runtime: bun
     with:
       pr_url: "$pr.output.url"
+      repo_path: "$pr.output.repo.path"
     timeout: 180000
     depends_on: [await-checks]
     output_format: *ci_state
@@ -533,6 +535,7 @@ nodes:
           runtime: bun
           with:
             pr_url: "$pr.output.url"
+            repo_path: "$pr.output.repo.path"
           timeout: 180000
           output_format: *ci_state
         - id: fix-ci-pause
@@ -572,6 +575,7 @@ nodes:
           runtime: bun
           with:
             pr_url: "$pr.output.url"
+            repo_path: "$pr.output.repo.path"
           timeout: 180000
           output_format: *ci_state
         - id: attention-ci-pause

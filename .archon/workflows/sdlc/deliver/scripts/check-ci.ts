@@ -33,6 +33,27 @@ import { emit, refuse, trimmed } from '../../.shared/io.ts';
 /** The recorded pull request, so no read ever falls back to the ambient branch. */
 const prUrl = trimmed(process.env.INPUTS_PR_URL);
 
+/**
+ * The pull request's own repository, from the identity the `pr` node recorded.
+ *
+ * Every other read here names the pull request by URL, which is unambiguous. The
+ * workflows read below cannot: `gh api`'s `{owner}/{repo}` placeholders resolve from
+ * the checkout's remotes, and in a fork-style checkout that is the upstream rather than
+ * the repository this run published to. It would answer a question about someone else's
+ * repository — so the path is named explicitly, the same way every public step in this
+ * tail has since #31.
+ */
+const repoPath = trimmed(process.env.INPUTS_REPO_PATH);
+
+/**
+ * The recorded path before it reaches a command line. A malformed one is a wiring
+ * defect in the run rather than a condition the forge is in, so it refuses like an
+ * unbound pull request rather than degrading to an answer.
+ */
+function isOwnerRepo(value: string): boolean {
+  return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value);
+}
+
 interface Check {
   readonly name: string;
   readonly bucket: string;
@@ -105,21 +126,65 @@ function checks(): readonly Check[] | undefined {
   return parsed;
 }
 
-/** `undefined` means the answer could not be determined, which counts as configured. */
+/** One workflow, read for the only field this counts on. */
+interface WorkflowSummary {
+  readonly state: string;
+}
+
+function isWorkflowSummary(value: unknown): value is WorkflowSummary {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as Record<string, unknown>).state === 'string'
+  );
+}
+
+/**
+ * One page's workflow states, or `undefined` for a page this cannot read. A page whose
+ * shape is unrecognized is not evidence that no CI exists, so it fails the whole count
+ * rather than contributing zero to it.
+ */
+function workflowStates(page: unknown): readonly string[] | undefined {
+  if (typeof page !== 'object' || page === null) return undefined;
+  const workflows = (page as Record<string, unknown>).workflows;
+  if (!Array.isArray(workflows) || !workflows.every(isWorkflowSummary)) return undefined;
+  return workflows.map(workflow => workflow.state);
+}
+
+/**
+ * `undefined` means the answer could not be determined, which counts as configured.
+ *
+ * This asked `gh` to slurp and filter in one call. gh refuses that combination outright
+ * — `the --slurp option is not supported with --jq or --template` — so the call exited
+ * non-zero on every repository, the function always returned the fail-safe, and the
+ * branch it exists for was dead: a repository with no CI at all still paid the 60 s
+ * registration grace and then reported a maintainer-gated skip, naming fork approval
+ * and path filters that were not the reason.
+ *
+ * Slurping without a filter keeps it one structured read — every page in one JSON
+ * document — and moves the count here, where it is typed and a test can reach it.
+ */
 function repoHasActiveWorkflows(): boolean | undefined {
   // Every page: the default read stops at thirty workflows, and an active one on a
   // later page would otherwise read as "no CI configured".
-  const result = gh(
-    'api',
-    'repos/{owner}/{repo}/actions/workflows',
-    '--paginate',
-    '--slurp',
-    '--jq',
-    '[.[] | .workflows[] | select(.state == "active")] | length'
-  );
+  const result = gh('api', `repos/${repoPath}/actions/workflows`, '--paginate', '--slurp');
   if (!result.ok) return undefined;
-  const count = Number.parseInt(result.stdout.trim(), 10);
-  return Number.isNaN(count) ? undefined : count > 0;
+
+  let pages: unknown;
+  try {
+    pages = JSON.parse(result.stdout) as unknown;
+  } catch {
+    return undefined;
+  }
+  if (!Array.isArray(pages)) return undefined;
+
+  let active = 0;
+  for (const page of pages) {
+    const states = workflowStates(page);
+    if (states === undefined) return undefined;
+    active += states.filter(state => state === 'active').length;
+  }
+  return active > 0;
 }
 
 function classify(rounds: readonly Check[]): void {
@@ -152,6 +217,12 @@ function classify(rounds: readonly Check[]): void {
 
 if (prUrl === '') {
   refuse('check-ci: no pull request was bound; the probe reads the recorded pull request, never the ambient branch.');
+} else if (!isOwnerRepo(repoPath)) {
+  refuse(
+    `check-ci: the recorded repository is not an owner/repo: '${repoPath}'. The probe ` +
+      'names the pull request\'s own repository rather than letting gh resolve one from ' +
+      "the checkout's remotes."
+  );
 } else {
   const first = checks();
   if (first !== undefined) {
