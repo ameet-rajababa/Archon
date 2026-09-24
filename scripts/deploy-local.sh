@@ -205,15 +205,29 @@ docker compose up -d "$SERVICE" || die "up failed"
 # failure with the new image LIVE. The message has to say so, or it reads as
 # "nothing happened" — which is what the report said on 2026-09-23 while the
 # new image was serving.
-HEALTH_WAIT=${HEALTH_WAIT:-120}
+# 120s was the budget until 2026-09-24. It stopped being enough: the deploys of
+# 426dc20c (23:46Z) and 65c2e438 (01:49Z) BOTH reported FAILED here and both had
+# already swapped — 65c2e438 answered this endpoint fine once the deploy had
+# given up on it, and is what the box has been serving since. Two consecutive
+# false failures, on a report whose whole job is to say what is running.
+#
+# The number is a symptom, not the cause: every deploy up to 07b39255 (18:00Z)
+# went healthy inside 120s, so something in the commits after it made the boot
+# slower and nobody has measured what. Raised rather than diagnosed, and said so
+# here — if this trips again, find what the boot spends its time on before
+# raising it a second time.
+HEALTH_WAIT=${HEALTH_WAIT:-420}
 waited=0
+last_health_error=""
 while [ "$waited" -lt "$HEALTH_WAIT" ]; do
-  if curl -fsS "$HEALTH_URL" >/dev/null 2>&1; then break; fi
+  if last_health_error=$(curl -fsS "$HEALTH_URL" 2>&1 >/dev/null); then break; fi
   sleep 2
   waited=$((waited + 2))
 done
+# curl's own words, not a guess: "connection refused" means still booting, an
+# HTTP error means it booted and is unwell, and those want different next steps.
 curl -fsS "$HEALTH_URL" >/dev/null 2>&1 ||
-  die "swapped to $SHA, but it never became healthy at $HEALTH_URL within ${HEALTH_WAIT}s — the new image IS running"
+  die "swapped to $SHA, but it never became healthy at $HEALTH_URL within ${HEALTH_WAIT}s — the new image IS running (last error: ${last_health_error:-none reported})"
 echo "healthy after ${waited}s"
 
 # ── 7. Ask the running container which commit it IS ─────────────────────────
