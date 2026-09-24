@@ -852,6 +852,15 @@ export interface paths {
             'application/json': components['schemas']['Error'];
           };
         };
+        /** @description Server is draining for a restart */
+        503: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'application/json': components['schemas']['Error'];
+          };
+        };
       };
     };
     delete?: never;
@@ -1111,6 +1120,15 @@ export interface paths {
         };
         /** @description Server error */
         500: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'application/json': components['schemas']['Error'];
+          };
+        };
+        /** @description Server is draining for a restart */
+        503: {
           headers: {
             [name: string]: unknown;
           };
@@ -1555,6 +1573,15 @@ export interface paths {
             'application/json': components['schemas']['Error'];
           };
         };
+        /** @description Server is draining for a restart */
+        503: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'application/json': components['schemas']['Error'];
+          };
+        };
       };
     };
     delete?: never;
@@ -1741,6 +1768,15 @@ export interface paths {
         };
         /** @description Server error */
         500: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'application/json': components['schemas']['Error'];
+          };
+        };
+        /** @description Server is draining for a restart */
+        503: {
           headers: {
             [name: string]: unknown;
           };
@@ -4832,6 +4868,18 @@ export interface components {
       is_wsl: boolean;
       wsl_distro?: string;
       activePlatforms?: string[];
+      drain?: {
+        /** @enum {string} */
+        state: 'draining' | 'drained';
+        requestedAt: string;
+        expiresAt: string;
+        refusedCount: number;
+        holding: {
+          activeConversations: number;
+          queuedMessages: number;
+          runningWorkflows: number;
+        };
+      };
       schema?: {
         createdAppVersion: string | null;
         appVersion: string;
