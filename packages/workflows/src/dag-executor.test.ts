@@ -32705,6 +32705,8 @@ describe('#2707 step 3: gate-terminated loop_group pause escalation', () => {
       number: 3115,
       attention: true,
       red_cause: 'inherited',
+      reason: 'CI remains non-green after Archon classified the failure as inherited',
+      action: 'Re-run the failing check, then resume this run.',
     };
     const inheritedRouteText = JSON.stringify(inheritedRoute);
     const completedBeforeAttention = new Map<string, PersistedNodeOutput>(
@@ -32740,7 +32742,9 @@ describe('#2707 step 3: gate-terminated loop_group pause escalation', () => {
     if (firstWait.kind !== 'attention')
       throw new Error('delivery did not persist an attention wait');
     expect(firstWait.message).toContain(
-      'CI remains non-green for pull request #3115 after Archon classified the failure as inherited'
+      'Pull request #3115 needs an operator. CI remains non-green after Archon ' +
+        'classified the failure as inherited: windows tests failed — Re-run the ' +
+        'failing check, then resume this run.'
     );
 
     await writeFile(greenMarkerPath, 'green');

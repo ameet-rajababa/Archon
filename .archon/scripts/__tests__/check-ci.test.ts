@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { forgeResponse, runDeliverScript, type ForgeFake } from './deliver-checks-harness';
+import { join } from 'node:path';
+import { forgeResponse, PACK, runDeliverScript, type ForgeFake } from './deliver-checks-harness';
 
 const probe = runDeliverScript.bind(null, 'check-ci');
 
@@ -74,11 +75,36 @@ describe('check-ci on the default gh source', () => {
     });
   });
 
-  it('refuses a failed read instead of concluding there is no CI', () => {
+  it('declares a failed read unreadable instead of concluding there is no CI', () => {
+    // The invariant this has always protected is unchanged: a failed observation is
+    // never evidence that no CI exists. What changed is who owns the condition. It
+    // used to refuse, which fails the loop group and the whole run — discarding a
+    // complete, validated, reviewed pull request over a token scope. It now declares
+    // its own state, and the tail routes that to the operator (#33).
     const result = probe({ gh: { checks: 'fail', rollup: 'fail', workflows: 0 } });
+    expect(result.code).toBe(0);
+    const declared = JSON.parse(result.stdout) as { state: string; detail: string };
+    expect(declared.state).toBe('unreadable');
+    expect(declared.state).not.toBe('concluded');
+    expect(declared.detail).toContain('could not read check state: HTTP 502');
+  });
+
+  it('declares a payload it cannot classify unreadable, and never green', () => {
+    const result = probe({ gh: { checks: 'garbage', rollup: 'fail', workflows: 0 } });
+    expect(result.code).toBe(0);
+    const declared = JSON.parse(result.stdout) as { state: string; detail: string };
+    expect(declared.state).toBe('unreadable');
+    expect(declared.detail).toContain('unexpected check payload shape');
+  });
+
+  it('still refuses a misconfigured run rather than calling it unreadable', () => {
+    // A wiring defect is the operator's, not the forge's condition, and it must not
+    // be smuggled into the state that pauses for a token scope. CheckReadError is
+    // what separates them — never the wording of the failure.
+    const result = probe({ gh: {}, inputs: { INPUTS_PR: 'not-json' } });
     expect(result.code).not.toBe(0);
     expect(result.stdout).toBe('');
-    expect(result.stderr).toContain('check-ci: could not read check state: HTTP 502');
+    expect(result.stderr).toContain('check-ci:');
   });
 
   it('concludes without the grace wait when the repository has no active workflow', () => {
@@ -179,5 +205,51 @@ describe('check-ci on the opt-in forge source', () => {
       'check-ci: ARCHON_SDLC_FORGE=forge: forge check read failed: no forge plugin claims ghe.example.com'
     );
     expect(result.gh).toEqual([]);
+  });
+});
+
+describe('ci-attention-route', () => {
+  const route = (
+    env: Record<string, string>
+  ): {
+    code: number;
+    declared: { attention: boolean; red_cause: string; reason: string; action: string };
+  } => {
+    const result = Bun.spawnSync(
+      [process.execPath, join(PACK, 'deliver/scripts/ci-attention-route.ts')],
+      { env: { ...process.env, ...env }, stdout: 'pipe', stderr: 'pipe' }
+    );
+    return {
+      code: result.exitCode,
+      declared: JSON.parse(result.stdout.toString()) as {
+        attention: boolean;
+        red_cause: string;
+        reason: string;
+        action: string;
+      },
+    };
+  };
+
+  it('routes an unreadable state to an operator action naming the read', () => {
+    const { code, declared } = route({ INPUTS_CI_STATE: 'unreadable', INPUTS_RED_CAUSE: '' });
+
+    expect(code).toBe(0);
+    expect(declared.attention).toBe(true);
+    expect(declared.reason).toContain('could not read');
+    expect(declared.action).toContain('resume this run');
+  });
+
+  it('keeps routing non-introduced red to its own rerun action', () => {
+    const { declared } = route({ INPUTS_CI_STATE: 'red', INPUTS_RED_CAUSE: 'inherited' });
+
+    expect(declared.attention).toBe(true);
+    expect(declared.red_cause).toBe('inherited');
+    expect(declared.action).toContain('Re-run the failing check');
+  });
+
+  it('does not route red the change introduced', () => {
+    expect(route({ INPUTS_CI_STATE: 'red', INPUTS_RED_CAUSE: 'introduced' }).declared.attention).toBe(
+      false
+    );
   });
 });
