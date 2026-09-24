@@ -1,40 +1,60 @@
 /**
- * Files — read a project's checkout (#23).
+ * Files - read and edit a project's checkout.
  *
- * The split layout (option A of the three the preview offered): a lazily
- * loaded directory tree pinned left, a read-only viewer right. Orientation
- * stays on screen, and moving between two files is one click.
+ * Replaced a hand-rolled tree and viewer. The libraries earn their place on
+ * measurement, not taste: code folding, find-in-file, arrow-key navigation and
+ * row virtualisation for +0.67 kB gzip on the initial bundle, because the whole
+ * thing is lazy (see below).
  *
- * LAZY BY CONSTRUCTION, not by care. Each directory row is its own component
- * that reads its own cache key, and a collapsed directory does not mount. So
- * "expanding loads exactly one directory" is a property of the tree's shape
- * rather than a rule someone has to remember while editing it.
+ * EDITABLE. A save carries the `etag` the read returned, so the server can
+ * refuse a write against a file that changed underneath it (409) rather than
+ * discard whatever wrote it. That refusal is shown, never retried through.
  *
- * Highlighting reuses the console's existing `react-markdown` +
- * `rehype-highlight` path — the same one YamlPreview, ArtifactPanel and
- * MessageItem use — rather than adding a viewer dependency. Read-only is the
- * whole feature here; if it ever goes editable, CodeMirror becomes a
- * deliberate choice at that point.
+ * EVERY BYTE OF THIS IS LAZY. ConsoleApp mounts it through React.lazy, so the
+ * libraries are absent from the initial bundle entirely, and the language
+ * grammars arrive per file type (lib/code-language.ts). A session that never
+ * opens this tab pays nothing for it.
  */
-import { useState, type ReactElement } from 'react';
-import { useParams } from 'react-router';
-import ReactMarkdown from 'react-markdown';
-import rehypeHighlight from 'rehype-highlight';
-import { useEntity } from '../store/cache';
-import { K } from '../store/keys';
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useParams, useSearchParams } from 'react-router';
+import { Tree, type NodeApi, type NodeRendererProps } from 'react-arborist';
+import CodeMirror from '@uiw/react-codemirror';
+import { EditorView } from '@codemirror/view';
+import type { Extension } from '@codemirror/state';
 import * as skill from '../skills';
 import { EmptyState } from '../components/EmptyState';
 import { HttpError } from '../lib/http';
-import { formatBytes, languageFor, type FileEntry } from '../primitives/file-entry';
+import { loadLanguage } from '../lib/code-language';
+import ReactMarkdown, { type Components } from 'react-markdown';
+import { MD_COMPONENTS, MD_REHYPE_PLUGINS, MD_REMARK_PLUGINS } from '../components/Markdown';
+import {
+  formatBytes,
+  hasPreview,
+  isHtmlPath,
+  isImagePath,
+  parentPath,
+  joinPath,
+  type FileEntry,
+} from '../primitives/file-entry';
 
-const REHYPE_PLUGINS = [rehypeHighlight];
+/** A node as react-arborist wants it. `children === undefined` means leaf. */
+interface Node {
+  id: string;
+  name: string;
+  kind: FileEntry['kind'];
+  size: number | null;
+  children?: Node[];
+}
 
 /**
- * The server's own words for a refusal, which are the useful ones: "binary
- * file", "over the size ceiling", "not found". Falls back to the raw message
- * when the body is not the JSON error shape — `bodySnippet` is truncated, so
- * a parse failure is expected rather than exceptional.
+ * Stand-in child for a directory nobody has opened yet.
+ *
+ * Not `[]`: arborist reads an empty array as a genuinely empty folder and
+ * renders no twisty, so the directory could never be opened to load it.
  */
+const UNREAD: Node[] = [{ id: ' unread', name: 'Loading...', kind: 'other', size: null }];
+
+/** The server's own words for a refusal - "binary file", "too large", "not found". */
 function refusalMessage(error: Error): string {
   if (!(error instanceof HttpError)) return error.message;
   try {
@@ -44,195 +64,252 @@ function refusalMessage(error: Error): string {
       if (typeof value === 'string') return value;
     }
   } catch {
-    // Not JSON, or cut mid-object by the snippet cap. The status line below
-    // still says what happened.
+    // Not JSON, or cut mid-object by the snippet cap.
   }
   return `Could not read this file (HTTP ${String(error.status)}).`;
 }
 
-interface TreeProps {
+const THEME = EditorView.theme(
+  {
+    '&': { backgroundColor: 'var(--color-surface)', color: 'var(--color-text-primary)' },
+    '.cm-gutters': {
+      backgroundColor: 'var(--color-surface-inset)',
+      color: 'var(--color-text-tertiary)',
+      border: 'none',
+      borderRight: '1px solid var(--color-border)',
+    },
+    '.cm-activeLine': { backgroundColor: 'var(--color-surface-elevated)' },
+    '.cm-activeLineGutter': { backgroundColor: 'var(--color-surface-elevated)' },
+  },
+  { dark: true }
+);
+
+function Row({ node, style }: NodeRendererProps<Node>): ReactElement {
+  const entry = node.data;
+  return (
+    <div
+      style={style}
+      className={`flex h-full cursor-pointer items-center gap-1.5 pr-2 text-[12.5px] ${
+        node.isSelected
+          ? 'bg-surface-elevated text-text-primary'
+          : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+      }`}
+      onClick={() => {
+        if (entry.kind === 'dir') node.toggle();
+      }}
+    >
+      <span aria-hidden className="w-3 shrink-0 font-mono text-[10px] text-text-tertiary">
+        {entry.kind === 'dir' ? (node.isOpen ? 'v' : '>') : ''}
+      </span>
+      <span className="truncate">{entry.name}</span>
+      {entry.kind === 'file' ? (
+        <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums text-text-tertiary">
+          {formatBytes(entry.size)}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Rendered view of a file that has one.
+ *
+ * HTML goes in a SANDBOXED IFRAME with neither `allow-scripts` nor
+ * `allow-same-origin`. Repo HTML is untrusted input: rendered on this origin it
+ * would run with the console's cookies and DOM. Those two flags together are
+ * the combination that hands it exactly that, so neither is present - the
+ * frame paints markup and CSS and can do nothing else.
+ *
+ * Markdown is rendered in-process because it is not executable: the same
+ * react-markdown path the rest of the console already uses, with relative
+ * image sources rewritten onto the raw route so a README's screenshots resolve.
+ */
+function Preview({
+  projectId,
+  path,
+  text,
+}: {
   projectId: string;
-  dir: string;
-  selected: string | null;
-  onSelect: (path: string) => void;
-  depth: number;
-}
+  path: string;
+  text: string;
+}): ReactElement {
+  if (isHtmlPath(path)) {
+    return (
+      <iframe
+        title={`Preview of ${path}`}
+        sandbox=""
+        srcDoc={text}
+        className="h-full w-full border-0 bg-white"
+      />
+    );
+  }
 
-/**
- * One directory level. Mounted only when its parent is expanded, which is what
- * keeps the whole tree to one request per opened folder.
- */
-function TreeLevel({ projectId, dir, selected, onSelect, depth }: TreeProps): ReactElement {
-  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
-  const { data, error } = useEntity<FileEntry[]>(K.files(projectId, dir), () =>
-    skill.listFiles(projectId, dir)
-  );
-
-  if (error !== undefined) {
-    return (
-      <p
-        className="px-2 py-1 font-mono text-[11px] text-error"
-        style={{ paddingLeft: indent(depth) }}
-      >
-        {refusalMessage(error)}
-      </p>
-    );
-  }
-  if (data === undefined) {
-    return (
-      <p
-        className="px-2 py-1 font-mono text-[11px] text-text-tertiary"
-        style={{ paddingLeft: indent(depth) }}
-      >
-        Loading…
-      </p>
-    );
-  }
-  if (data.length === 0) {
-    return (
-      <p
-        className="px-2 py-1 font-mono text-[11px] text-text-tertiary"
-        style={{ paddingLeft: indent(depth) }}
-      >
-        Empty
-      </p>
-    );
-  }
+  const dir = parentPath(path) ?? '';
+  // The console's own markdown stack, plus one rule it has never needed: a
+  // README's relative image is a file in the repo, which the browser cannot
+  // fetch by that path.
+  const components: Components = {
+    ...MD_COMPONENTS,
+    img: ({ src, alt }) => {
+      const raw = typeof src === 'string' ? src : '';
+      const isAbsolute = /^[a-z]+:|^\/\//i.test(raw);
+      const resolved = isAbsolute
+        ? raw
+        : skill.rawFileUrl(projectId, joinPath(dir, raw.replace(/^\.\//, '')));
+      return <img src={resolved} alt={alt ?? ''} className="max-w-full" />;
+    },
+  };
 
   return (
-    <ul className="flex flex-col">
-      {data.map(entry => {
-        const isOpen = open.has(entry.path);
-        const isSelected = entry.path === selected;
-        return (
-          <li key={entry.path}>
-            <button
-              type="button"
-              aria-expanded={entry.kind === 'dir' ? isOpen : undefined}
-              aria-current={isSelected ? 'true' : undefined}
-              disabled={entry.kind === 'other'}
-              onClick={() => {
-                if (entry.kind === 'dir') {
-                  setOpen(prev => {
-                    const next = new Set(prev);
-                    if (next.has(entry.path)) next.delete(entry.path);
-                    else next.add(entry.path);
-                    return next;
-                  });
-                  return;
-                }
-                if (entry.kind === 'file') onSelect(entry.path);
-              }}
-              style={{ paddingLeft: indent(depth) }}
-              className={`flex w-full items-center gap-1.5 py-[3px] pr-2 text-left text-[12.5px] transition-colors ${
-                isSelected
-                  ? 'bg-surface-elevated text-text-primary'
-                  : entry.kind === 'other'
-                    ? 'text-text-tertiary'
-                    : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
-              }`}
-            >
-              <span aria-hidden className="w-3 shrink-0 font-mono text-[10px] text-text-tertiary">
-                {entry.kind === 'dir' ? (isOpen ? '▾' : '▸') : ''}
-              </span>
-              <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-              {entry.kind === 'file' ? (
-                <span className="shrink-0 font-mono text-[10px] tabular-nums text-text-tertiary">
-                  {formatBytes(entry.size)}
-                </span>
-              ) : null}
-            </button>
-            {entry.kind === 'dir' && isOpen ? (
-              <TreeLevel
-                projectId={projectId}
-                dir={entry.path}
-                selected={selected}
-                onSelect={onSelect}
-                depth={depth + 1}
-              />
-            ) : null}
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
-/** Indent per level, in pixels. Deep trees stop indenting rather than vanish off the left. */
-function indent(depth: number): number {
-  return 8 + Math.min(depth, 8) * 11;
-}
-
-/**
- * Wrap the file in a fence so `rehype-highlight` applies a grammar. The fence
- * length exceeds the longest backtick run in the content, so a file that
- * itself contains a Markdown fence cannot break out of the block.
- */
-function toFence(text: string, language: string): string {
-  const longestRun = (text.match(/`+/g) ?? []).reduce((max, run) => Math.max(max, run.length), 0);
-  const fence = '`'.repeat(Math.max(3, longestRun + 1));
-  return `${fence}${language}\n${text}\n${fence}`;
-}
-
-function Viewer({ projectId, path }: { projectId: string; path: string }): ReactElement {
-  const { data, error } = useEntity<skill.FileContent>(K.fileContent(projectId, path), () =>
-    skill.readFileContent(projectId, path)
-  );
-
-  if (error !== undefined) {
-    return (
-      <div className="px-6 py-4">
-        <p className="font-mono text-[12px] text-error">{refusalMessage(error)}</p>
-      </div>
-    );
-  }
-  if (data === undefined) {
-    return <p className="px-6 py-4 font-mono text-[12px] text-text-tertiary">Loading…</p>;
-  }
-
-  const lines = data.content.split('\n');
-  // A trailing newline yields a final empty element that is not a line of the
-  // file; numbering it would make every file look one line longer than it is.
-  const lineCount =
-    lines.length > 1 && lines[lines.length - 1] === '' ? lines.length - 1 : lines.length;
-
-  return (
-    <div className="min-h-0 flex-1 overflow-auto">
-      <div className="flex min-w-max items-start">
-        {/* The gutter is a sibling column, not per-line markup: highlighting a
-            file line by line would break every construct that spans lines — a
-            block comment, a template literal. Alignment holds because both
-            columns share the type size and line height, and the code pane does
-            not wrap. */}
-        <div
-          aria-hidden
-          className="sticky left-0 select-none border-r border-border bg-surface px-2 py-2 text-right font-mono text-[12px] leading-[1.5] text-text-tertiary tabular-nums"
-        >
-          {Array.from({ length: lineCount }, (_, i) => (
-            <div key={i}>{i + 1}</div>
-          ))}
-        </div>
-        {/* Same arrangement YamlPreview uses: the global `.hljs` rule paints the
-            code background, so the block's own margins and background are
-            stripped and the pane behind it shows through. `whitespace-pre`
-            keeps every line one line, which is what the gutter is aligned to. */}
-        <div className="font-mono text-[12px] leading-[1.5] [&_pre]:m-0 [&_pre]:p-0 [&_pre]:px-3 [&_pre]:py-2 [&_pre_code]:!bg-transparent [&_pre_code]:whitespace-pre">
-          <ReactMarkdown rehypePlugins={REHYPE_PLUGINS}>
-            {toFence(data.content, languageFor(path))}
-          </ReactMarkdown>
-        </div>
-      </div>
+    <div className="chat-markdown h-full overflow-auto px-6 py-4 text-[13px] leading-relaxed text-text-primary">
+      <ReactMarkdown
+        remarkPlugins={MD_REMARK_PLUGINS}
+        rehypePlugins={MD_REHYPE_PLUGINS}
+        components={components}
+      >
+        {text}
+      </ReactMarkdown>
     </div>
   );
 }
 
 export function FilesPage(): ReactElement {
   const { projectId } = useParams<{ projectId: string }>();
-  const [selected, setSelected] = useState<string | null>(null);
-  // Narrow windows: the tree becomes a drawer rather than squeezing the
-  // viewer. This is the split layout's known weakness, so it gets a stated
-  // behaviour instead of an emergent one.
-  const [treeOpen, setTreeOpen] = useState(false);
+  // The open file lives in the URL, so a file is linkable and survives a
+  // reload - the gap v1 has.
+  const [params, setParams] = useSearchParams();
+  const selected = params.get('file');
+
+  const [loaded, setLoaded] = useState<Record<string, FileEntry[]>>({});
+  const [content, setContent] = useState<string | null>(null);
+  // What the server last confirmed, and the version it was. `draft` differs
+  // from `content` exactly when there are unsaved edits, which is the only
+  // definition of dirty this needs.
+  const [draft, setDraft] = useState<string>('');
+  const [etag, setEtag] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [viewerError, setViewerError] = useState<string | null>(null);
+  const [language, setLanguage] = useState<Extension[]>([]);
+  const [filter, setFilter] = useState('');
+  // Preview is the default for files that HAVE one: opening a README to read
+  // its source is the unusual case, not the common one.
+  const [showSource, setShowSource] = useState(false);
+
+  const load = useCallback(
+    (dir: string) => {
+      if (projectId === undefined) return;
+      void skill.listFiles(projectId, dir).then(
+        entries => {
+          setLoaded(prev => ({ ...prev, [dir]: entries }));
+        },
+        () => {
+          // An unreadable directory reads as empty rather than taking the tree
+          // down; the row stays, and its contents simply are not there.
+          setLoaded(prev => ({ ...prev, [dir]: [] }));
+        }
+      );
+    },
+    [projectId]
+  );
+
+  useEffect(() => {
+    setLoaded({});
+    load('');
+  }, [load]);
+
+  useEffect(() => {
+    if (projectId === undefined || selected === null) {
+      setContent(null);
+      return;
+    }
+    let live = true;
+    setContent(null);
+    setViewerError(null);
+    setShowSource(false);
+    if (isImagePath(selected)) {
+      // The text route would refuse this as binary, correctly. Asking it
+      // anyway would paint a refusal over a file the viewer can show.
+      return;
+    }
+    void skill.readFileContent(projectId, selected).then(
+      res => {
+        if (!live) return;
+        setContent(res.content);
+        setDraft(res.content);
+        setEtag(res.etag);
+        setSaveError(null);
+        setSavedAt(null);
+      },
+      (err: Error) => {
+        if (live) setViewerError(refusalMessage(err));
+      }
+    );
+    void loadLanguage(selected).then(ext => {
+      if (live) setLanguage(ext);
+    });
+    setShowSource(false);
+    return (): void => {
+      live = false;
+    };
+  }, [projectId, selected]);
+
+  const data = useMemo<Node[]>(() => {
+    const build = (dir: string): Node[] =>
+      (loaded[dir] ?? []).map(entry => {
+        if (entry.kind !== 'dir') {
+          return { id: entry.path, name: entry.name, kind: entry.kind, size: entry.size };
+        }
+        return {
+          id: entry.path,
+          name: entry.name,
+          kind: entry.kind,
+          size: entry.size,
+          children: loaded[entry.path] === undefined ? UNREAD : build(entry.path),
+        };
+      });
+    return build('');
+  }, [loaded]);
+
+  const dirty = content !== null && draft !== content;
+
+  const save = useCallback((): void => {
+    if (projectId === undefined || selected === null || etag === null || saving) return;
+    setSaving(true);
+    setSaveError(null);
+    void skill.writeFileContent(projectId, selected, draft, etag).then(
+      res => {
+        // The saved text IS the file now, so it becomes the baseline and the
+        // new token is what the next save will be judged against.
+        setContent(draft);
+        setEtag(res.etag);
+        setSavedAt(Date.now());
+        setSaving(false);
+      },
+      (err: Error) => {
+        // A 409 means someone else wrote the file. Surfaced and left alone -
+        // retrying with a fresh token is exactly the silent overwrite the
+        // token exists to prevent.
+        setSaveError(refusalMessage(err));
+        setSaving(false);
+      }
+    );
+  }, [projectId, selected, etag, draft, saving]);
+
+  // Cmd/Ctrl-S, because nobody reaches for a button to save a file.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        save();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return (): void => {
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [save]);
 
   if (projectId === undefined) {
     return <EmptyState title="No project" hint="Pick a project to read its files." />;
@@ -240,63 +317,135 @@ export function FilesPage(): ReactElement {
 
   return (
     <div className="flex min-h-0 flex-1">
-      <aside
-        className={`${
-          treeOpen ? 'fixed inset-y-0 left-0 z-30 flex w-[260px] shadow-xl' : 'hidden md:flex'
-        } shrink-0 flex-col border-r border-border bg-surface-inset/40 md:static md:z-auto md:w-[260px] md:shadow-none`}
-      >
-        <header className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
-          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-tertiary">
-            Files · read-only
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              setTreeOpen(false);
+      <aside className="flex w-[280px] shrink-0 flex-col border-r border-border bg-surface-inset/40">
+        <input
+          value={filter}
+          onChange={e => {
+            setFilter(e.target.value);
+          }}
+          placeholder="Filter loaded tree..."
+          className="m-2 rounded border border-border bg-surface px-2 py-1 font-mono text-[11.5px] text-text-primary outline-none focus:border-border-bright"
+        />
+        <div className="min-h-0 flex-1">
+          <Tree<Node>
+            data={data}
+            openByDefault={false}
+            width="100%"
+            height={720}
+            indent={14}
+            rowHeight={22}
+            searchTerm={filter}
+            searchMatch={(node, term): boolean =>
+              node.data.name.toLowerCase().includes(term.toLowerCase())
+            }
+            disableDrag
+            disableDrop
+            onToggle={id => {
+              // Fetch a directory the first time it is opened, and never again.
+              if (loaded[id] === undefined) load(id);
             }}
-            className="font-mono text-[11px] text-text-tertiary hover:text-text-primary md:hidden"
+            onActivate={(node: NodeApi<Node>) => {
+              if (node.data.kind !== 'file') return;
+              setParams(prev => {
+                const next = new URLSearchParams(prev);
+                next.set('file', node.data.id);
+                return next;
+              });
+            }}
           >
-            Close
-          </button>
-        </header>
-        <div className="min-h-0 flex-1 overflow-auto py-1">
-          <TreeLevel
-            projectId={projectId}
-            dir=""
-            selected={selected}
-            onSelect={path => {
-              setSelected(path);
-              setTreeOpen(false);
-            }}
-            depth={0}
-          />
+            {Row}
+          </Tree>
         </div>
       </aside>
 
       <section className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2">
-          <button
-            type="button"
-            onClick={() => {
-              setTreeOpen(true);
-            }}
-            className="rounded border border-border px-2 py-0.5 font-mono text-[11px] text-text-secondary hover:text-text-primary md:hidden"
-          >
-            Tree
-          </button>
           <span className="min-w-0 truncate font-mono text-[12px] text-text-secondary">
             {selected ?? 'No file selected'}
           </span>
+          {selected !== null && hasPreview(selected) ? (
+            <button
+              type="button"
+              onClick={() => {
+                setShowSource(v => !v);
+              }}
+              className="shrink-0 rounded border border-border px-2 py-0.5 font-mono text-[11px] text-text-secondary transition-colors hover:text-text-primary"
+            >
+              {showSource ? 'Preview' : 'Source'}
+            </button>
+          ) : null}
+          {dirty ? (
+            <span
+              aria-label="Unsaved changes"
+              className="shrink-0 font-mono text-[11px] text-warning"
+            >
+              unsaved
+            </span>
+          ) : savedAt !== null ? (
+            <span className="shrink-0 font-mono text-[11px] text-text-tertiary">saved</span>
+          ) : null}
+          {selected !== null ? (
+            <button
+              type="button"
+              onClick={save}
+              disabled={!dirty || saving}
+              className="shrink-0 rounded border border-border px-2 py-0.5 font-mono text-[11px] text-text-secondary transition-colors hover:text-text-primary disabled:opacity-40"
+            >
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+          ) : null}
         </header>
+        {saveError !== null ? (
+          <p className="shrink-0 border-b border-error/30 bg-error/[0.06] px-4 py-1.5 font-mono text-[11.5px] text-error">
+            {saveError}
+          </p>
+        ) : null}
         {selected === null ? (
           <EmptyState
             title="Nothing open"
-            hint="Pick a file from the tree to read it. Files are read-only here."
+            hint="Arrow keys move the tree. Cmd-F searches the file."
           />
+        ) : viewerError !== null ? (
+          <p className="px-6 py-4 font-mono text-[12px] text-error">{viewerError}</p>
+        ) : isImagePath(selected) ? (
+          // Images never reach the text route - the server refuses them as
+          // binary - so they are loaded by URL from the raw route instead.
+          <div className="min-h-0 flex-1 overflow-auto bg-surface-inset/30 p-6">
+            <img
+              src={skill.rawFileUrl(projectId, selected)}
+              alt={selected}
+              className="max-w-full"
+            />
+          </div>
+        ) : content === null ? (
+          <p className="px-6 py-4 font-mono text-[12px] text-text-tertiary">Loading...</p>
+        ) : hasPreview(selected) && !showSource ? (
+          <div className="min-h-0 flex-1">
+            <Preview projectId={projectId} path={selected} text={draft} />
+          </div>
         ) : (
-          <Viewer projectId={projectId} path={selected} />
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <CodeMirror
+              value={draft}
+              onChange={setDraft}
+              height="100%"
+              style={{ height: '100%' }}
+              theme={THEME}
+              extensions={language}
+              basicSetup={{
+                lineNumbers: true,
+                foldGutter: true,
+                searchKeymap: true,
+                highlightActiveLine: true,
+                highlightActiveLineGutter: true,
+                autocompletion: false,
+              }}
+            />
+          </div>
         )}
       </section>
     </div>
   );
 }
+
+export default FilesPage;
