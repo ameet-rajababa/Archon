@@ -28,7 +28,7 @@ import { randomUUID } from 'node:crypto';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { getArchonHome, isDocker } from '@archon/paths';
-import { removeTempTree, trackTempRoots } from '@archon/paths/test-utils';
+import { honorArchonHomeEnv, removeTempTree, trackTempRoots } from '@archon/paths/test-utils';
 import {
   getProjectStoragePaths as getProjectStoragePathsReal,
   getRunArtifactsDirForRoot as getRunArtifactsDirForRootReal,
@@ -677,6 +677,13 @@ async function finishStartupWindow(
   jest.advanceTimersByTime(500);
   await commandPromise;
 }
+
+// The detached-run tests point ARCHON_HOME at a temp directory and expect the
+// spawned child's log path to land under it; without this the container's
+// Docker signals send it to /.archon and the waits never finish. The
+// resolveDetachedRunEncryptionEnv tests pass their env explicitly and are
+// unaffected.
+honorArchonHomeEnv();
 
 describe('workflowListCommand', () => {
   let consoleSpy: ReturnType<typeof spyOn>;

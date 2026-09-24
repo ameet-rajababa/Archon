@@ -19,7 +19,7 @@ import { describe, test, expect, mock, afterAll } from 'bun:test';
 import { mkdtemp, mkdir, symlink } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { removeTempTree } from '@archon/paths/test-utils';
+import { honorArchonHomeEnv, removeTempTree } from '@archon/paths/test-utils';
 
 // Archon-owned storage (`_folder/<slug>/{artifacts,logs}`) is created for real
 // by registerFolder; point it at a temp tree instead of the developer's ~/.archon.
@@ -60,6 +60,10 @@ async function makeLinkedRoot(name: string): Promise<{ realPath: string; linkPat
   await symlink(realPath, linkPath, 'junction');
   return { realPath, linkPath };
 }
+
+// This file points ARCHON_HOME at a temp directory; without this the
+// container's Docker signals make getArchonHome() ignore it.
+honorArchonHomeEnv();
 
 describe('registerFolder ↔ folder-project lookup', () => {
   test('a project registered through a link is found from either path', async () => {

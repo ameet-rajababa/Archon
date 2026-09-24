@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { trackTempRoots } from '@archon/paths/test-utils';
+import { honorArchonHomeEnv, trackTempRoots } from '@archon/paths/test-utils';
 import { parseWorkflow } from './loader';
 import { discoverWorkflows } from './workflow-discovery';
 
@@ -14,6 +14,11 @@ async function createProject(): Promise<string> {
   await mkdir(join(root, '.archon', 'scripts'), { recursive: true });
   return root;
 }
+
+// Discovery reads home-scoped workflows from $ARCHON_HOME/workflows. Without
+// this, the container's Docker signals point that at the operator's real
+// /.archon and their workflows are counted alongside the fixture's.
+honorArchonHomeEnv();
 
 describe('unbound exec input reads', () => {
   test('recognizes each supported Python, JavaScript, and bash read form', () => {

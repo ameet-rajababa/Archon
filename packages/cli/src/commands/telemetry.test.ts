@@ -3,6 +3,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { telemetryStatusCommand, telemetryResetCommand } from './telemetry';
+import { honorArchonHomeEnv } from '@archon/paths/test-utils';
 
 const ENV_VARS = [
   'ARCHON_HOME',
@@ -12,6 +13,10 @@ const ENV_VARS = [
   'POSTHOG_API_KEY',
   'POSTHOG_HOST',
 ] as const;
+
+// These tests point ARCHON_HOME at a temp directory; without this the
+// container's Docker signals make getArchonHome() ignore it.
+honorArchonHomeEnv();
 
 describe('telemetryStatusCommand', () => {
   let saved: Record<string, string | undefined>;

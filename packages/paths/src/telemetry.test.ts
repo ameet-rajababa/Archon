@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { honorArchonHomeEnv } from './test-utils';
 
 import {
   isTelemetryDisabled,
@@ -45,6 +46,10 @@ function restoreEnv(saved: Record<string, string | undefined>): void {
     }
   }
 }
+
+// These tests point ARCHON_HOME at a temp directory; without this the
+// container's Docker signals make getArchonHome() ignore it.
+honorArchonHomeEnv();
 
 describe('telemetry opt-out detection', () => {
   let saved: Record<string, string | undefined>;

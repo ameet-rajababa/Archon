@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { removeTempTree } from '@archon/paths/test-utils';
+import { SCRATCH_REGISTRY_ENV, removeTempTree } from '@archon/paths/test-utils';
 
 const CLI_ENTRY = join(import.meta.dir, '..', 'cli.ts');
 const cleanupPaths: string[] = [];
@@ -16,7 +16,12 @@ afterEach(async () => {
 function runCli(args: string[], archonHome: string): { status: number | null; output: string } {
   const result = spawnSync(process.execPath, [CLI_ENTRY, ...args], {
     encoding: 'utf8',
-    env: { ...process.env, ARCHON_HOME: archonHome, ARCHON_TELEMETRY_DISABLED: '1' },
+    env: {
+      ...process.env,
+      ARCHON_HOME: archonHome,
+      ARCHON_TELEMETRY_DISABLED: '1',
+      ...SCRATCH_REGISTRY_ENV,
+    },
   });
   return { status: result.status, output: `${result.stdout ?? ''}${result.stderr ?? ''}` };
 }

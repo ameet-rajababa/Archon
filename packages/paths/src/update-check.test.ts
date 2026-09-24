@@ -8,8 +8,13 @@ import {
   checkForUpdate,
   getCachedUpdateCheck,
 } from './update-check';
+import { honorArchonHomeEnv } from './test-utils';
 
 // ─── isNewerVersion ──────────────────────────────────────────────────
+
+// These tests point ARCHON_HOME at a temp directory; without this the
+// container's Docker signals make getArchonHome() ignore it.
+honorArchonHomeEnv();
 
 describe('isNewerVersion', () => {
   test('returns true when latest minor is higher', () => {

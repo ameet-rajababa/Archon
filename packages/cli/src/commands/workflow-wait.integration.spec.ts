@@ -12,7 +12,7 @@ import { Database } from 'bun:sqlite';
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { removeTempTree } from '@archon/paths/test-utils';
+import { SCRATCH_REGISTRY_ENV, removeTempTree } from '@archon/paths/test-utils';
 import { requestRunLiveOwnerStop } from '@archon/core/services/run-live-owner';
 import { requestDetachedRunStop } from '../utils/detached-run-control';
 
@@ -75,7 +75,7 @@ async function runCli(
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   const child = Bun.spawn([process.execPath, CLI_PATH, ...args], {
     cwd: fixture.projectRoot,
-    env: { ...process.env, ARCHON_HOME: fixture.archonHome },
+    env: { ...process.env, ARCHON_HOME: fixture.archonHome, ...SCRATCH_REGISTRY_ENV },
     stdout: 'pipe',
     stderr: 'pipe',
   });
@@ -96,7 +96,7 @@ interface ForegroundOwner {
 function startForegroundOwner(fixture: Fixture, args: string[]): ForegroundOwner {
   const child = Bun.spawn([process.execPath, ...args], {
     cwd: fixture.projectRoot,
-    env: { ...process.env, ARCHON_HOME: fixture.archonHome },
+    env: { ...process.env, ARCHON_HOME: fixture.archonHome, ...SCRATCH_REGISTRY_ENV },
     stdin: 'ignore',
     stdout: 'pipe',
     stderr: 'pipe',
@@ -187,7 +187,7 @@ function startWait(fixture: Fixture, runId: string, timeoutSeconds: number): Pen
     ],
     {
       cwd: fixture.projectRoot,
-      env: { ...process.env, ARCHON_HOME: fixture.archonHome },
+      env: { ...process.env, ARCHON_HOME: fixture.archonHome, ...SCRATCH_REGISTRY_ENV },
       stdout: 'pipe',
       stderr: 'pipe',
     }

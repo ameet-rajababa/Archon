@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { removeTempTree } from '@archon/paths/test-utils';
+import { honorArchonHomeEnv, removeTempTree } from '@archon/paths/test-utils';
 import {
   ARTIFACT_POINTER_TYPE,
   validateArtifactPointers,
@@ -16,6 +16,10 @@ import type { WorkflowRun } from './schemas';
  * artifacts directory. No store is consulted; reachability and physical resolution belong
  * to the read side.
  */
+// This file points ARCHON_HOME at a temp directory; without this the
+// container's Docker signals make getArchonHome() ignore it.
+honorArchonHomeEnv();
+
 describe('artifact pointers (#2453)', () => {
   let home: string;
   let outputRoot: string;

@@ -85,6 +85,7 @@ registerBuiltinProviders();
 // ---------------------------------------------------------------------------
 
 import { executeWorkflow } from './executor';
+import { honorArchonHomeEnv } from '@archon/paths/test-utils';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -212,6 +213,10 @@ function findMessage(platform: IWorkflowPlatform, text: string): unknown[] | und
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+// This file points ARCHON_HOME at a temp directory; without this the
+// container's Docker signals make getArchonHome() ignore it.
+honorArchonHomeEnv();
 
 describe('executeWorkflow preamble', () => {
   // The @archon/paths mock above is PARTIAL — unlisted exports fall through to
