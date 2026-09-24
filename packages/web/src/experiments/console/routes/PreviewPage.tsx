@@ -8,6 +8,7 @@ import { importWorkflowDefinition } from '../builder/model';
 import type { Run } from '../primitives/run';
 import { AskCard } from '../components/AskCard';
 import { parseAskSpec } from '../primitives/ask';
+import { FilesMock } from '../preview/FilesMock';
 
 /**
  * Visual preview of the console's warm palette in context.
@@ -267,6 +268,10 @@ export function PreviewPage(): ReactElement {
       </header>
 
       <main className="mx-auto flex w-full max-w-[1000px] flex-col gap-10 px-6 py-8">
+        <Section title="Files tab · three layouts to choose from">
+          <FilesMock />
+        </Section>
+
         <Section title="Workflow Builder · fixture-backed">
           <BuilderPreview />
         </Section>
