@@ -3,7 +3,7 @@ import { homedir, tmpdir } from 'os';
 import { dirname, join, sep } from 'path';
 import { existsSync, readFileSync } from 'fs';
 import { mkdir, rm, writeFile, lstat, readlink, symlink as fsSymlink } from 'fs/promises';
-import { removeTempTree } from './test-utils';
+import { honorArchonHomeEnv, removeTempTree } from './test-utils';
 
 const isWindows = process.platform === 'win32';
 
@@ -97,6 +97,10 @@ function useEnvSnapshot(): void {
     }
   });
 }
+
+// These tests point ARCHON_HOME at a temp directory; without this the
+// container's Docker signals make getArchonHome() ignore it.
+honorArchonHomeEnv();
 
 describe('archon-paths', () => {
   useEnvSnapshot();

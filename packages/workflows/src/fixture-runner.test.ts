@@ -14,7 +14,7 @@ import {
 import { mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { removeTempTree, trackTempRoots } from '@archon/paths/test-utils';
+import { honorArchonHomeEnv, removeTempTree, trackTempRoots } from '@archon/paths/test-utils';
 import { readBundleIndex } from './defaults/bundle-inventory';
 
 // Every invocation captures bundled source, but these tests only exercise its scope:
@@ -151,6 +151,10 @@ function writeTempProject(options: TempFixtureOptions): { cwd: string; fixturePa
   writeFileSync(fixturePath, options.body);
   return { cwd, fixturePath };
 }
+
+// This file points ARCHON_HOME at a temp directory; without this the
+// container's Docker signals make getArchonHome() ignore it.
+honorArchonHomeEnv();
 
 describe('parseFixtureFile', () => {
   it('splits reserved keys from node stubs and applies defaults', () => {

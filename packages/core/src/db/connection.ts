@@ -38,6 +38,39 @@ export function getSqliteDbPath(): string {
 }
 
 /**
+ * The PostgreSQL DSN this process may open, or null to use the SQLite registry.
+ * The single owner of that choice — `getDatabase()` and `getDatabaseType()` must
+ * not each re-read the environment, or they can disagree about which backend is live.
+ *
+ * A test runner never inherits `DATABASE_URL`. Exporting the DSN of the live
+ * Archon is normal on a self-hosted box, and a test that spawns the CLI hands its
+ * own environment to the child — so an inherited DSN sent fixture registrations
+ * (`workflow run --folder` auto-registers its working directory) into the
+ * operator's production database, where 17 `/tmp/...` projects showed up in their
+ * real project list. Redirecting `ARCHON_HOME` does not help: the DSN wins over
+ * the home before the scratch registry is ever consulted.
+ *
+ * Falling back to SQLite rather than throwing is what the caller wants — a test's
+ * registry is the scratch home beside it — and the warning makes the refusal
+ * visible rather than silent. A test that genuinely needs PostgreSQL opens an
+ * adapter against `ARCHON_TEST_PG_URL` instead; the only tests that need this key
+ * to mean what it means in production are the ones asserting this rule, which
+ * declare themselves with `ARCHON_TEST_ALLOW_DATABASE_URL=1`.
+ */
+function resolvePostgresUrl(): string | null {
+  const url = process.env.DATABASE_URL;
+  if (!url) return null;
+  if (process.env.NODE_ENV === 'test' && process.env.ARCHON_TEST_ALLOW_DATABASE_URL !== '1') {
+    getLog().warn(
+      { hint: 'Set ARCHON_TEST_ALLOW_DATABASE_URL=1 if this test really means to use it.' },
+      'db.test_run_ignoring_database_url'
+    );
+    return null;
+  }
+  return url;
+}
+
+/**
  * Get or create the database connection
  * Auto-detects PostgreSQL vs SQLite based on DATABASE_URL
  */
@@ -46,9 +79,10 @@ export function getDatabase(): IDatabase {
     return database;
   }
 
-  if (process.env.DATABASE_URL) {
+  const postgresUrl = resolvePostgresUrl();
+  if (postgresUrl) {
     getLog().info('db.connection_postgresql_selected');
-    database = new PostgresAdapter(process.env.DATABASE_URL);
+    database = new PostgresAdapter(postgresUrl);
     dialect = postgresDialect;
   } else {
     const dbPath = getSqliteDbPath();
@@ -96,7 +130,7 @@ export function getDialect(): SqlDialect {
  * Useful for version/info commands that don't need a connection
  */
 export function getDatabaseType(): 'postgresql' | 'sqlite' {
-  return process.env.DATABASE_URL ? 'postgresql' : 'sqlite';
+  return resolvePostgresUrl() ? 'postgresql' : 'sqlite';
 }
 
 /**

@@ -14,7 +14,7 @@
 import { readBundleIndex } from './defaults/bundle-inventory';
 import { describe, it, expect, beforeEach, afterEach, afterAll, mock } from 'bun:test';
 import { mkdir, writeFile, rm, cp, readdir, readFile } from 'fs/promises';
-import { removeTempTree } from '@archon/paths/test-utils';
+import { honorArchonHomeEnv, removeTempTree } from '@archon/paths/test-utils';
 import { existsSync } from 'fs';
 import { dirname, join, sep } from 'path';
 import { tmpdir } from 'os';
@@ -680,6 +680,10 @@ function makeFanResolver(root: string): {
   };
   return { resolver, calls };
 }
+
+// This file points ARCHON_HOME at a temp directory; without this the
+// container's Docker signals make getArchonHome() ignore it.
+honorArchonHomeEnv();
 
 describe('workflow: sub-run e2e (#2121 Phase 2)', () => {
   let cwd: string;

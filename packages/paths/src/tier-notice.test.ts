@@ -3,9 +3,14 @@ import { join } from 'path';
 import { mkdirSync, writeFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { readTierNoticeState, markTierNoticeShown } from './tier-notice';
+import { honorArchonHomeEnv } from './test-utils';
 
 // Drive the real `getArchonHome()` via ARCHON_HOME (same approach as
 // update-check.test.ts) — no mock.module, so no cross-file pollution.
+// These tests point ARCHON_HOME at a temp directory; without this the
+// container's Docker signals make getArchonHome() ignore it.
+honorArchonHomeEnv();
+
 describe('tier-notice state cache', () => {
   const testDir = join(tmpdir(), `archon-tier-notice-test-${Date.now()}`);
   let originalArchonHome: string | undefined;

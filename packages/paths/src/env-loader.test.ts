@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import { writeFileSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
 import { loadArchonEnv } from './env-loader';
+import { honorArchonHomeEnv } from './test-utils';
 
 /**
  * loadArchonEnv covers the read side of the three-path env model (#1302):
@@ -75,6 +76,10 @@ afterEach(() => {
 
   for (const k of TEST_KEYS) delete process.env[k];
 });
+
+// These tests point ARCHON_HOME at a temp directory; without this the
+// container's Docker signals make getArchonHome() ignore it.
+honorArchonHomeEnv();
 
 describe('loadArchonEnv', () => {
   it('loads keys from ~/.archon/.env and emits a [archon] loaded line when verbose-boot is set', () => {

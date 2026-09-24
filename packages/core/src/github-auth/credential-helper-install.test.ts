@@ -21,10 +21,14 @@ import { cp, mkdtemp, readFile, writeFile, mkdir, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as git from '@archon/git';
-import { trackTempRoots } from '@archon/paths/test-utils';
+import { honorArchonHomeEnv, trackTempRoots } from '@archon/paths/test-utils';
 import { installCredentialHelper } from './credential-helper-install';
 
 const trackTempRoot = trackTempRoots();
+
+// This file points ARCHON_HOME at a temp directory; without this the
+// container's Docker signals make getArchonHome() ignore it.
+honorArchonHomeEnv();
 
 describe('installCredentialHelper', () => {
   let archonHome: string;

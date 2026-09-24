@@ -5,6 +5,7 @@ import { mkdirSync, rmSync } from 'fs';
 import { isPerUserProviderKeysEnabled, assertProviderKeysKeyAtBoot } from './config';
 import { isPerUserGitHubEnabled } from '../github-auth/config';
 import { clearLocalKeyCache } from '../utils/token-crypto';
+import { honorArchonHomeEnv } from '@archon/paths/test-utils';
 
 const VALID_KEY = 'a'.repeat(64);
 
@@ -28,6 +29,10 @@ afterEach(() => {
   clearLocalKeyCache();
   rmSync(tmpDir, { recursive: true, force: true });
 });
+
+// This file points ARCHON_HOME at a temp directory; without this the
+// container's Docker signals make getArchonHome() ignore it.
+honorArchonHomeEnv();
 
 describe('credentials/config', () => {
   describe('isPerUserProviderKeysEnabled', () => {

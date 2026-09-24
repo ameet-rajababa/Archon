@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { canonicalizeProjectPath } from '@archon/paths';
-import { removeTempTree } from '@archon/paths/test-utils';
+import { SCRATCH_REGISTRY_ENV, removeTempTree } from '@archon/paths/test-utils';
 import { canConnectToRunLiveOwner, runLiveOwnerPath } from '@archon/core/services/run-live-owner';
 import { requestDetachedRunStop } from '../utils/detached-run-control';
 
@@ -192,7 +192,7 @@ nodes:
         ],
         {
           cwd: projectRoot,
-          env: { ...process.env, ARCHON_HOME: archonHome },
+          env: { ...process.env, ARCHON_HOME: archonHome, ...SCRATCH_REGISTRY_ENV },
           stdout: 'pipe',
           stderr: 'pipe',
         }
@@ -286,7 +286,7 @@ nodes:
         [process.execPath, cliPath, 'workflow', 'get', terminal.id, '--json'],
         {
           cwd: projectRoot,
-          env: { ...process.env, ARCHON_HOME: archonHome },
+          env: { ...process.env, ARCHON_HOME: archonHome, ...SCRATCH_REGISTRY_ENV },
           stdout: 'pipe',
           stderr: 'pipe',
         }

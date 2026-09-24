@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { canConnectToRunLiveOwner, runLiveOwnerPath } from '@archon/core/services/run-live-owner';
 import { canonicalizeProjectPath } from '@archon/paths';
-import { removeTempTree } from '@archon/paths/test-utils';
+import { SCRATCH_REGISTRY_ENV, removeTempTree } from '@archon/paths/test-utils';
 import { readWorkflowSourceState } from '@archon/workflows/schemas/workflow-run';
 import { capturedSourceRoots, loadWorkflowSource } from '@archon/workflows/workflow-source';
 import { loadCommandPrompt } from '@archon/workflows/executor-shared';
@@ -80,7 +80,7 @@ function runCli(fixture: Fixture, args: string[]): { status: number | null; outp
     env: {
       ...process.env,
       ARCHON_HOME: fixture.home,
-      DATABASE_URL: '',
+      ...SCRATCH_REGISTRY_ENV,
       ARCHON_TELEMETRY_DISABLED: '1',
     },
   });

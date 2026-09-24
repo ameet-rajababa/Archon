@@ -6,7 +6,7 @@ import { access, mkdir, readFile, rm, writeFile, symlink as fsSymlink } from 'fs
 import { dirname, join } from 'path';
 import { tmpdir } from 'os';
 import * as archonPaths from '@archon/paths';
-import { removeTempTree } from '@archon/paths/test-utils';
+import { honorArchonHomeEnv, removeTempTree } from '@archon/paths/test-utils';
 import { validationErrorHook } from './openapi-defaults';
 import { makeTestWorkflow, makeTestWorkflowWithSource } from '@archon/workflows/test-utils';
 
@@ -127,6 +127,10 @@ mock.module('@archon/core/db/codebases', () => ({
 }));
 
 import { registerApiRoutes } from './api';
+
+// Every home-scope test below points ARCHON_HOME at a temp directory and
+// expects the route to read from it; inside a container it would not.
+honorArchonHomeEnv();
 
 describe('GET /api/workflows', () => {
   test('returns a flat workflows array from discoverWorkflows result', async () => {

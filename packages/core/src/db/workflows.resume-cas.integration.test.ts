@@ -15,7 +15,7 @@ import { mkdtemp, mkdir, writeFile, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getRunArtifactsDirForRoot } from '@archon/paths/archon-paths';
-import { trackTempRoots, removeTempTree } from '@archon/paths/test-utils';
+import { honorArchonHomeEnv, trackTempRoots, removeTempTree } from '@archon/paths/test-utils';
 import {
   terminalRecordSchema,
   RUN_GRAPH_METADATA_KEY,
@@ -43,6 +43,11 @@ mock.module('@archon/paths', () => ({
 const { SqliteAdapter, sqliteDialect } = await import('./adapters/sqlite');
 const db = new SqliteAdapter(':memory:');
 const trackTempRoot = trackTempRoots();
+// The terminal-record cases point ARCHON_HOME and a run's output_root at the
+// same temp directory, and resolveRunStorageRoot only trusts an output_root
+// that is inside ARCHON_HOME. Inside a container that comparison is against a
+// hardcoded /.archon, so the root is rejected and the run reports no artifacts.
+honorArchonHomeEnv();
 const initialArchonHome = process.env.ARCHON_HOME;
 afterEach(() => {
   if (initialArchonHome === undefined) delete process.env.ARCHON_HOME;

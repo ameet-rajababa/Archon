@@ -9,7 +9,7 @@ import { Database } from 'bun:sqlite';
 import { parseArgs } from 'util';
 import { cliArgOptions } from './args';
 import * as git from '@archon/git';
-import { removeTempTree } from '@archon/paths/test-utils';
+import { honorArchonHomeEnv, removeTempTree, SCRATCH_REGISTRY_ENV } from '@archon/paths/test-utils';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
@@ -23,9 +23,17 @@ import {
 } from './dispatch-guards';
 
 const CLI_ENTRY = join(import.meta.dir, 'cli.ts');
+
 // The enclosing git worktree — a valid repo for the git gate, with a real
 // .archon/workflows/ directory so an unknown workflow name fails deterministically.
 const repoRoot = join(import.meta.dir, '..', '..', '..');
+
+// SCRATCH_REGISTRY_ENV fixes the CHILDREN spawned below. This fixes the parent:
+// detached-handoff case seals its payload in-process against
+// $ARCHON_HOME/credential-key, so inside a container the parent seals under
+// /.archon while the child it spawns reads the scratch home, and the child
+// reports the payload as undecryptable.
+honorArchonHomeEnv();
 
 describe('removed continue command', () => {
   // Full interpreter startup: the rejection lives in main()'s dispatch, not in
@@ -205,9 +213,8 @@ describe('workflow run config argument', () => {
           env: {
             ...process.env,
             ARCHON_HOME: archonHome,
+            ...SCRATCH_REGISTRY_ENV,
             TOKEN_ENCRYPTION_KEY: '',
-            ARCHON_DOCKER: '',
-            WORKSPACE_PATH: '',
             HOME: homedir(),
           },
         }
@@ -379,7 +386,7 @@ describe('workflow status project scope', () => {
         ...process.env,
         ARCHON_HOME: archonHome,
         ARCHON_TELEMETRY_DISABLED: '1',
-        DATABASE_URL: '',
+        ...SCRATCH_REGISTRY_ENV,
       };
       const initialize = spawnSync(
         process.execPath,
@@ -573,6 +580,7 @@ describe('CLI workflow event dispatch', () => {
         ...process.env,
         ARCHON_HOME: archonHome,
         ARCHON_TELEMETRY_DISABLED: '1',
+        ...SCRATCH_REGISTRY_ENV,
       };
       const initialize = spawnSync(
         process.execPath,
@@ -1132,6 +1140,7 @@ function spawnJsonError(argv: string[], extraEnv: Record<string, string> = {}) {
       ...process.env,
       ARCHON_TELEMETRY_DISABLED: '1',
       ARCHON_HOME: jsonEnvelopeHome,
+      ...SCRATCH_REGISTRY_ENV,
       ...extraEnv,
     },
   });
@@ -1197,6 +1206,7 @@ describe('workflow list arguments', () => {
           ...process.env,
           ARCHON_TELEMETRY_DISABLED: '1',
           ARCHON_HOME: jsonEnvelopeHome,
+          ...SCRATCH_REGISTRY_ENV,
         },
       }
     );
