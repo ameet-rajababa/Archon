@@ -47,6 +47,9 @@ export default tseslint.config(
       '*.d.ts', // Root-level declaration files (not in tsconfig project scope)
       '**/*.generated.d.ts', // Auto-generated declaration files (e.g. openapi-typescript output)
       'packages/web/vite.config.ts', // Vite config doesn't need type-checked linting
+      // Same reason, and it is not in the web tsconfig either: this one builds the
+      // throwaway mock root, whose entry under packages/web/mock IS type-checked.
+      'packages/web/vite.mock.config.ts',
     ],
   },
 
@@ -63,6 +66,10 @@ export default tseslint.config(
   {
     files: [
       'packages/*/src/**/*.{ts,tsx}',
+      // The web package's throwaway mock root lives beside `src`, not in it, and is
+      // in that package's tsconfig. Without this glob the typed rules below still
+      // apply to it while `projectService` does not, and they crash rather than fail.
+      'packages/*/mock/**/*.{ts,tsx}',
       'scripts/**/*.ts',
       ...archonScriptFiles,
       ...packScriptFiles,

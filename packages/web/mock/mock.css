@@ -1,0 +1,5 @@
+/* The standalone build roots at `mock/`, so Tailwind's automatic content
+   detection never reaches `../src`. Point it there explicitly. */
+@import '../src/index.css';
+@import '../src/experiments/console/theme.css';
+@source "../src";
