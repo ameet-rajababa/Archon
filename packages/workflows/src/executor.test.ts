@@ -3,10 +3,12 @@
  * Covers concurrent-run guards, model/provider resolution, and resume logic
  * that the inner dag-executor.test.ts cannot reach.
  */
+import type { CheckoutObservation } from './schemas/checkout-observation';
 import { NodeEventWriteError } from './node-event-write';
-import { describe, it, expect, mock, beforeEach, spyOn } from 'bun:test';
+import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
+import { removeTempTree } from '@archon/paths/test-utils';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { dirname, join } from 'path';
 
 // --- Mock logger ---
@@ -49,7 +51,7 @@ function fakeResolveProjectStorageKey(
     if (codebase.kind === 'folder') return { kind: 'folder', slug: codebase.name };
     const [owner, repo] = codebase.name.split('/');
     if (owner && repo) return { kind: 'repo', owner, repo };
-    const base = codebase.default_cwd.split('/').filter(Boolean).pop();
+    const base = codebase.default_cwd.split(/[\\/]/).filter(Boolean).pop();
     if (base && base !== '.' && base !== '..') return { kind: 'repo', owner: '_local', repo: base };
   }
   return { kind: 'cwd', cwd };
@@ -85,7 +87,7 @@ function fakeGetProjectStoragePaths(
       ? wsPath(key.owner, key.repo)
       : key.kind === 'folder'
         ? wsPath('_folder', key.slug)
-        : wsPath('_cwd', key.cwd.split('/').filter(Boolean).pop() ?? '_');
+        : wsPath('_cwd', key.cwd.split(/[\\/]/).filter(Boolean).pop() ?? '_');
   return fakeStoragePathsForRoot(root);
 }
 
@@ -119,6 +121,11 @@ const mockGetDefaultBranch = mock(async () => 'main');
 mock.module('@archon/git', () => ({
   getDefaultBranch: mockGetDefaultBranch,
   toRepoPath: mock((p: string) => p),
+  // The checkout baseline of a container run probes the container through here. Tests use
+  // container ids that do not exist, so answer the way a real `docker exec` would.
+  execFileAsync: mock(async () => {
+    throw new Error('Error response from daemon: No such container');
+  }),
 }));
 
 // --- Mock dag-executor ---
@@ -138,6 +145,7 @@ mock.module('./dag-executor', () => ({
 // --- Mock logger functions ---
 mock.module('./logger', () => ({
   logWorkflowStart: mock(async () => {}),
+  logWorkflowResume: mock(async () => {}),
   logWorkflowError: mock(async () => {}),
 }));
 
@@ -179,7 +187,12 @@ import type {
   WorkflowRun,
   WorkflowRunNodeSession,
 } from './schemas';
-import { RUN_METADATA_KEYS, workflowDefinitionSchema } from './schemas';
+import {
+  RUN_DISPATCH_METADATA_KEY,
+  RUN_METADATA_KEYS,
+  readRunDispatchMetadata,
+  workflowDefinitionSchema,
+} from './schemas';
 import type { WorkflowRunConfigMetadata } from './schemas/run-config';
 import { substituteWorkflowVariables } from './executor-shared';
 import { TerminalStatusWriteError } from './terminal-status-write';
@@ -192,6 +205,10 @@ function makeStore(overrides: Partial<IWorkflowStore> = {}): IWorkflowStore {
     findChildRuns: mock(async () => []),
     getRunAncestry: mock(async () => []),
     createWorkflowRun: mock(async () => makeRun()),
+    claimPendingWorkflowRun: mock(async () => makeRun()),
+    recordWorkflowRunCheckoutBaseline: mock(
+      async (_id: string, baseline: CheckoutObservation) => baseline
+    ),
     updateWorkflowRun: mock(async () => {}),
     failWorkflowRun: mock(async () => {}),
     getWorkflowRun: mock(async () => ({ ...makeRun(), status: 'completed' as const })),
@@ -223,6 +240,7 @@ function makeStore(overrides: Partial<IWorkflowStore> = {}): IWorkflowStore {
           workflow_run_id: id,
           event_type: 'node_completed' as const,
           step_name: completion.stepName,
+          data: {},
         },
       })
     ),
@@ -294,6 +312,7 @@ function makeRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
     user_id: null,
     parent_run_id: null,
     output_root: null,
+    checkout_baseline: null,
     adopted_from_run_id: null,
     ...overrides,
   };
@@ -333,6 +352,56 @@ describe('executeWorkflow', () => {
       resume ? { preCreatedRun: makeRun(), priorCompletedNodes: new Map() } : {}
     );
     expect(mockExecuteDagWorkflow).toHaveBeenCalledTimes(1);
+  });
+
+  describe('execution owner record (#2325)', () => {
+    const uid = process.getuid?.();
+    const owner = {
+      execution_owner: {
+        host: hostname(),
+        pid: process.pid,
+        ...(uid === undefined ? {} : { uid }),
+      },
+    };
+
+    it('stamps this process on a run it creates', async () => {
+      const store = makeStore();
+      await executeWorkflow(
+        makeDeps(store),
+        makePlatform(),
+        'conv-1',
+        '/tmp',
+        makeWorkflow(),
+        'msg',
+        'db-conv-1'
+      );
+      expect(store.createWorkflowRun).toHaveBeenCalledWith(
+        expect.objectContaining({ metadata: expect.objectContaining(owner) })
+      );
+    });
+
+    it.each([
+      ['a row a launcher pre-created', makeRun({ status: 'pending' }), undefined],
+      ['a resumed run', makeRun({ status: 'running' }), new Map()],
+    ])('restamps this process on %s', async (_label, preCreatedRun, priorCompletedNodes) => {
+      const store = makeStore({
+        claimPendingWorkflowRun: mock(async () => makeRun({ status: 'running' })),
+      });
+      await executeWorkflow(
+        makeDeps(store),
+        makePlatform(),
+        'conv-1',
+        '/tmp',
+        makeWorkflow(),
+        'msg',
+        'db-conv-1',
+        { preCreatedRun, ...(priorCompletedNodes ? { priorCompletedNodes } : {}) }
+      );
+      expect(store.updateWorkflowRun).toHaveBeenCalledWith(
+        preCreatedRun.id,
+        expect.objectContaining({ metadata: expect.objectContaining(owner) })
+      );
+    });
   });
 
   it('rejects a structurally valid but semantically invalid outcome declaration before side effects', async () => {
@@ -729,6 +798,7 @@ describe('executeWorkflow', () => {
                 // shared resolver returns null and the executor refuses,
                 // matching the CLI leave-behind and server readers.
                 output_root: '/old-machine/.archon/workspaces/old/name',
+                checkout_baseline: null,
                 codebase_id: null,
               })
             : { ...makeRun(), status: 'completed' as const }
@@ -775,6 +845,7 @@ describe('executeWorkflow', () => {
                 // re-derived under the current ARCHON_HOME via the adopted
                 // run's codebase row, not walked verbatim.
                 output_root: '/old-machine/.archon/workspaces/old/name',
+                checkout_baseline: null,
                 codebase_id: 'cb-adopted',
               })
             : id === 'run-123'
@@ -827,6 +898,7 @@ describe('executeWorkflow', () => {
                 id: adoptedId,
                 status: 'completed',
                 output_root: '/old-machine/.archon/workspaces/old/name',
+                checkout_baseline: null,
                 codebase_id: null,
               })
             : { ...makeRun(), status: 'completed' as const }
@@ -870,6 +942,7 @@ describe('executeWorkflow', () => {
                 id: adoptedId,
                 status: 'completed',
                 output_root: '/old-machine/.archon/workspaces/old/name',
+                checkout_baseline: null,
                 codebase_id: 'cb-adopted',
               })
             : id === 'run-123'
@@ -1124,6 +1197,7 @@ describe('executeWorkflow', () => {
       // Concrete next actions — every line tells the user something to do.
       expect(sentMessage).toContain('/workflow status');
       expect(sentMessage).toContain('/workflow cancel abc12345');
+      expect(sentMessage).toContain('/workflow abandon abc12345');
       expect(sentMessage).toContain('--branch');
     });
 
@@ -1246,6 +1320,118 @@ describe('executeWorkflow', () => {
         expect(store.failWorkflowRun).not.toHaveBeenCalled();
       }
     );
+
+    it('spells commands the way the platform says (the CLI adapter)', async () => {
+      const otherRun = makeRun({
+        id: 'abc12345-rest-of-uuid',
+        workflow_name: 'archon-implement',
+        status: 'running',
+        started_at: new Date(Date.now() - 125000),
+      });
+      const sendMessageSpy = mock<IWorkflowPlatform['sendMessage']>(
+        async (_conversationId, _message, _metadata) => {}
+      );
+      const platform = {
+        sendMessage: sendMessageSpy,
+        getPlatformType: mock(() => 'cli' as const),
+        formatWorkflowCommand: (command: string) => `archon workflow ${command}`,
+      } as unknown as IWorkflowPlatform;
+      const store = makeStore({
+        getActiveWorkflowRunByPath: mock(async () => otherRun),
+      });
+      const deps = makeDeps(store);
+
+      await executeWorkflow(
+        deps,
+        platform,
+        'conv-1',
+        '/tmp',
+        makeWorkflow(),
+        'test message',
+        'db-conv-1'
+      );
+
+      expect(sendMessageSpy).toHaveBeenCalled();
+      const sentMessage = (sendMessageSpy.mock.calls[0] as [string, string])[1];
+      expect(sentMessage).toContain('archon workflow cancel abc12345');
+      expect(sentMessage).toContain('archon workflow abandon abc12345');
+      // The non-CLI `/workflow` prefix should not appear in a CLI message.
+      expect(sentMessage).not.toContain('/workflow cancel');
+      expect(sentMessage).not.toContain('/workflow status');
+    });
+
+    it('offers no cancel for a pending blocker, which has nothing executing yet', async () => {
+      const otherRun = makeRun({
+        id: 'abc12345-rest-of-uuid',
+        workflow_name: 'archon-implement',
+        status: 'pending',
+        started_at: new Date(Date.now() - 5000),
+      });
+      const sendMessageSpy = mock<IWorkflowPlatform['sendMessage']>(
+        async (_conversationId, _message, _metadata) => {}
+      );
+      const platform = {
+        sendMessage: sendMessageSpy,
+        getPlatformType: mock(() => 'cli' as const),
+        formatWorkflowCommand: (command: string) => `archon workflow ${command}`,
+      } as unknown as IWorkflowPlatform;
+      const store = makeStore({
+        getActiveWorkflowRunByPath: mock(async () => otherRun),
+      });
+
+      await executeWorkflow(
+        makeDeps(store),
+        platform,
+        'conv-1',
+        '/tmp',
+        makeWorkflow(),
+        'test message',
+        'db-conv-1'
+      );
+
+      const sentMessage = (sendMessageSpy.mock.calls[0] as [string, string])[1];
+      expect(sentMessage).toContain('archon workflow abandon abc12345');
+      expect(sentMessage).not.toContain('workflow cancel');
+    });
+
+    it('spells paused-run commands the way the platform says (the CLI adapter)', async () => {
+      const otherRun = makeRun({
+        id: 'abc12345-rest-of-uuid',
+        workflow_name: 'archon-implement',
+        status: 'paused',
+        started_at: new Date(Date.now() - 125000),
+      });
+      const sendMessageSpy = mock<IWorkflowPlatform['sendMessage']>(
+        async (_conversationId, _message, _metadata) => {}
+      );
+      const platform = {
+        sendMessage: sendMessageSpy,
+        getPlatformType: mock(() => 'cli' as const),
+        formatWorkflowCommand: (command: string) => `archon workflow ${command}`,
+      } as unknown as IWorkflowPlatform;
+      const store = makeStore({
+        getActiveWorkflowRunByPath: mock(async () => otherRun),
+      });
+      const deps = makeDeps(store);
+
+      await executeWorkflow(
+        deps,
+        platform,
+        'conv-1',
+        '/tmp',
+        makeWorkflow(),
+        'test message',
+        'db-conv-1'
+      );
+
+      expect(sendMessageSpy).toHaveBeenCalled();
+      const sentMessage = (sendMessageSpy.mock.calls[0] as [string, string])[1];
+      expect(sentMessage).toContain('archon workflow approve abc12345');
+      expect(sentMessage).toContain('archon workflow reject abc12345');
+      // A paused run has no live work for cancel to stop; abandon discards it.
+      expect(sentMessage).toContain('archon workflow abandon abc12345');
+      expect(sentMessage).not.toContain('workflow cancel');
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -2573,6 +2759,177 @@ describe('executeWorkflow', () => {
 
       expect(mockGetDefaultBranch).toHaveBeenCalledWith('/tmp/worktree');
       expect(mockExecuteDagWorkflow.mock.calls[0]?.[0].baseBranch).toBe('main');
+    });
+
+    it('records what it resolved on the fresh run row (#2454)', async () => {
+      const store = makeStore();
+      const deps = makeDeps(store);
+
+      await executeWorkflow(
+        deps,
+        makePlatform(),
+        'conv-1',
+        '/tmp/worktree',
+        makeWorkflow(),
+        'test message',
+        'db-conv-1',
+        { baseBranch: 'develop', source: 'bundled' }
+      );
+
+      const created = (store.createWorkflowRun as ReturnType<typeof mock>).mock.calls[0]?.[0] as {
+        metadata?: Record<string, unknown>;
+      };
+      expect(readRunDispatchMetadata(created.metadata)).toEqual({
+        base_branch: 'develop',
+        source: 'bundled',
+      });
+    });
+
+    it('a continuation reads the branch the run recorded, not the current environment (#2454)', async () => {
+      // The gate-resumed half of a run must answer $BASE_BRANCH the way its first half
+      // did. Repo config and the caller's codebase default both changed since the start;
+      // neither may move the run.
+      const deps = makeDeps();
+      deps.loadConfig = mock(
+        async (): Promise<WorkflowConfig> => ({
+          assistant: 'claude' as const,
+          assistants: { claude: {}, codex: {} },
+          baseBranch: 'main',
+          commands: { folder: '' },
+        })
+      ) as unknown as WorkflowDeps['loadConfig'];
+
+      await executeWorkflow(
+        deps,
+        makePlatform(),
+        'conv-1',
+        '/tmp/worktree',
+        makeWorkflow(),
+        'test message',
+        'db-conv-1',
+        {
+          preCreatedRun: makeRun({
+            metadata: { [RUN_DISPATCH_METADATA_KEY]: { base_branch: 'release-2026' } },
+          }),
+          priorCompletedNodes: new Map(),
+          baseBranch: 'develop',
+        }
+      );
+
+      expect(mockGetDefaultBranch).not.toHaveBeenCalled();
+      expect(mockExecuteDagWorkflow.mock.calls[0]?.[0].baseBranch).toBe('release-2026');
+    });
+
+    it('a continuation keeps a recorded empty base branch (#2454)', async () => {
+      // Empty is a resolved answer, not a missing one: folder projects and repos where
+      // auto-detection failed both record it. Absence is carried by the key, so the
+      // restore must branch on the record's presence, never on its value -- a truthiness
+      // check here silently reopens the bug for exactly the runs that cannot re-resolve.
+      const deps = makeDeps();
+      deps.loadConfig = mock(
+        async (): Promise<WorkflowConfig> => ({
+          assistant: 'claude' as const,
+          assistants: { claude: {}, codex: {} },
+          baseBranch: 'main',
+          commands: { folder: '' },
+        })
+      ) as unknown as WorkflowDeps['loadConfig'];
+
+      await executeWorkflow(
+        deps,
+        makePlatform(),
+        'conv-1',
+        '/tmp/worktree',
+        makeWorkflow(),
+        'test message',
+        'db-conv-1',
+        {
+          preCreatedRun: makeRun({
+            metadata: { [RUN_DISPATCH_METADATA_KEY]: { base_branch: '' } },
+          }),
+          priorCompletedNodes: new Map(),
+          baseBranch: 'develop',
+        }
+      );
+
+      expect(mockGetDefaultBranch).not.toHaveBeenCalled();
+      expect(mockExecuteDagWorkflow.mock.calls[0]?.[0].baseBranch).toBe('');
+    });
+
+    it('a resume that re-passes --base still retargets $BASE_BRANCH (#2454)', async () => {
+      // `--base` on a resume is a deliberate act by whoever is resuming, and the CLI
+      // already tells them it applies to the PR target only. The run record restores what
+      // was dropped; it does not overrule what this invocation asked for.
+      const deps = makeDeps();
+
+      await executeWorkflow(
+        deps,
+        makePlatform(),
+        'conv-1',
+        '/tmp/worktree',
+        makeWorkflow(),
+        'test message',
+        'db-conv-1',
+        {
+          preCreatedRun: makeRun({
+            metadata: { [RUN_DISPATCH_METADATA_KEY]: { base_branch: 'release-2026' } },
+          }),
+          priorCompletedNodes: new Map(),
+          baseOverride: 'hotfix/urgent',
+        }
+      );
+
+      expect(mockExecuteDagWorkflow.mock.calls[0]?.[0].baseBranch).toBe('hotfix/urgent');
+    });
+
+    it('a continuation whose record holds no source keeps it absent instead of adopting a live one (#2454)', async () => {
+      // The original dispatch never knew a source, so the record omits it. A CLI `--resume`
+      // re-resolves one and passes it in; adopting it would report a guess as the run's
+      // original attribution.
+      const deps = makeDeps();
+
+      await executeWorkflow(
+        deps,
+        makePlatform(),
+        'conv-1',
+        '/tmp/worktree',
+        makeWorkflow(),
+        'test message',
+        'db-conv-1',
+        {
+          preCreatedRun: makeRun({
+            metadata: { [RUN_DISPATCH_METADATA_KEY]: { base_branch: 'release-2026' } },
+          }),
+          priorCompletedNodes: new Map(),
+          source: 'bundled',
+        }
+      );
+
+      expect(mockExecuteDagWorkflow.mock.calls[0]?.[0].source).toBeUndefined();
+    });
+
+    it('reports a continuation that has nothing recorded to restore (#2454)', async () => {
+      // A run started before the record existed re-resolves, exactly as it always has —
+      // but silently doing so is what let $BASE_BRANCH change value mid-run unnoticed.
+      const deps = makeDeps();
+
+      await executeWorkflow(
+        deps,
+        makePlatform(),
+        'conv-1',
+        '/tmp/worktree',
+        makeWorkflow(),
+        'test message',
+        'db-conv-1',
+        { preCreatedRun: makeRun({ metadata: {} }), priorCompletedNodes: new Map() }
+      );
+
+      expect(mockExecuteDagWorkflow.mock.calls[0]?.[0].baseBranch).toBe('main');
+      expect(
+        (mockLogFn.mock.calls as unknown[][]).some(
+          args => args[1] === 'workflow.dispatch_not_recorded_resolving_live'
+        )
+      ).toBe(true);
     });
   });
 
@@ -4815,5 +5172,113 @@ describe('resolveScopeArtifactsDir', () => {
     };
     expect(resolveScopeArtifactsDir(workflow, null, ROOT)).toBeUndefined();
     expect(resolveScopeArtifactsDir(workflow, undefined, ROOT)).toBeUndefined();
+  });
+});
+
+describe('run checkout baseline (#3305)', () => {
+  let repo: string;
+
+  beforeEach(async () => {
+    mockExecuteDagWorkflow.mockClear();
+    mockExecuteDagWorkflow.mockImplementation(async () => undefined);
+    repo = await mkdtemp(join(tmpdir(), 'archon-run-baseline-'));
+    for (const args of [
+      ['init', '-q'],
+      ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init'],
+    ]) {
+      const result = Bun.spawnSync(['git', ...args], { cwd: repo, stdout: 'pipe', stderr: 'pipe' });
+      if (result.exitCode !== 0) throw new Error(result.stderr.toString());
+    }
+  });
+
+  afterEach(async () => {
+    await removeTempTree(repo);
+  });
+
+  const head = (): string =>
+    Bun.spawnSync(['git', 'rev-parse', 'HEAD'], { cwd: repo, stdout: 'pipe' })
+      .stdout.toString()
+      .trim();
+
+  it('records one baseline after the execution claim and before the first node', async () => {
+    const store = makeStore();
+    const order: string[] = [];
+    (store.claimPendingWorkflowRun as ReturnType<typeof mock>).mockImplementation(async () => {
+      order.push('claim');
+      return makeRun();
+    });
+    (store.recordWorkflowRunCheckoutBaseline as ReturnType<typeof mock>).mockImplementation(
+      async (_id: string, baseline: CheckoutObservation) => {
+        order.push('baseline');
+        return baseline;
+      }
+    );
+    mockExecuteDagWorkflow.mockImplementationOnce(async () => {
+      order.push('first node');
+      return undefined;
+    });
+    const cutFrom = head();
+
+    await executeWorkflow(
+      makeDeps(store),
+      makePlatform(),
+      'conv-1',
+      repo,
+      makeWorkflow(),
+      'msg',
+      'db-conv-1',
+      { cutFromCommit: cutFrom }
+    );
+
+    expect(order).toEqual(['claim', 'baseline', 'first node']);
+    expect(store.recordWorkflowRunCheckoutBaseline).toHaveBeenCalledTimes(1);
+    expect(store.recordWorkflowRunCheckoutBaseline).toHaveBeenCalledWith(
+      'run-123',
+      expect.objectContaining({
+        kind: 'git',
+        commit: cutFrom,
+        cutFromCommit: cutFrom,
+        worktree: { status: 'clean' },
+      })
+    );
+  });
+
+  it('a resume never records a baseline of its own', async () => {
+    const store = makeStore();
+    await executeWorkflow(
+      makeDeps(store),
+      makePlatform(),
+      'conv-1',
+      repo,
+      makeWorkflow(),
+      'msg',
+      'db-conv-1',
+      { preCreatedRun: makeRun(), priorCompletedNodes: new Map() }
+    );
+    expect(mockExecuteDagWorkflow).toHaveBeenCalledTimes(1);
+    expect(store.recordWorkflowRunCheckoutBaseline).not.toHaveBeenCalled();
+  });
+
+  it('fails the run before any node when the baseline cannot be persisted', async () => {
+    const store = makeStore({
+      recordWorkflowRunCheckoutBaseline: mock(async () => {
+        throw new Error('disk full');
+      }),
+    });
+    const result = await executeWorkflow(
+      makeDeps(store),
+      makePlatform(),
+      'conv-1',
+      repo,
+      makeWorkflow(),
+      'msg',
+      'db-conv-1'
+    );
+    expect(result.success).toBe(false);
+    expect(store.failWorkflowRun).toHaveBeenCalledWith(
+      'run-123',
+      'Checkout baseline could not be recorded: disk full'
+    );
+    expect(mockExecuteDagWorkflow).not.toHaveBeenCalled();
   });
 });

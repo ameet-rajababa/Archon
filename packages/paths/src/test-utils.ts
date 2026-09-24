@@ -1,11 +1,13 @@
 /**
- * Filesystem helpers shared by tests across packages.
+ * Filesystem and logging helpers shared by tests across packages.
  *
  * This module is test-only. Nothing in `src/` imports it; it lives here because
  * `@archon/paths` is the one package every consumer of these helpers already depends on.
  */
 import { afterAll, afterEach, beforeAll } from 'bun:test';
 import { rm } from 'node:fs/promises';
+import pino from 'pino';
+import { rootLogger } from './logger';
 
 /** Attempts before a stuck tree is reported as a leak rather than retried again. */
 const MAX_ATTEMPTS = 10;
@@ -173,3 +175,26 @@ export const SCRATCH_REGISTRY_ENV = {
   ARCHON_DOCKER: '',
   WORKSPACE_PATH: '',
 } as const;
+
+/**
+ * Record the structured lines every child logger writes, through the root logger's
+ * stream, while still forwarding them. Pino's stream symbol is a plain `Symbol`, so it
+ * must come from the pino instance that built `rootLogger`, which is this package's.
+ */
+export function captureLogLines(): { lines: Record<string, unknown>[]; restore(): void } {
+  const stream = (rootLogger as unknown as Record<symbol, { write: (chunk: string) => unknown }>)[
+    pino.symbols.streamSym
+  ];
+  const write = stream.write;
+  const lines: Record<string, unknown>[] = [];
+  stream.write = (chunk: string): unknown => {
+    lines.push(JSON.parse(chunk) as Record<string, unknown>);
+    return write.call(stream, chunk);
+  };
+  return {
+    lines,
+    restore: (): void => {
+      stream.write = write;
+    },
+  };
+}
