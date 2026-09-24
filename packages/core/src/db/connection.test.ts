@@ -4,9 +4,14 @@ import { getDatabaseType, resetDatabase } from './connection';
 describe('connection', () => {
   describe('getDatabaseType', () => {
     let originalDatabaseUrl: string | undefined;
+    let originalAllow: string | undefined;
 
     beforeEach(() => {
       originalDatabaseUrl = process.env.DATABASE_URL;
+      originalAllow = process.env.ARCHON_TEST_ALLOW_DATABASE_URL;
+      // These cases assert the production selection rule, so they opt out of the
+      // guard that otherwise makes a test run ignore an inherited DATABASE_URL.
+      process.env.ARCHON_TEST_ALLOW_DATABASE_URL = '1';
       // Reset the database singleton to ensure clean state
       resetDatabase();
     });
@@ -17,6 +22,11 @@ describe('connection', () => {
         process.env.DATABASE_URL = originalDatabaseUrl;
       } else {
         delete process.env.DATABASE_URL;
+      }
+      if (originalAllow !== undefined) {
+        process.env.ARCHON_TEST_ALLOW_DATABASE_URL = originalAllow;
+      } else {
+        delete process.env.ARCHON_TEST_ALLOW_DATABASE_URL;
       }
       resetDatabase();
     });
@@ -52,6 +62,55 @@ describe('connection', () => {
       // Should not throw even without a database available
       const result = getDatabaseType();
       expect(result).toBe('sqlite');
+    });
+  });
+
+  /**
+   * A self-hosted operator exports the DSN of their LIVE Archon, and a test that
+   * spawns the CLI hands its own environment to the child. Without this refusal an
+   * inherited DSN put fixture projects, runs and conversations into the operator's
+   * production database — `NODE_ENV=test` is set by the runner and inherited by
+   * every process it spawns, which is what makes the refusal reach the child too.
+   */
+  describe('inherited DATABASE_URL under a test runner', () => {
+    let originalDatabaseUrl: string | undefined;
+    let originalAllow: string | undefined;
+
+    beforeEach(() => {
+      originalDatabaseUrl = process.env.DATABASE_URL;
+      originalAllow = process.env.ARCHON_TEST_ALLOW_DATABASE_URL;
+      resetDatabase();
+    });
+
+    afterEach(() => {
+      if (originalDatabaseUrl !== undefined) {
+        process.env.DATABASE_URL = originalDatabaseUrl;
+      } else {
+        delete process.env.DATABASE_URL;
+      }
+      if (originalAllow !== undefined) {
+        process.env.ARCHON_TEST_ALLOW_DATABASE_URL = originalAllow;
+      } else {
+        delete process.env.ARCHON_TEST_ALLOW_DATABASE_URL;
+      }
+      resetDatabase();
+    });
+
+    it('is ignored, so the registry stays the scratch SQLite home', () => {
+      // The runner sets this itself; asserted rather than assumed, because the
+      // whole guard keys on it.
+      expect(process.env.NODE_ENV).toBe('test');
+      delete process.env.ARCHON_TEST_ALLOW_DATABASE_URL;
+      process.env.DATABASE_URL = 'postgresql://operator-production:5432/remote_coding_agent';
+
+      expect(getDatabaseType()).toBe('sqlite');
+    });
+
+    it('is honored when a test explicitly opts in', () => {
+      process.env.ARCHON_TEST_ALLOW_DATABASE_URL = '1';
+      process.env.DATABASE_URL = 'postgresql://localhost:5432/test';
+
+      expect(getDatabaseType()).toBe('postgresql');
     });
   });
 });
