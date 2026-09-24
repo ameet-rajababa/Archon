@@ -35,7 +35,12 @@ function flipReadyBash(): string {
   if (typeof node?.bash !== 'string') {
     throw new Error(`flip-ready node with a bash body not found in ${WORKFLOW_YAML}`);
   }
-  return node.bash.replace('$pr.output.number', '42');
+  // BOTH producer refs: the node selects by the recorded identity as well as the
+  // recorded number. An unsubstituted ref fails under `set -u` rather than quietly
+  // running against the wrong repository.
+  return node.bash
+    .replace('$pr.output.number', '42')
+    .replace('$pr.output.repo.path', 'example/repo');
 }
 
 interface FakeGh {
@@ -100,16 +105,8 @@ exit 1
   writeFileSync(join(bin, 'gh'), ghScript);
   chmodSync(join(bin, 'gh'), 0o755);
 
-  const gitScript = `#!/bin/sh
-if [ "$1" = "remote" ] && [ "$2" = "get-url" ] && [ "$3" = "origin" ]; then
-  echo "https://github.com/example/repo.git"
-  exit 0
-fi
-echo "fake git: unexpected args: $*" >&2
-exit 1
-`;
-  writeFileSync(join(bin, 'git'), gitScript);
-  chmodSync(join(bin, 'git'), 0o755);
+  // No fake `git`: the node reads no remote at all — it takes the repository from
+  // the identity the `pr` node recorded. Leaving one out is part of the assertion.
 
   const result = spawnSync('bash', ['-c', flipReadyBash()], {
     env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}` },

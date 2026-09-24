@@ -204,8 +204,8 @@ nodes:
           on_timeout: skip
           bash: |
             PR_NUMBER=$pr.output.number
-            ORIGIN_REPO=$(git remote get-url origin 2>/dev/null | sed -E 's#^.*[:/]([^/]+/[^/]+)$#\1#; s#\.git$##' || true)
-            LINES=$(gh pr checks "$PR_NUMBER" --repo "$ORIGIN_REPO" --json name,bucket \
+            REPO_PATH=$pr.output.repo.path
+            LINES=$(gh pr checks "$PR_NUMBER" --repo "$REPO_PATH" --json name,bucket \
               --jq '.[] | if .bucket == "pending" then "PENDING" elif .bucket == "pass" or .bucket == "skipping" then "GREEN" else "RED \(.name) (\(.bucket))" end' \
               2>/dev/null)
             RC=$?
@@ -588,24 +588,27 @@ nodes:
   - id: flip-ready
     bash: |
       set -euo pipefail
-      # --repo pins to the origin remote: gh's default resolution in a
-      # fork clone targets the upstream parent instead. With --repo, gh disables
-      # branch inference and REQUIRES an explicit selector — omitting it is a
-      # usage error.
+      # --repo names the repository the `pr` node PUBLISHED to, read from the
+      # identity it recorded. It is NOT re-derived from `git remote get-url
+      # origin`: where origin is the upstream and the fork is a second remote,
+      # that names a different repository, and this node then asked the upstream
+      # about a pull request number that only exists on the fork. The pr node's
+      # schema says so itself — consumers use that qualified identity, never gh's
+      # ambient lookup. With --repo, gh disables branch inference and REQUIRES an
+      # explicit selector — omitting it is a usage error.
       # Nothing below streams a command's own output. The engine broadcasts a
       # node's stderr to the operator as it runs and retains what the node prints,
-      # so every git and gh call here is captured: this node's authored messages
-      # are the only text that reaches its streams. That also keeps the raw origin
-      # URL — which can carry a credential (https://<token>@host/...) — out of
-      # both, since it is normalized inside the substitution that reads it and
-      # only the owner/repo below ever reaches a command line or a message.
-      if ! ORIGIN_REPO=$(git remote get-url origin 2>/dev/null | sed -E 's#^.*[:/]([^/]+/[^/]+)$#\1#; s#\.git$##'); then
-        printf '%s\n' "flip-ready: could not read the origin remote." >&2
-        exit 1
-      fi
-      case "$ORIGIN_REPO" in
+      # so every gh call here is captured: this node's authored messages are the
+      # only text that reaches its streams. Reading the identity from the engine
+      # rather than from a remote URL also keeps a credential-bearing raw remote
+      # (https://<token>@host/...) out of this node entirely.
+      REPO_PATH=$pr.output.repo.path
+      # A declared, required field, so the engine fails this node loudly if it is
+      # absent — there is no longer a fallback to origin to land in. The shape is
+      # still checked because the value reaches a command line.
+      case "$REPO_PATH" in
         *[!A-Za-z0-9_.-]*/* | */*[!A-Za-z0-9_.-]* | */*/* | /* | */ | "")
-          printf '%s\n' "flip-ready: origin remote does not resolve to an owner/repo." >&2
+          printf '%s\n' "flip-ready: the recorded repository is not an owner/repo." >&2
           exit 1
           ;;
       esac
@@ -626,7 +629,7 @@ nodes:
       # value read in this node — a gh notice must never become the count.
       if ! CHECK_COUNT=$(gh api graphql \
         -f query='query($owner: String!, $repo: String!, $number: Int!) { repository(owner: $owner, name: $repo) { pullRequest(number: $number) { commits(last: 1) { nodes { commit { statusCheckRollup { contexts { totalCount } } } } } } } }' \
-        -f owner="${ORIGIN_REPO%/*}" -f repo="${ORIGIN_REPO#*/}" -F number="$PR_NUMBER" \
+        -f owner="${REPO_PATH%/*}" -f repo="${REPO_PATH#*/}" -F number="$PR_NUMBER" \
         --jq '(.data.repository.pullRequest.commits.nodes[0].commit.statusCheckRollup.contexts.totalCount // 0)' 2>/dev/null); then
         printf '%s\n' "flip-ready: could not read check state." >&2
         exit 1
@@ -635,7 +638,7 @@ nodes:
         # Checks exist: classify them with gh's structured bucket mapping. This
         # read cannot legitimately be empty (the count above saw checks), so a
         # failure here is a failed read too, never a no-checks case.
-        if ! NOT_GREEN=$(gh pr checks "$PR_NUMBER" --repo "$ORIGIN_REPO" --json name,bucket --jq '.[] | select(.bucket != "pass" and .bucket != "skipping") | "\(.name) (\(.bucket))"' 2>/dev/null); then
+        if ! NOT_GREEN=$(gh pr checks "$PR_NUMBER" --repo "$REPO_PATH" --json name,bucket --jq '.[] | select(.bucket != "pass" and .bucket != "skipping") | "\(.name) (\(.bucket))"' 2>/dev/null); then
           printf '%s\n' "flip-ready: checks exist but their state could not be read." >&2
           exit 1
         fi
@@ -647,11 +650,11 @@ nodes:
       # The flip prints a confirmation this node has no use for, and its stdout is
       # not a value, so both streams are captured together and re-emitted only where
       # the refusal is the diagnostic — in gh's own words.
-      if FLIP=$(gh pr ready "$PR_NUMBER" --repo "$ORIGIN_REPO" 2>&1); then
+      if FLIP=$(gh pr ready "$PR_NUMBER" --repo "$REPO_PATH" 2>&1); then
         # A VALUE read, so its stderr is dropped rather than merged: a gh notice must
         # never become the draft state. The failure names the read it could not
         # complete, so it is not silent. Exit 0 is not proof the state changed.
-        if ! draft=$(gh pr view "$PR_NUMBER" --repo "$ORIGIN_REPO" --json isDraft --jq .isDraft 2>/dev/null); then
+        if ! draft=$(gh pr view "$PR_NUMBER" --repo "$REPO_PATH" --json isDraft --jq .isDraft 2>/dev/null); then
           printf '%s\n' "flip-ready: PR was flipped but its draft state could not be read back." >&2
           exit 1
         fi
@@ -665,7 +668,7 @@ nodes:
         # closed while the run was in flight. gh's wording is not the classifier —
         # the pull request's own state is. Another VALUE read, stderr dropped, and a
         # state that cannot be read leaves the refusal as the failure it looks like.
-        if ! STATE=$(gh pr view "$PR_NUMBER" --repo "$ORIGIN_REPO" --json state --jq .state 2>/dev/null); then
+        if ! STATE=$(gh pr view "$PR_NUMBER" --repo "$REPO_PATH" --json state --jq .state 2>/dev/null); then
           STATE=""
         fi
         case "$STATE" in
@@ -694,7 +697,7 @@ nodes:
       # composing caller reads the pr_url field off this workflow's result, and the
       # tail's own report reads the same field, neither re-deriving a URL from raw
       # text.
-      if ! gh pr view "$PR_NUMBER" --repo "$ORIGIN_REPO" --json url --jq '{pr_url: .url}' 2>/dev/null; then
+      if ! gh pr view "$PR_NUMBER" --repo "$REPO_PATH" --json url --jq '{pr_url: .url}' 2>/dev/null; then
         printf '%s\n' "flip-ready: the PR URL could not be read back." >&2
         exit 1
       fi

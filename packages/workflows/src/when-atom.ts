@@ -21,6 +21,7 @@
  *   number/boolean.
  */
 import { INPUT_NAME_SOURCE } from './schemas/dag-node';
+import { OUTPUT_FIELD_PATH_SOURCE } from './output-ref';
 
 /**
  * The reserved scope name for workflow inputs. `loader.ts` imports this rather than
@@ -50,6 +51,9 @@ function isWhenOperator(value: string): value is WhenOperator {
 /** A node id may contain hyphens; a path segment (a JSON field name) may not. */
 const NODE_ID_SOURCE = String.raw`[a-zA-Z_][a-zA-Z0-9_-]*`;
 const PATH_SEGMENT_SOURCE = String.raw`[a-zA-Z_][a-zA-Z0-9_]*`;
+// The FIELD is a path, imported rather than restated so `when:` can address
+// exactly what a substitution can. See OUTPUT_FIELD_PATH_SOURCE in output-ref.
+const FIELD_PATH_SOURCE = OUTPUT_FIELD_PATH_SOURCE;
 
 /**
  * Capture groups:
@@ -76,14 +80,14 @@ export const WHEN_ATOM_PATTERN = new RegExp(
   '^(?:' +
     String.raw`\$${WHEN_INPUTS_SCOPE}\.(${INPUT_NAME_SOURCE})` +
     '|' +
-    String.raw`\$(${NODE_ID_SOURCE})\.(${PATH_SEGMENT_SOURCE})(?:\.(${PATH_SEGMENT_SOURCE}))?` +
+    String.raw`\$(${NODE_ID_SOURCE})\.(${PATH_SEGMENT_SOURCE})(?:\.(${FIELD_PATH_SOURCE}))?` +
     ')' +
     String.raw`\s*(${WHEN_OPERATORS.join('|')})\s*` +
     String.raw`(?:'([^']*)'|(-?\d+(?:\.\d+)?|true|false))$`
 );
 
 const LOOP_PREV_WHEN_ATOM_PATTERN = new RegExp(
-  String.raw`^\$LOOP_PREV\.(${NODE_ID_SOURCE})\.output(?:\.(${PATH_SEGMENT_SOURCE}))?` +
+  String.raw`^\$LOOP_PREV\.(${NODE_ID_SOURCE})\.output(?:\.(${FIELD_PATH_SOURCE}))?` +
     String.raw`\s*(${WHEN_OPERATORS.join('|')})\s*` +
     String.raw`(?:'([^']*)'|(-?\d+(?:\.\d+)?|true|false))$`
 );

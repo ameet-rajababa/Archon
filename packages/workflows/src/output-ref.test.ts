@@ -460,3 +460,92 @@ describe('similarNodeIds', () => {
     expect(similarNodeIds('analze', map.keys())).toContain('analyze');
   });
 });
+
+// A nested declared shape has to be addressable, or its consumers go back to
+// re-deriving the value from the environment — which is what `$pr.output.repo`
+// declaring `{host, path}` actually caused: `flip-ready` read `git remote get-url
+// origin` instead, and in a checkout whose origin is the upstream that addressed
+// the wrong repository.
+describe('resolveNodeOutputField — dotted field paths', () => {
+  function withRepo(repo: unknown): NodeOutput {
+    return {
+      state: 'completed',
+      output: JSON.stringify({ repo, number: 25 }),
+      declaredFields: ['repo', 'number'],
+    };
+  }
+
+  it('walks into a declared nested object', () => {
+    const result = resolveNodeOutputField(
+      withRepo({ host: 'github.com', path: 'owner/repo' }),
+      'pr',
+      'repo.path'
+    );
+    expect(result).toEqual({ kind: 'value', value: 'owner/repo' });
+  });
+
+  it('walks more than one level', () => {
+    const output: NodeOutput = {
+      state: 'completed',
+      output: JSON.stringify({ a: { b: { c: 'deep' } } }),
+      declaredFields: ['a'],
+    };
+    expect(resolveNodeOutputField(output, 'n', 'a.b.c')).toEqual({ kind: 'value', value: 'deep' });
+  });
+
+  it('a single segment still behaves exactly as before', () => {
+    expect(
+      resolveNodeOutputField(withRepo({ host: 'github.com', path: 'o/r' }), 'pr', 'number')
+    ).toEqual({
+      kind: 'value',
+      value: 25,
+    });
+  });
+
+  it('names the SEGMENT, not the whole path, when the head is not in the schema', () => {
+    // The actionable fact is that `nope` is missing from the schema.
+    expect(() => resolveNodeOutputField(withRepo({ path: 'o/r' }), 'pr', 'nope.path')).toThrow(
+      /references field 'nope', which is not declared/
+    );
+  });
+
+  it('throws rather than resolving empty when a deeper key is absent', () => {
+    // Below the head there is no schema, so absent and mistyped are
+    // indistinguishable — the no-silent-drop rule makes that loud.
+    expect(() =>
+      resolveNodeOutputField(withRepo({ host: 'github.com' }), 'pr', 'repo.path')
+    ).toThrow(OutputRefError);
+    try {
+      resolveNodeOutputField(withRepo({ host: 'github.com' }), 'pr', 'repo.path');
+    } catch (error) {
+      expect((error as OutputRefError).reason).toBe('missing-key');
+    }
+  });
+
+  it('throws when a segment tries to index a non-object', () => {
+    try {
+      resolveNodeOutputField(withRepo('not-an-object'), 'pr', 'repo.path');
+      throw new Error('expected a throw');
+    } catch (error) {
+      expect((error as OutputRefError).reason).toBe('not-an-object');
+    }
+  });
+
+  it('short-circuits to empty when a declared-optional head is absent', () => {
+    // The parent was allowed to be absent, so the path under it is absent too —
+    // not a missing key under a value that was never meant to exist.
+    const output: NodeOutput = {
+      state: 'completed',
+      output: JSON.stringify({ number: 25 }),
+      declaredFields: ['repo', 'number'],
+    };
+    expect(resolveNodeOutputField(output, 'pr', 'repo.path')).toEqual({ kind: 'empty' });
+  });
+
+  it('parses a dotted path as one whole-value reference', () => {
+    expect(parseWholeOutputRef('$pr.output.repo.path')).toEqual({
+      nodeId: 'pr',
+      field: 'repo.path',
+    });
+  });
+});
