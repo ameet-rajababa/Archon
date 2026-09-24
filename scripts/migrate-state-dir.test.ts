@@ -188,7 +188,15 @@ async function runIn(ctx: Sandbox, cwd: string, ...args: string[]): Promise<RunR
   return runWithEnv(ctx, {}, cwd, ...args);
 }
 
-/** `runIn` plus extra environment — for exercising the DATABASE_URL dialect branch. */
+/**
+ * `runIn` plus extra environment — for exercising the DATABASE_URL dialect branch.
+ *
+ * `ARCHON_TEST_ALLOW_DATABASE_URL` is the declaration `resolvePostgresUrl` asks for:
+ * a test run otherwise ignores an inherited DSN, because a self-hosted operator's
+ * DSN points at their live Archon. The cases here are the ones that mean the
+ * production rule, so they opt back in — and because the child inherits
+ * `NODE_ENV=test`, the opt-in has to travel in its environment.
+ */
 async function runWithEnv(
   ctx: Sandbox,
   extraEnv: Record<string, string>,
@@ -197,7 +205,7 @@ async function runWithEnv(
 ): Promise<RunResult> {
   return collect(
     Bun.spawn(['bun', 'run', SCRIPT, '--cwd', cwd, ...args], {
-      env: childEnv(ctx, extraEnv),
+      env: childEnv(ctx, { ARCHON_TEST_ALLOW_DATABASE_URL: '1', ...extraEnv }),
       stdout: 'pipe',
       stderr: 'pipe',
     })
