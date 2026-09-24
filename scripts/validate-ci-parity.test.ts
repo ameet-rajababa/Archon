@@ -46,9 +46,11 @@ const NOT_IN_VALIDATE: readonly { command: string; reason: string }[] = [
       'Reads every release tag with `git show`, so it needs the unshallowed checkout its job takes.',
   },
   {
-    command:
-      'bun test packages/core/src/db/isolation-environments.live-run.postgres.integration.test.ts',
-    reason: 'Exercises the Postgres dialect against a live PostgreSQL service.',
+    command: 'bun test packages/core/src/db/*.postgres.integration.test.ts',
+    reason:
+      'Exercises the Postgres dialect against a live PostgreSQL service. Selected by suffix so a ' +
+      'new parity test is run by having been written — the dialect difference these catch is ' +
+      'invisible to every other job.',
   },
   {
     command: 'bun run build:docs',
