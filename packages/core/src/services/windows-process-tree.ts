@@ -128,9 +128,18 @@ export class WindowsProcessTree {
 // Encoded rather than passed through `-Command`, so Windows argument quoting cannot
 // alter it. `ProcessId` rows without a `CreationDate` are the kernel's own (Idle,
 // System) and cannot belong to a run.
+//
+// The three properties are named in a WQL projection rather than taken from a whole-class
+// query. `-ClassName Win32_Process` makes WMI materialize every property of every process
+// — around forty each, including command lines and full image paths — and hands all of it
+// to PowerShell to be thrown away here. On a saturated `windows-latest` runner that query
+// exceeded the 30 s allowance below, and a stop whose first listing times out reports that
+// it could not confirm the tree exited, leaving the run alive. Asking for what is actually
+// read is the fix; the timeout stays as the ceiling it was meant to be.
 const LIST_PROCESSES_SCRIPT = [
   "$ErrorActionPreference = 'Stop'",
-  '$rows = @(Get-CimInstance -ClassName Win32_Process | Where-Object { $null -ne $_.CreationDate } | ForEach-Object {',
+  "$query = 'SELECT ProcessId, ParentProcessId, CreationDate FROM Win32_Process'",
+  '$rows = @(Get-CimInstance -Query $query | Where-Object { $null -ne $_.CreationDate } | ForEach-Object {',
   '  [pscustomobject]@{ pid = [int]$_.ProcessId; parentPid = [int]$_.ParentProcessId; created = $_.CreationDate.ToUniversalTime().Ticks.ToString() }',
   '})',
   '[pscustomobject]@{ takenAt = [DateTime]::UtcNow.Ticks.ToString(); rows = $rows } | ConvertTo-Json -Compress -Depth 3',
