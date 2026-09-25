@@ -19,6 +19,18 @@ import { trackTempRoots } from '@archon/paths/test-utils';
 
 const trackTempRoot = trackTempRoots();
 
+/**
+ * POSIX only, for the same reason as `deploy-local.test.ts` and
+ * `deploy-on-request.test.ts`: the subject is a bash script that runs on the
+ * deploy host and in Linux CI, never on Windows. A Windows result about it is
+ * Git Bash agreeing or diverging, not evidence about the script.
+ *
+ * Guarded at the file, so this suite cannot become the next thing that turns
+ * `test (windows-latest)` red — which is exactly what these three files did once
+ * the `deploy` branch's history reached `dev` and met the Windows job.
+ */
+const describePosix = process.platform === 'win32' ? describe.skip : describe;
+
 const SCRIPT = join(import.meta.dir, 'assert-deploy-on-dev.sh');
 
 function git(cwd: string, ...args: string[]): string {
@@ -69,7 +81,7 @@ function run(
   };
 }
 
-describe('assert-deploy-on-dev', () => {
+describePosix('assert-deploy-on-dev', () => {
   test('passes when the commit IS the tip of dev', () => {
     const { dir, shas } = repo(['one', 'two']);
     git(dir, 'update-ref', 'refs/remotes/fork/dev', shas[1]!);
