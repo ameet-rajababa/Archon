@@ -37,6 +37,14 @@
  * marking the chat done, or sending another message), for exactly the reason
  * the next paragraph gives.
  *
+ * WHAT "FINISHED" HAS TO MEAN, because the loose reading is the obvious one and
+ * it is wrong. For a chat whose output is code, finished is LANDED: merged, and
+ * running wherever it runs. An open pull request — green, reviewed, whatever —
+ * is unfinished work, not a decision waiting on a human. An agent that sets this
+ * on "I wrote it" hands back a state that reads done and is not, which is the
+ * same lie `idle` was already telling, wearing a better colour. The only thing
+ * left when this is set should be whether the work was the RIGHT work.
+ *
  * A chat whose last word was merely the agent's is NOT awaiting, and the rule
  * that said so existed twice and failed the same way both times: every
  * finished chat ends with the agent, so the rail went amber end to end and
@@ -299,6 +307,6 @@ export const STATUS_TITLE: Readonly<Record<ChatStatus, string>> = {
   awaiting: 'This chat is waiting for your answer',
   unread: 'This chat has replied since you last read it',
   done: "This chat's work is finished",
-  ready: 'The agent says this work is finished — confirm it, or keep going',
+  ready: 'The work here has landed. Close this chat, or keep going',
   idle: 'Nothing is running in this chat',
 };
