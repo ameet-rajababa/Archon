@@ -814,8 +814,21 @@ describe('Files tab — GET /api/codebases/:id/files and /file', () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as { path: string; content: string; size: number };
     expect(body.content).toBe('export const x = 1;\n');
+    // Forward slashes on EVERY host. `normalize()` answers in the host's
+    // separator, so this returned `src\index.ts` on Windows — the same file in
+    // the same repo carrying a different identifier depending on which machine
+    // served it. The files client joins this onto each listing entry to build
+    // the child's path and sends it back, so the difference travelled.
     expect(body.path).toBe('src/index.ts');
     expect(body.size).toBe(20);
+  });
+
+  test('a nested listing names its directory with forward slashes', async () => {
+    // The other half of the same value: `path` on a LISTING is what the client
+    // joins child names onto. A host-native separator here would put one inside
+    // every descendant path the client derives.
+    const body = (await (await listing('src/nested')).json()) as { path: string };
+    expect(body.path).toBe('src/nested');
   });
 
   test('a .. traversal is rejected, on both endpoints', async () => {
