@@ -420,7 +420,7 @@ nodes:
           output_format: &ci_state
             type: object
             properties:
-              state: { type: string, enum: [pending, concluded, red] }
+              state: { type: string, enum: [pending, concluded, red, unreadable] }
               detail: { type: string }
             required: [state, detail]
         - id: ci-pause
@@ -567,12 +567,18 @@ nodes:
     trigger_rule: none_failed_min_one_success
     with:
       red_cause: { from: "$ci-corrections.output.red_cause", if_skipped: "" }
+      ci_state: "$ci-verdict.output.state"
+    # reason and action are the operator's sentence, composed where the routing
+    # decision is made. The wait below places the fresh probe's own detail between
+    # them; nothing parses either field.
     output_format:
       type: object
       properties:
         attention: { type: boolean }
         red_cause: { type: string }
-      required: [attention, red_cause]
+        reason: { type: string }
+        action: { type: string }
+      required: [attention, red_cause, reason, action]
 
   - id: ci-attention
     depends_on: [ci-attention-route]
@@ -592,11 +598,10 @@ nodes:
         - id: attention-ci-pause
           wait:
             attention: >-
-              CI remains non-green for pull request
-              #$pr.output.number after Archon classified the failure as
-              $ci-attention-route.output.red_cause:
+              Pull request #$pr.output.number needs an operator.
+              $ci-attention-route.output.reason:
               $attention-ci-probe.output.detail
-              Re-run the failing check, then resume this run.
+              — $ci-attention-route.output.action
           when: "$attention-ci-probe.output.state != 'concluded'"
           depends_on: [attention-ci-probe]
 

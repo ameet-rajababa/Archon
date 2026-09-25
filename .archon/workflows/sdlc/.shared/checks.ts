@@ -24,6 +24,28 @@ export interface CheckRead {
 }
 
 /**
+ * The pull request's check state could not be observed at all.
+ *
+ * Distinct from every other failure a reader can raise, because it is the only one
+ * that says nothing about the change under review: a denied token scope, a forge
+ * outage, a repository setting, or a payload this pack cannot classify. A caller that
+ * must not infer green from an absent read still cannot, and a caller that can route
+ * the condition to the operator now has a way to tell it apart.
+ *
+ * A typed error rather than a message a caller matches on: classifying a failure by
+ * its prose would make behaviour depend on a vendor's wording, which is exactly the
+ * mechanism `AGENTS.md` rules out for gating retry, fallback, or suppression. A
+ * misconfigured run — no source, no plugin, an unparseable bound pull request — is
+ * NOT this: that is the operator's wiring and it still fails loudly where it happens.
+ */
+export class CheckReadError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CheckReadError';
+  }
+}
+
+/**
  * The pack's gate policy over one read. A running check wins, so a gate never
  * concludes while anything is still running; red and unknown both block; gated
  * is reported as a maintainer's gate, never as green.
@@ -128,10 +150,10 @@ function readGhChecks(pr: QualifiedPr): readonly CheckUnit[] {
       '.statusCheckRollup | length'
     );
     if (counted.ok && counted.stdout.trim() === '0') return [];
-    throw new Error(`could not read check state: ${result.stderr.trim()}`);
+    throw new CheckReadError(`could not read check state: ${result.stderr.trim()}`);
   }
   if (!Array.isArray(parsed) || !parsed.every(isGhCheck)) {
-    throw new Error(`unexpected check payload shape: ${result.stdout.slice(0, 200)}`);
+    throw new CheckReadError(`unexpected check payload shape: ${result.stdout.slice(0, 200)}`);
   }
   return parsed.map(ghCheckUnit);
 }
