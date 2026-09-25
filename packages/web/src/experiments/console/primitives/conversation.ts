@@ -20,7 +20,7 @@ export const CONVERSATION_COLORS = [
   { value: 'magenta', label: 'Magenta', token: 'var(--lbl-plum)' },
   { value: 'violet', label: 'Violet', token: 'var(--lbl-violet)' },
   { value: 'blue', label: 'Blue', token: 'var(--lbl-blue)' },
-  { value: 'green', label: 'Green', token: 'var(--lbl-olive)' },
+  { value: 'green', label: 'Green', token: 'var(--lbl-green)' },
   { value: 'amber', label: 'Amber', token: 'var(--lbl-amber)' },
   { value: 'red', label: 'Red', token: 'var(--lbl-rose)' },
 ] as const;

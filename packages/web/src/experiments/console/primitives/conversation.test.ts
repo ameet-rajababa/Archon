@@ -91,7 +91,7 @@ describe('colorToken', () => {
   test('maps a color to a design token, never a raw hex', () => {
     expect(colorToken('magenta')).toBe('var(--lbl-plum)');
     expect(colorToken('blue')).toBe('var(--lbl-blue)');
-    expect(colorToken('green')).toBe('var(--lbl-olive)');
+    expect(colorToken('green')).toBe('var(--lbl-green)');
   });
 
   test('no color maps to no token', () => {
