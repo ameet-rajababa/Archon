@@ -45,20 +45,6 @@ import { DEPLOY_STEP_COUNT } from '../packages/server/src/services/deploy-status
  */
 const describePosix = process.platform === 'win32' ? describe.skip : describe;
 
-/**
- * POSIX only. These tests drive real shell scripts — they spawn `bash`, write
- * executable stubs onto PATH with a `#!/usr/bin/env bash` shebang, and rely on
- * `chmod` actually granting execute. Windows has none of that, and neither does
- * the thing under test: `deploy-local.sh` and `deploy-on-request.sh` run as root
- * on the Linux host that owns the Docker daemon, and can never run anywhere else.
- *
- * Skipped rather than ported, because a Windows-compatible version of these would
- * be exercising a deployment that does not exist. The suites became visible to the
- * Windows CI job when the deploy scripts reached `dev`; before that they lived only
- * on `local/deploy`, which no Windows runner builds.
- */
-const describePosix = process.platform === 'win32' ? describe.skip : describe;
-
 const trackTempRoot = trackTempRoots();
 
 const REPO_ROOT = join(import.meta.dir, '..');
