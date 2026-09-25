@@ -3,6 +3,7 @@ import { closeSync, fstatSync, lstatSync, mkdirSync, openSync, rmSync, statSync 
 import { createServer, type Server, Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { WINDOWS_PRE_KILL_BOUND_MS } from './windows-process-tree';
 
 /** Idle lifetime for a connection that has not completed an owner handshake. */
 export const RUN_LIVE_OWNER_IPC_TIMEOUT_MS = 2_000;
@@ -14,7 +15,15 @@ const CONTROL_HANDOFF = 'control_handoff\n';
 const STOP_REQUEST = 'stop\n';
 const TERMINATE_REQUEST = 'terminate\n';
 const TERMINATE_READY = 'ready\n';
-const TERMINATION_LEASE_MS = 8_000;
+/**
+ * How long the owner and the terminator each hold the termination socket open after the
+ * lease is committed. Both ends set it as a socket idle timeout and neither writes during
+ * a stop, so it is a wall-clock allowance for the terminator's pre-kill work — which is
+ * why it is derived from that work's own bound instead of chosen here. An 8 s value
+ * chosen independently was shorter than the single process listing the Windows terminator
+ * must complete first, so a loaded host failed every cancel it should have completed.
+ */
+const TERMINATION_LEASE_MS = WINDOWS_PRE_KILL_BOUND_MS + RUN_LIVE_OWNER_IPC_TIMEOUT_MS;
 const OWNER_CLOSE_WAIT_MS = TERMINATION_LEASE_MS + RUN_LIVE_OWNER_IPC_TIMEOUT_MS;
 export const RUN_LIVE_OWNER_CONTROL_HANDOFF_GRACE_MS = OWNER_CLOSE_WAIT_MS;
 const STARTUP_RECHECK_MS = 50;

@@ -16,6 +16,24 @@ const execFileAsync = promisify(execFile);
 const COMMAND_TIMEOUT_MS = 30_000;
 
 /**
+ * The terminator's own bound on the work it does BETWEEN being granted a termination
+ * lease and issuing the kill: exactly one process listing.
+ *
+ * The lease is an idle timeout on a socket neither side writes to during a stop, so it
+ * lapses on wall-clock time while the terminator is doing the one thing it must do
+ * first. Sizing the lease independently made those two numbers disagree: an 8 s lease
+ * against a listing this file allows 30 s and documents as taking seconds. On a saturated
+ * `windows-latest` runner the listing exceeded 8 s and `archon workflow cancel` then
+ * refused with "released its termination lease before it was stopped", leaving the tree
+ * alive and the run row untouched. Exported so the lease is derived from this rather than
+ * kept in agreement with it by discipline.
+ *
+ * Only the pre-kill window matters: `ownsLiveLease` is consulted once, before `taskkill`,
+ * because after the kill the owner's socket closes on its own.
+ */
+export const WINDOWS_PRE_KILL_BOUND_MS = COMMAND_TIMEOUT_MS;
+
+/**
  * How many listings the stop takes after `taskkill`, killing what each one still shows,
  * before it reports that it could not confirm the tree exited. A bound on attempts, not on
  * time: running out never counts as proof that anything died.
@@ -110,9 +128,18 @@ export class WindowsProcessTree {
 // Encoded rather than passed through `-Command`, so Windows argument quoting cannot
 // alter it. `ProcessId` rows without a `CreationDate` are the kernel's own (Idle,
 // System) and cannot belong to a run.
+//
+// The three properties are named in a WQL projection rather than taken from a whole-class
+// query. `-ClassName Win32_Process` makes WMI materialize every property of every process
+// — around forty each, including command lines and full image paths — and hands all of it
+// to PowerShell to be thrown away here. On a saturated `windows-latest` runner that query
+// exceeded the 30 s allowance below, and a stop whose first listing times out reports that
+// it could not confirm the tree exited, leaving the run alive. Asking for what is actually
+// read is the fix; the timeout stays as the ceiling it was meant to be.
 const LIST_PROCESSES_SCRIPT = [
   "$ErrorActionPreference = 'Stop'",
-  '$rows = @(Get-CimInstance -ClassName Win32_Process | Where-Object { $null -ne $_.CreationDate } | ForEach-Object {',
+  "$query = 'SELECT ProcessId, ParentProcessId, CreationDate FROM Win32_Process'",
+  '$rows = @(Get-CimInstance -Query $query | Where-Object { $null -ne $_.CreationDate } | ForEach-Object {',
   '  [pscustomobject]@{ pid = [int]$_.ProcessId; parentPid = [int]$_.ParentProcessId; created = $_.CreationDate.ToUniversalTime().Ticks.ToString() }',
   '})',
   '[pscustomobject]@{ takenAt = [DateTime]::UtcNow.Ticks.ToString(); rows = $rows } | ConvertTo-Json -Compress -Depth 3',

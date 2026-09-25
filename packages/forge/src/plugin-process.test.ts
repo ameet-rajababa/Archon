@@ -60,34 +60,51 @@ describe('forge plugin process', () => {
     expect(hung.timedOut).toBe(true);
   });
 
-  test('terminates descendants on timeout', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'archon-forge-process-'));
-    const pidFile = join(directory, 'child.pid');
-    try {
-      const result = await runPluginProcess(
-        {
-          command: process.execPath,
-          args: [fixture, '--mode', 'hang-child', '--pid-file', pidFile],
-        },
-        ['op', 'resolve'],
-        { env: process.env, timeoutMs: process.platform === 'win32' ? 1000 : 300 }
-      );
-      expect(result.timedOut).toBe(true);
-      const pid = Number(await readFile(pidFile, 'utf8'));
-      let alive = true;
-      for (let attempt = 0; attempt < 20 && alive; attempt++) {
-        try {
-          process.kill(pid, 0);
-          await Bun.sleep(25);
-        } catch {
-          alive = false;
+  /**
+   * How long the descendant may take to be gone once the timeout terminated its parent.
+   *
+   * This was 20 attempts of 25 ms — 500 ms — which is inside the noise floor of the
+   * `windows-latest` runner, not a statement about the code. scripts/bun-test-command.ts
+   * attributes a 5 to 15 s cost to any single spawn issued while the suite saturates the
+   * 4-vCPU VM, and terminating a Windows process tree spawns `taskkill`. The assertion is
+   * unchanged: the descendant must be gone. Only the allowance is now larger than the
+   * thing it has to outlast, and a healthy run still leaves this loop on its first pass.
+   */
+  const DESCENDANT_GONE_DEADLINE_MS = 30_000;
+
+  test(
+    'terminates descendants on timeout',
+    async () => {
+      const directory = await mkdtemp(join(tmpdir(), 'archon-forge-process-'));
+      const pidFile = join(directory, 'child.pid');
+      try {
+        const result = await runPluginProcess(
+          {
+            command: process.execPath,
+            args: [fixture, '--mode', 'hang-child', '--pid-file', pidFile],
+          },
+          ['op', 'resolve'],
+          { env: process.env, timeoutMs: process.platform === 'win32' ? 1000 : 300 }
+        );
+        expect(result.timedOut).toBe(true);
+        const pid = Number(await readFile(pidFile, 'utf8'));
+        let alive = true;
+        const deadline = Date.now() + DESCENDANT_GONE_DEADLINE_MS;
+        while (alive && Date.now() < deadline) {
+          try {
+            process.kill(pid, 0);
+            await Bun.sleep(25);
+          } catch {
+            alive = false;
+          }
         }
+        expect(alive).toBe(false);
+      } finally {
+        await removeTempTree(directory);
       }
-      expect(alive).toBe(false);
-    } finally {
-      await removeTempTree(directory);
-    }
-  });
+    },
+    DESCENDANT_GONE_DEADLINE_MS * 2
+  );
 });
 
 test.each(['plugin.cmd', 'plugin.bat'])('refuses shell shim %s without execution', async name => {
