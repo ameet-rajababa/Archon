@@ -31,7 +31,7 @@ describe('the rail mark covers every status', () => {
   test('the statuses under test are the ones that exist, not a copied list', () => {
     // Guards the derivation itself: an empty or truncated read would make every
     // assertion below vacuously pass.
-    expect(statuses).toEqual(['working', 'awaiting', 'unread', 'done', 'idle']);
+    expect(statuses).toEqual(['working', 'awaiting', 'unread', 'ready', 'done', 'idle']);
   });
 
   test.each(statuses)('is-%s has a rule in rail.css', status => {
