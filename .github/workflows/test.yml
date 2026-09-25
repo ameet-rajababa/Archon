@@ -3,9 +3,15 @@ name: Test Suite
 on:
   workflow_dispatch:
   push:
-    branches: [main, dev]
+    branches: [main, dev, deploy]
+  # `deploy` is here because it is a base branch that receives pull requests, and
+  # a base with no checks is a base where "green" means nothing was ever run.
+  # Console work lands on `deploy` first — `unread`, `done` and the chat-status
+  # ladder exist only there — so PRs against it were being merged on local
+  # evidence alone while GitHub reported "no checks reported on this branch",
+  # which reads identically to a clean pass.
   pull_request:
-    branches: [main, dev]
+    branches: [main, dev, deploy]
 
 env:
   BUN_VERSION: '1.4.2'
