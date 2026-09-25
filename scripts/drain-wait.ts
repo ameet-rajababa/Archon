@@ -35,7 +35,7 @@
  * the reader.
  */
 
-import { MAX_DRAIN_BUDGET_SECONDS } from '../packages/server/src/routes/internal-drain';
+import { MAX_DRAIN_BUDGET_SECONDS } from '../packages/server/src/routes/drain-budget';
 
 /**
  * Exit codes. The deploy gives each one different words, because they are

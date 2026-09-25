@@ -20,7 +20,7 @@ import {
   DRAIN_UNREADABLE,
   DRAIN_NOT_IN_EFFECT,
 } from './drain-wait';
-import { MAX_DRAIN_BUDGET_SECONDS } from '../packages/server/src/routes/internal-drain';
+import { MAX_DRAIN_BUDGET_SECONDS } from '../packages/server/src/routes/drain-budget';
 
 /** The shape `/api/health` returns while draining, taken from the route that builds it. */
 const draining = {

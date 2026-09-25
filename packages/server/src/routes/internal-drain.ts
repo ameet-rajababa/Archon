@@ -23,6 +23,7 @@ import type { OpenAPIHono } from '@hono/zod-openapi';
 import { z } from '@hono/zod-openapi';
 import type { ConversationLockManager } from '@archon/core';
 import { createLogger } from '@archon/paths';
+import { MAX_DRAIN_BUDGET_SECONDS } from './drain-budget';
 
 /** Lazy-initialized logger (deferred so test mocks can intercept createLogger) */
 let cachedLog: ReturnType<typeof createLogger> | undefined;
@@ -31,12 +32,10 @@ function getLog(): ReturnType<typeof createLogger> {
   return cachedLog;
 }
 
-/**
- * An unbounded drain would be indistinguishable from a wedged box, and no deploy
- * legitimately waits an hour for one. Past this the operator should be asking why
- * the box will not go quiet, not extending the wait.
- */
-export const MAX_DRAIN_BUDGET_SECONDS = 3600;
+// Re-exported so this route stays the one name importers reach for, while the
+// value itself sits in a module a deploy script can import without pulling the
+// server's dependency graph in with it. See drain-budget.ts.
+export { MAX_DRAIN_BUDGET_SECONDS };
 
 const drainRequestSchema = z.object({
   budgetSeconds: z.number().positive().max(MAX_DRAIN_BUDGET_SECONDS),
