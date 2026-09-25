@@ -4,6 +4,7 @@ import {
   awaitingInputIds,
   chatStatus,
   completedIds,
+  readyIds,
   unreadIds,
 } from './chat-status';
 
@@ -11,24 +12,53 @@ const sets = (
   working: string[],
   awaiting: string[],
   done: string[] = [],
-  unread: string[] = []
+  unread: string[] = [],
+  ready: string[] = []
 ) => ({
   working: new Set(working),
   awaiting: new Set(awaiting),
   done: new Set(done),
   unread: new Set(unread),
+  ready: new Set(ready),
 });
 
 describe('chatStatus', () => {
   test('awaiting outranks working — the half that needs a human wins', () => {
     expect(chatStatus('a', sets(['a'], ['a']))).toBe('awaiting');
   });
-  test('the five states', () => {
+  test('the six states', () => {
     expect(chatStatus('a', sets(['a'], []))).toBe('working');
     expect(chatStatus('a', sets([], ['a']))).toBe('awaiting');
     expect(chatStatus('a', sets([], [], [], ['a']))).toBe('unread');
     expect(chatStatus('a', sets([], [], ['a']))).toBe('done');
+    expect(chatStatus('a', sets([], [], [], [], ['a']))).toBe('ready');
     expect(chatStatus('a', sets([], []))).toBe('idle');
+  });
+
+  // The pair this state exists to separate. `done` is the human's answer and
+  // `ready` is the agent asking for one, so a chat the server has been told is
+  // finished must not still be asking. The server clears `ready` when a chat is
+  // marked done, so this combination should not occur — the ordering is what
+  // makes a stale row read as settled rather than as two contradictory claims.
+  test('done outranks ready — the human answer settles the question', () => {
+    expect(chatStatus('a', sets([], [], ['a'], [], ['a']))).toBe('done');
+  });
+  // The other side of it: waiting on a decision is something to act on, and
+  // "nothing is pending" is not. Reporting it as idle is the gap the state
+  // exists to close.
+  test('ready outranks idle — a claim waiting on a decision is not nothing', () => {
+    expect(chatStatus('a', sets([], [], [], [], ['a']))).toBe('ready');
+  });
+  // Ranked with `done`, for the same reason `done` is: a chat that has spoken
+  // since you looked is worth reading before it is worth filing.
+  test('unread outranks ready', () => {
+    expect(chatStatus('a', sets([], [], [], ['a'], ['a']))).toBe('unread');
+  });
+  // Both live states are about right now, which outranks any claim about the
+  // work as a whole — the rule `done` already follows.
+  test('working and awaiting both outrank ready', () => {
+    expect(chatStatus('a', sets(['a'], [], [], [], ['a']))).toBe('working');
+    expect(chatStatus('a', sets([], ['a'], [], [], ['a']))).toBe('awaiting');
   });
   // A chat mid-sentence is unfinished, not missed. Amber on every turn in
   // flight is the noise that made the two previous attempts unusable.
@@ -63,6 +93,25 @@ describe('completedIds', () => {
         { id: 'b', completed: false },
       ]),
     ]).toEqual(['a']);
+  });
+});
+
+describe('readyIds', () => {
+  test('only the chats the agent has declared finished', () => {
+    expect([
+      ...readyIds([
+        { id: 'a', ready: true },
+        { id: 'b', ready: false },
+      ]),
+    ]).toEqual(['a']);
+  });
+
+  // The guard that the two previous attempts at this signal failed. Nothing is
+  // inferred from the shape of the conversation, so a rail full of chats whose
+  // last word was the agent's produces an EMPTY set — which is what keeps
+  // `idle` reachable.
+  test('nothing is derived — a chat that has merely finished speaking is not ready', () => {
+    expect([...readyIds([{ id: 'a', ready: false }, { id: 'b', ready: false }])]).toEqual([]);
   });
 });
 
@@ -155,14 +204,14 @@ describe('chatStatus when the working signal is missing', () => {
   // that matters now is a different one: membership has to be EARNED by the
   // comparison in `unreadIds`, and an empty set still falls to silence.
   test('the agent having spoken last is not a call for help', () => {
-    expect(chatStatus('a', { working: none, awaiting: none, done: none, unread: none })).toBe(
+    expect(chatStatus('a', { working: none, awaiting: none, done: none, unread: none, ready: none })).toBe(
       'idle'
     );
   });
 
   test('an unknown answer falls to silence, never to amber', () => {
     expect(
-      chatStatus('unheard-of', { working: none, awaiting: none, done: none, unread: none })
+      chatStatus('unheard-of', { working: none, awaiting: none, done: none, unread: none, ready: none })
     ).toBe('idle');
   });
 
@@ -171,7 +220,13 @@ describe('chatStatus when the working signal is missing', () => {
   // takes it back out. That is what makes idle reachable.
   test('unread is amber on its own, and is still not a call for help', () => {
     expect(
-      chatStatus('a', { working: none, awaiting: none, done: none, unread: new Set(['a']) })
+      chatStatus('a', {
+        working: none,
+        awaiting: none,
+        done: none,
+        unread: new Set(['a']),
+        ready: none,
+      })
     ).toBe('unread');
   });
 
@@ -182,6 +237,7 @@ describe('chatStatus when the working signal is missing', () => {
         awaiting: new Set(['a']),
         done: none,
         unread: none,
+        ready: none,
       })
     ).toBe('awaiting');
   });

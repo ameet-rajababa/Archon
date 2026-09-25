@@ -455,6 +455,40 @@ export async function setConversationCompleted(id: string, completed: boolean): 
 }
 
 /**
+ * Record, or withdraw, the agent's claim that this chat's work is finished.
+ *
+ * Deliberately NOT a completion: `setConversationCompleted` above is the human's
+ * judgement and this is the agent asking for one. An agent that could write that
+ * column would be closing its own work, and nothing downstream could tell the
+ * two apart afterwards.
+ *
+ * Symmetric like its siblings, and here that is load-bearing rather than a
+ * courtesy. The derived version of this signal — "the newest message is the
+ * agent's" — was built and removed twice because it could only ever turn ON, so
+ * the mark was always lit and `idle` became unreachable (see the console's
+ * `chat-status.ts`). Every caller that can turn this off is what makes it safe
+ * to turn on: the PATCH route when a human marks the chat done, and
+ * `handleMessage` when a human says something more.
+ *
+ * `updated_at` IS bumped, unlike `markConversationRead` below. Reading a chat
+ * observes it; claiming its work is finished changes what the row asserts.
+ *
+ * Re-asserting an existing claim moves the timestamp to now rather than being
+ * rejected, matching `setConversationCompleted`: the caller is stating the
+ * state, not a transition.
+ */
+export async function setConversationReady(id: string, ready: boolean): Promise<void> {
+  const dialect = getDialect();
+  const result = await pool.query(
+    `UPDATE remote_agent_conversations SET ready_at = ${ready ? dialect.now() : 'NULL'}, updated_at = ${dialect.now()} WHERE id = $1`,
+    [id]
+  );
+  if (result.rowCount === 0) {
+    throw new ConversationNotFoundError(id);
+  }
+}
+
+/**
  * Record that a human has read this chat to the end.
  *
  * The rail reads unread as `last_activity_at > last_read_at`, so this is the

@@ -1,11 +1,12 @@
 /**
- * What a chat is, in five states.
+ * What a chat is, in six states.
  *
  *   working   the server is executing a turn for it right now
  *   awaiting  it is your move — a run it started is paused on a gate, or the
  *             agent asked a question and has not been answered
  *   unread    it has moved since you last read it to the end
  *   done      a human said this chat's unit of work has landed
+ *   ready     the AGENT says the work has landed, and no human has answered
  *   idle      none of those
  *
  * Exclusive and ordered: a chat that is both working and awaiting is awaiting,
@@ -24,6 +25,17 @@
  * can see distinguishes "the issue is closed" from "no run happens to be
  * executing", and that second thing is exactly what idle already says. So it
  * is recorded, by a person, on the row.
+ *
+ * `ready` is the other half of that same split, and the reason it is a separate
+ * state rather than a flavour of done: `done` is the human's judgement, `ready`
+ * is the agent asking for one. Between them sits the thing the rail could not
+ * say — nothing is running, and someone should decide — which `idle` reported
+ * as "nothing pending". An agent that could write `done` would be closing its
+ * own work, and afterwards nothing could tell the two apart.
+ *
+ * It is a STORED mark, set by an explicit act and cleared by two (a human
+ * marking the chat done, or sending another message), for exactly the reason
+ * the next paragraph gives.
  *
  * A chat whose last word was merely the agent's is NOT awaiting, and the rule
  * that said so existed twice and failed the same way both times: every
@@ -44,7 +56,7 @@
 import { splitReply } from './ask';
 import { runMessageConversationId } from './run';
 
-export type ChatStatus = 'working' | 'awaiting' | 'unread' | 'done' | 'idle';
+export type ChatStatus = 'working' | 'awaiting' | 'unread' | 'done' | 'ready' | 'idle';
 
 export interface ChatStatusSets {
   /** Platform conversation ids the server is executing a turn for. */
@@ -70,10 +82,17 @@ export interface ChatStatusSets {
    * the duration of every turn.
    */
   unread: ReadonlySet<string>;
+  /**
+   * Chats where the agent has declared the work finished and no human has
+   * answered. Ranked BELOW `done` — a human's judgement settles the question
+   * the claim was asking — and ABOVE `idle`, because "someone should decide" is
+   * strictly more than "nothing is pending".
+   */
+  ready: ReadonlySet<string>;
 }
 
 /**
- * Exclusive and ordered: awaiting, working, unread, done, idle.
+ * Exclusive and ordered: awaiting, working, unread, done, ready, idle.
  *
  * The two live states come first because they are about right now, and right
  * now outranks a claim about the work as a whole. Unread sits under both: a
@@ -90,6 +109,14 @@ export interface ChatStatusSets {
  * unanswered poll would have read as a finished turn — machinery whose only
  * job was to stop a signal lying, which is a signal worth deleting instead.
  *
+ * `ready` sits between done and idle. Under `done` because the two answer the
+ * same question and the human's answer is the one that settles it — a chat the
+ * server has been told is finished must not still be asking. Over `idle`
+ * because a claim waiting on a decision is a thing to act on and "nothing is
+ * pending" is not. It is also under `unread`, for the same reason `done` is: a
+ * chat that has spoken since you looked is worth reading before it is worth
+ * filing.
+ *
  * Every state that is left says something a person can act on, or something a
  * person has already said.
  */
@@ -98,7 +125,22 @@ export function chatStatus(conversationId: string, sets: ChatStatusSets): ChatSt
   if (sets.working.has(conversationId)) return 'working';
   if (sets.unread.has(conversationId)) return 'unread';
   if (sets.done.has(conversationId)) return 'done';
+  if (sets.ready.has(conversationId)) return 'ready';
   return 'idle';
+}
+
+/**
+ * Chats the agent has declared finished, as the set `chatStatus` reads.
+ *
+ * Nothing is derived here, deliberately. The server clears the flag when a
+ * human marks the chat done or sends another message, so both directions are
+ * already decided by the time the rail sees a row — which is what stops this
+ * becoming the "newest message is the agent's" rule that failed twice.
+ */
+export function readyIds(conversations: readonly { id: string; ready: boolean }[]): Set<string> {
+  const out = new Set<string>();
+  for (const c of conversations) if (c.ready) out.add(c.id);
+  return out;
 }
 
 /** Chats a human has marked finished, as the set `chatStatus` reads. */
@@ -223,6 +265,7 @@ export const STATUS_LABEL: Readonly<Record<ChatStatus, string>> = {
   awaiting: 'Needs you',
   unread: 'Unread',
   done: 'Done',
+  ready: 'Ready to close',
   idle: 'Idle',
 };
 
@@ -234,12 +277,20 @@ export const STATUS_LABEL: Readonly<Record<ChatStatus, string>> = {
  * not seen — but they ask for the same thing from a reader scanning the rail,
  * and a second shade of amber would have to be decoded rather than scanned.
  * The distinction stays available in the label and the tooltip.
+ *
+ * `ready` shares `done`'s green and separates itself by GEOMETRY instead: the
+ * rail draws it hollow where done is filled (`rail.css`, `.chat-status.is-ready
+ * i`). The claim and the confirmation are one family and read better as one
+ * colour; a seventh hue would have to be learned, where "not filled in yet"
+ * reads on sight. It is the first state to differ by shape rather than by hue,
+ * so the diameter stays the one every dot shares and only the fill changes.
  */
 export const STATUS_COLOR: Readonly<Record<ChatStatus, string>> = {
   working: 'var(--running)',
   awaiting: 'var(--warning)',
   unread: 'var(--warning)',
   done: 'var(--success)',
+  ready: 'var(--success)',
   idle: 'var(--text-tertiary)',
 };
 
@@ -248,5 +299,6 @@ export const STATUS_TITLE: Readonly<Record<ChatStatus, string>> = {
   awaiting: 'This chat is waiting for your answer',
   unread: 'This chat has replied since you last read it',
   done: "This chat's work is finished",
+  ready: 'The agent says this work is finished — confirm it, or keep going',
   idle: 'Nothing is running in this chat',
 };

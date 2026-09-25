@@ -739,7 +739,7 @@ const updateConversationRoute = createRoute({
   method: 'patch',
   path: '/api/conversations/{id}',
   tags: ['Conversations'],
-  summary: 'Update a conversation (title, color, archived, completed)',
+  summary: 'Update a conversation (title, color, archived, completed, ready)',
   request: {
     params: conversationIdParamsSchema,
     body: {
@@ -2956,6 +2956,7 @@ export function registerApiRoutes(
       deleted_at: toISOString(row.deleted_at),
       completed_at: toISOString(row.completed_at),
       last_read_at: toISOString(row.last_read_at),
+      ready_at: toISOString(row.ready_at),
       last_activity_at: toISOString(row.last_activity_at),
     };
   }
@@ -3188,10 +3189,13 @@ export function registerApiRoutes(
     }
   });
 
-  // PATCH /api/conversations/:id - Update conversation (title, color, archived, completed)
+  // PATCH /api/conversations/:id - Update conversation (title, color, archived, completed, ready)
   registerOpenApiRoute(updateConversationRoute, async c => {
     const platformId = c.req.param('id') ?? '';
-    const { title, color, archived, completed } = getValidatedBody(c, updateConversationBodySchema);
+    const { title, color, archived, completed, ready } = getValidatedBody(
+      c,
+      updateConversationBodySchema
+    );
     try {
       const conv = await conversationDb.findConversationByPlatformId(platformId);
       if (!conv) {
@@ -3222,6 +3226,23 @@ export function registerApiRoutes(
       // other.
       if (completed !== undefined) {
         await conversationDb.setConversationCompleted(conv.id, completed);
+      }
+      // The agent's claim that the work is finished. Written before the
+      // completion sweep below so an explicit `ready` in the same request is not
+      // silently undone by it — a caller that says both is stating the end
+      // state, and the end state it named is the one that is stored.
+      if (ready !== undefined) {
+        await conversationDb.setConversationReady(conv.id, ready);
+      }
+      // Marking a chat done ANSWERS the agent's claim, so the claim is spent.
+      // Leaving it would show a chat as both finished and waiting to be judged,
+      // and the rail would have to decide which — a precedence question that
+      // only exists if this row is allowed to hold two contradictory states at
+      // once. Clearing it here is what makes `ready` reachable in both
+      // directions without the console doing anything: the mark that could only
+      // turn on is the failure this whole signal is shaped around.
+      if (completed === true && ready !== true) {
+        await conversationDb.setConversationReady(conv.id, false);
       }
       return c.json({ success: true });
     } catch (error) {
