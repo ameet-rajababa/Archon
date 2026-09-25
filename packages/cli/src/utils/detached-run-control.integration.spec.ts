@@ -15,48 +15,113 @@ const trackTempRoot = trackTempRoots();
 
 /**
  * How long a spawned fixture process may take to reach the state a test polls for: to
- * signal that it is ready, or to be gone once the terminator stopped it.
+ * signal that it is ready, to exit on its own, or to be gone once the terminator
+ * stopped it. Every wait in this spec measures that one quantity, so they share this.
  *
- * This was the default on `waitFor`. Naming it and removing the default means a wait that
- * needs a different window has to state one rather than inherit this.
+ * Sized from Windows measurement, not from raising it until failures stopped (#53). In
+ * CI run 36075980448 — three attempts of a single commit — the cheapest possible
+ * process, `bun -e 'process.exit(0)'`, took 352 ms, 770 ms and 5088 ms from spawn to
+ * exit. A 14x swing with no code change, so any budget inside that observed range is
+ * not a budget. Booting a fixture that imports `@archon/core` and spawns a child of its
+ * own costs strictly more than that. 15 s sits clear of the range with room for a
+ * slower runner. The same run measured Linux at 82 ms for the whole stop scenario, so
+ * the wider window costs nothing where the work is fast; these are polls and events,
+ * never sleeps, so nothing waits longer than the thing it waits for.
  */
-const FIXTURE_STATE_DEADLINE_MS = 5_000;
+const FIXTURE_STATE_DEADLINE_MS = 15_000;
 
 /**
- * For a test that runs a real stop. On Windows the stop reads the process table through
- * `Get-CimInstance`, and the first such query on a fresh runner took about 4 s.
+ * For a test that spawns a real process. It has to exceed the waits nested inside it, or a
+ * test that stalls reports this outer timeout instead of the wait that actually stalled
+ * and what it was waiting for. The stop scenario nests three fixture-state waits around
+ * a `stop()` whose own Windows path allows 30 s per process listing, so this is a
+ * ceiling on a hung test and not a budget anything healthy approaches: the same test
+ * measured 5848 ms on Windows and 82 ms on Linux.
  */
-const STOP_TEST_TIMEOUT_MS = 30_000;
+const STOP_TEST_TIMEOUT_MS = 120_000;
 
-async function waitFor(check: () => boolean, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
+async function waitFor(what: string, check: () => boolean, timeoutMs: number): Promise<void> {
+  const started = Date.now();
   while (!check()) {
-    if (Date.now() >= deadline) throw new Error('Timed out waiting for fixture');
+    if (Date.now() - started >= timeoutMs) {
+      throw new Error(`Timed out after ${String(Date.now() - started)}ms waiting for ${what}`);
+    }
     await new Promise<void>(resolve => setTimeout(resolve, 25));
   }
 }
 
 /** Wait for a spawned fixture process to reach the state `check` describes. */
-async function waitForFixtureProcess(check: () => boolean): Promise<void> {
-  await waitFor(check, FIXTURE_STATE_DEADLINE_MS);
+async function waitForFixtureProcess(what: string, check: () => boolean): Promise<void> {
+  await waitFor(what, check, FIXTURE_STATE_DEADLINE_MS);
 }
 
-function waitForExit(
-  child: ChildProcess
-): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new Error('Detached owner did not exit'));
-    }, 8_000);
-    child.once('exit', (code, signal) => {
-      clearTimeout(timer);
-      resolve({ code, signal });
-    });
-    child.once('error', error => {
-      clearTimeout(timer);
-      reject(error);
-    });
+interface ExitOutcome {
+  readonly code: number | null;
+  readonly signal: NodeJS.Signals | null;
+}
+
+type ExitEvent = ExitOutcome | { readonly error: Error };
+
+interface ExitWatch {
+  /** Resolve with how the child exited, or reject naming `what` and the time waited. */
+  exited(what: string): Promise<ExitOutcome>;
+}
+
+/**
+ * Watch for a spawned child's exit from the moment it is spawned, and wait for that exit
+ * separately.
+ *
+ * Splitting the two is the fix for #53. The listeners have to be attached at spawn, or an
+ * exit that happens before anything waits for it is missed — but attaching a deadline
+ * there too charged every wait for whatever ran between the spawn and the wait. In the
+ * stop scenario that was a fixture boot, a readiness poll and the whole Windows stop
+ * path: an 8 s deadline enclosing a 5 s readiness wait and a stop allowed 30 s per
+ * process listing. It fired 11 ms and 17 ms past 8 s on a Windows runner whose owner was
+ * still shutting down, which is the flake. Here the clock starts when a caller starts
+ * waiting, so each wait is bounded by its own subject.
+ */
+function watchExit(child: ChildProcess): ExitWatch {
+  let observed: ExitEvent | undefined;
+  const waiting = new Set<(event: ExitEvent) => void>();
+  const settle = (event: ExitEvent): void => {
+    observed ??= event;
+    for (const waiter of [...waiting]) waiter(event);
+    waiting.clear();
+  };
+  child.once('exit', (code, signal) => {
+    settle({ code, signal });
   });
+  child.once('error', error => {
+    settle({ error });
+  });
+
+  return {
+    exited: (what: string): Promise<ExitOutcome> =>
+      new Promise<ExitOutcome>((resolve, reject) => {
+        const deliver = (event: ExitEvent): void => {
+          if ('error' in event) reject(event.error);
+          else resolve(event);
+        };
+        if (observed) {
+          deliver(observed);
+          return;
+        }
+        const started = Date.now();
+        const timer = setTimeout(() => {
+          waiting.delete(waiter);
+          reject(
+            new Error(
+              `Timed out after ${String(Date.now() - started)}ms waiting for ${what} to exit`
+            )
+          );
+        }, FIXTURE_STATE_DEADLINE_MS);
+        const waiter = (event: ExitEvent): void => {
+          clearTimeout(timer);
+          deliver(event);
+        };
+        waiting.add(waiter);
+      }),
+  };
 }
 
 function processExists(pid: number): boolean {
@@ -137,10 +202,12 @@ describe('detached run control integration', () => {
         stdio: 'ignore',
       });
       if (owner.pid === undefined) throw new Error('Failed to spawn detached owner fixture');
-      const exited = waitForExit(owner);
+      const watch = watchExit(owner);
 
       try {
-        await waitForFixtureProcess(() => existsSync(readyPath));
+        await waitForFixtureProcess('the detached owner fixture to signal ready', () =>
+          existsSync(readyPath)
+        );
         const pids = JSON.parse(readFileSync(readyPath, 'utf8')) as {
           owner: number;
           leakWriter: number;
@@ -152,10 +219,16 @@ describe('detached run control integration', () => {
         expect(processExists(pids.leakWriter)).toBe(true);
         const target = await requestDetachedRunStop(runId);
         await target.stop();
-        await exited;
+        // The stop resolved, so the terminator has already proved the owner gone. Only
+        // the exit event's delivery is left, which is why this wait starts its clock
+        // here rather than back at the spawn.
+        await watch.exited('the detached owner');
         // Event-driven proof instead of a fixed sleep: wait for the descendant's
         // observable death. A dead process cannot act on any future signal.
-        await waitForFixtureProcess(() => !processExists(pids.leakWriter));
+        await waitForFixtureProcess(
+          `the descendant ${String(pids.leakWriter)} to be gone`,
+          () => !processExists(pids.leakWriter)
+        );
         writeFileSync(goPath, 'go');
         expect(existsSync(leakPath)).toBe(false);
       } finally {
@@ -186,9 +259,12 @@ describe('detached run control integration', () => {
       const doomed = spawn(process.execPath, ['-e', 'process.exit(0)'], { stdio: 'ignore' });
       if (doomed.pid === undefined) throw new Error('Failed to spawn the short-lived target');
       const gonePid = doomed.pid;
-      await waitForExit(doomed);
+      await watchExit(doomed).exited('the short-lived target');
       // The premise, asserted rather than assumed: the terminator is aimed at nothing.
-      await waitForFixtureProcess(() => !processExists(gonePid));
+      await waitForFixtureProcess(
+        `the short-lived target ${String(gonePid)} to be gone`,
+        () => !processExists(gonePid)
+      );
 
       const server = stubOwner(gonePid);
       await listen(server, path);
@@ -250,7 +326,10 @@ describe('detached run control integration', () => {
       await listen(server, path);
       try {
         // The target is spawning before the stop begins, so the race is live.
-        await waitForFixtureProcess(() => recordedKids().length >= 3);
+        await waitForFixtureProcess(
+          'the spawning target to record three children',
+          () => recordedKids().length >= 3
+        );
         const target = await requestDetachedRunStop(runId);
         await target.stop();
 
@@ -299,7 +378,7 @@ describe('detached run control integration', () => {
         { stdio: 'ignore' }
       );
       if (root.pid === undefined) throw new Error('Failed to spawn the exiting root');
-      await waitForExit(root);
+      await watchExit(root).exited('the exiting root');
       const childPid = Number(readFileSync(childPidPath, 'utf8'));
       expect(processExists(childPid)).toBe(true);
 
@@ -353,61 +432,69 @@ describe('detached run control integration', () => {
     STOP_TEST_TIMEOUT_MS
   );
 
-  it('still fails when the target is alive and the kill cannot reach it', async () => {
-    // The guardrail for the tolerance above: an unreachable kill must never read as a
-    // stopped tree, or the terminator stops protecting anything. Staged on POSIX,
-    // where a live process that is not a group leader makes `kill(-pid)` raise the
-    // same ESRCH that an entirely absent group raises — so only the follow-up check
-    // on the process itself can tell the two apart. The Windows equivalent, a live
-    // root that survives `taskkill /F`, needs a process the runner is not permitted
-    // to kill and is not worth staging in CI.
-    if (process.platform === 'win32') return;
+  it(
+    'still fails when the target is alive and the kill cannot reach it',
+    async () => {
+      // The guardrail for the tolerance above: an unreachable kill must never read as a
+      // stopped tree, or the terminator stops protecting anything. Staged on POSIX,
+      // where a live process that is not a group leader makes `kill(-pid)` raise the
+      // same ESRCH that an entirely absent group raises — so only the follow-up check
+      // on the process itself can tell the two apart. The Windows equivalent, a live
+      // root that survives `taskkill /F`, needs a process the runner is not permitted
+      // to kill and is not worth staging in CI.
+      if (process.platform === 'win32') return;
 
-    const runId = `alive-${crypto.randomUUID()}`;
-    const path = runLiveOwnerPath(runId);
-    // Not `detached`, so it joins this spec's process group and no process group
-    // carrying its own PID exists for the terminator to signal.
-    const survivor = spawn(process.execPath, ['-e', 'setInterval(() => undefined, 1000)'], {
-      stdio: 'ignore',
-    });
-    if (survivor.pid === undefined) throw new Error('Failed to spawn the surviving target');
-    const survivorPid = survivor.pid;
+      const runId = `alive-${crypto.randomUUID()}`;
+      const path = runLiveOwnerPath(runId);
+      // Not `detached`, so it joins this spec's process group and no process group
+      // carrying its own PID exists for the terminator to signal.
+      const survivor = spawn(process.execPath, ['-e', 'setInterval(() => undefined, 1000)'], {
+        stdio: 'ignore',
+      });
+      if (survivor.pid === undefined) throw new Error('Failed to spawn the surviving target');
+      const survivorPid = survivor.pid;
 
-    const server = stubOwner(survivorPid);
-    await listen(server, path);
-    try {
-      const target = await requestDetachedRunStop(runId);
-      const error = await rejectedError(async (): Promise<void> => target.stop());
-      expect(error.message).toContain('does not own process group');
-      expect(processExists(survivorPid)).toBe(true);
-    } finally {
-      survivor.kill('SIGKILL');
-      await close(server);
-      rmSync(path, { force: true });
-    }
-  });
+      const server = stubOwner(survivorPid);
+      await listen(server, path);
+      try {
+        const target = await requestDetachedRunStop(runId);
+        const error = await rejectedError(async (): Promise<void> => target.stop());
+        expect(error.message).toContain('does not own process group');
+        expect(processExists(survivorPid)).toBe(true);
+      } finally {
+        survivor.kill('SIGKILL');
+        await close(server);
+        rmSync(path, { force: true });
+      }
+    },
+    STOP_TEST_TIMEOUT_MS
+  );
 
-  it('refuses a marked POSIX owner that does not own its expected process group', async () => {
-    if (process.platform === 'win32') return;
+  it(
+    'refuses a marked POSIX owner that does not own its expected process group',
+    async () => {
+      if (process.platform === 'win32') return;
 
-    const runId = `foreground-${crypto.randomUUID()}`;
-    const fixtureDir = trackTempRoot(mkdtempSync(join(tmpdir(), 'archon-foreground-control-')));
-    const readyPath = join(fixtureDir, 'ready');
-    const leakPath = join(fixtureDir, 'leaked');
-    const goPath = join(fixtureDir, 'go');
-    const fixturePath = join(import.meta.dir, 'fixtures', 'detached-run-owner.ts');
-    const owner = spawn(process.execPath, [fixturePath, runId, readyPath, leakPath, goPath], {
-      stdio: ['ignore', 'ignore', 'pipe'],
-    });
-    if (owner.pid === undefined) throw new Error('Failed to spawn foreground owner fixture');
-    let stderr = '';
-    owner.stderr?.on('data', chunk => {
-      stderr += String(chunk);
-    });
+      const runId = `foreground-${crypto.randomUUID()}`;
+      const fixtureDir = trackTempRoot(mkdtempSync(join(tmpdir(), 'archon-foreground-control-')));
+      const readyPath = join(fixtureDir, 'ready');
+      const leakPath = join(fixtureDir, 'leaked');
+      const goPath = join(fixtureDir, 'go');
+      const fixturePath = join(import.meta.dir, 'fixtures', 'detached-run-owner.ts');
+      const owner = spawn(process.execPath, [fixturePath, runId, readyPath, leakPath, goPath], {
+        stdio: ['ignore', 'ignore', 'pipe'],
+      });
+      if (owner.pid === undefined) throw new Error('Failed to spawn foreground owner fixture');
+      let stderr = '';
+      owner.stderr?.on('data', chunk => {
+        stderr += String(chunk);
+      });
 
-    const result = await waitForExit(owner);
-    expect(result.code).not.toBe(0);
-    expect(stderr).toContain('does not own process group');
-    expect(existsSync(readyPath)).toBe(false);
-  });
+      const result = await watchExit(owner).exited('the foreground owner fixture');
+      expect(result.code).not.toBe(0);
+      expect(stderr).toContain('does not own process group');
+      expect(existsSync(readyPath)).toBe(false);
+    },
+    STOP_TEST_TIMEOUT_MS
+  );
 });
