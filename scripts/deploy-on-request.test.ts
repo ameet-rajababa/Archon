@@ -25,6 +25,20 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { trackTempRoots } from '@archon/paths/test-utils';
 
+/**
+ * POSIX only. These tests drive real shell scripts — they spawn `bash`, write
+ * executable stubs onto PATH with a `#!/usr/bin/env bash` shebang, and rely on
+ * `chmod` actually granting execute. Windows has none of that, and neither does
+ * the thing under test: `deploy-local.sh` and `deploy-on-request.sh` run as root
+ * on the Linux host that owns the Docker daemon, and can never run anywhere else.
+ *
+ * Skipped rather than ported, because a Windows-compatible version of these would
+ * be exercising a deployment that does not exist. The suites became visible to the
+ * Windows CI job when the deploy scripts reached `dev`; before that they lived only
+ * on `local/deploy`, which no Windows runner builds.
+ */
+const describePosix = process.platform === 'win32' ? describe.skip : describe;
+
 const trackTempRoot = trackTempRoots();
 
 const SCRIPT = join(import.meta.dir, 'deploy-on-request.sh');
@@ -124,7 +138,7 @@ async function waitForLog(box: Sandbox, needle: string): Promise<void> {
 
 const read = (path: string): string => readFileSync(path, 'utf8');
 
-describe('a failure that swapped the container anyway', () => {
+describePosix('a failure that swapped the container anyway', () => {
   test('says the swap happened rather than claiming nothing changed', async () => {
     const box = sandbox('swapped');
     writeDockerStub(box.bin, WANT, WANT);
@@ -173,7 +187,7 @@ describe('a failure that swapped the container anyway', () => {
   });
 });
 
-describe('the losing attempt survives the next request', () => {
+describePosix('the losing attempt survives the next request', () => {
   test('the previous log is kept beside the current one', async () => {
     const box = sandbox('rotate');
     writeDockerStub(box.bin, WANT, WANT);
@@ -188,7 +202,7 @@ describe('the losing attempt survives the next request', () => {
   });
 });
 
-describe('a deploy that is stopped rather than finished', () => {
+describePosix('a deploy that is stopped rather than finished', () => {
   test('being killed mid-flight still records what the box is running', async () => {
     const box = sandbox('killed');
     writeDockerStub(box.bin, WANT, WANT);
@@ -218,7 +232,7 @@ describe('a deploy that is stopped rather than finished', () => {
   });
 });
 
-describe('a checkout that moved is still refused', () => {
+describePosix('a checkout that moved is still refused', () => {
   test('deploying the difference is worse than deploying nothing', async () => {
     const box = sandbox('moved');
     writeDockerStub(box.bin, OTHER, OTHER);
