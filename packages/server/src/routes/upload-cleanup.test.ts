@@ -61,16 +61,33 @@ describe('cleanupUploads', () => {
     expect(warnings).toEqual([]);
   });
 
-  test('reports a real failure instead of throwing', async () => {
-    // A path whose parent is a FILE gives ENOTDIR — neither ENOENT nor
-    // ENOTEMPTY, so it must be surfaced.
-    const notADir = join(root, 'plain-file');
-    await writeFile(notADir, 'x');
-    const warnings: NodeJS.ErrnoException[] = [];
-    await cleanupUploads([], join(notADir, 'nested'), e => {
-      warnings.push(e);
-    });
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0].code).toBe('ENOTDIR');
-  });
+  // POSIX only, and the reason is a documented platform divergence rather than a
+  // gap someone forgot to close. The BEHAVIOUR under test — anything that is not
+  // ENOENT or ENOTEMPTY gets reported — has no platform branch in
+  // `cleanupUploads`. Only the way to PROVOKE such an error does: Node specifies
+  // that `rmdir` on a non-directory "results in an ENOENT error on Windows and an
+  // ENOTDIR error on POSIX", and ENOENT is the code this function is required to
+  // swallow. So on Windows this arrangement produces exactly zero warnings, and
+  // the test would be asserting the opposite of the contract.
+  //
+  // Skipped rather than loosened to "some error, any code": that version passes
+  // on Windows while proving nothing, which is worse than an honest gap. No
+  // portable provocation exists — every error class a filesystem call can be made
+  // to raise here is either legal input on POSIX or collapses to ENOENT on
+  // Windows.
+  test.skipIf(process.platform === 'win32')(
+    'reports a real failure instead of throwing',
+    async () => {
+      // A path whose parent is a FILE gives ENOTDIR — neither ENOENT nor
+      // ENOTEMPTY, so it must be surfaced.
+      const notADir = join(root, 'plain-file');
+      await writeFile(notADir, 'x');
+      const warnings: NodeJS.ErrnoException[] = [];
+      await cleanupUploads([], join(notADir, 'nested'), e => {
+        warnings.push(e);
+      });
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0].code).toBe('ENOTDIR');
+    }
+  );
 });
