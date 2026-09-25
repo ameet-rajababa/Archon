@@ -18,6 +18,7 @@ import {
   awaitingInputIds,
   chatStatus,
   completedIds,
+  readyIds,
   unreadIds,
   type ChatStatus,
 } from '../primitives/chat-status';
@@ -413,6 +414,7 @@ export function ChatPage(): ReactElement {
 
   /** Finished chats, read off the same rows the rail draws. */
   const doneIds = useMemo(() => completedIds(conversations ?? []), [conversations]);
+  const readySet = useMemo(() => readyIds(conversations ?? []), [conversations]);
 
   /**
    * Chats with unseen activity, off the same rows.
@@ -424,7 +426,7 @@ export function ChatPage(): ReactElement {
    */
   const unread = useMemo(() => unreadIds(conversations ?? []), [conversations]);
 
-  /** The status of the chat being READ. Same five states and same ordering as
+  /** The status of the chat being READ. Same six states and same ordering as
    * every row in the rail — `chatStatus` owns the precedence. */
   const status: ChatStatus =
     activeConvId === null
@@ -434,6 +436,7 @@ export function ChatPage(): ReactElement {
           awaiting: awaitingIds,
           unread,
           done: doneIds,
+          ready: readySet,
         });
 
   // Belt and braces: an echo must never outlive its turn. If the reply has

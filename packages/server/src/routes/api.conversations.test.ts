@@ -25,6 +25,7 @@ const mockFindConversationIdsByPlatformIds = mock(
 const mockSetConversationOrder = mock(async (_ids: readonly string[]) => {});
 const mockUpdateConversationTitle = mock(async (_id: string, _title: string) => {});
 const mockSetConversationCompleted = mock(async (_id: string, _completed: boolean) => {});
+const mockSetConversationReady = mock(async (_id: string, _ready: boolean) => {});
 const mockMarkConversationRead = mock(async (_id: string) => {});
 const mockSetConversationArchived = mock(async (_id: string, _archived: boolean) => {});
 const mockListConversations = mock(
@@ -99,6 +100,7 @@ mock.module('@archon/core/db/conversations', () => ({
   findConversationIdsByPlatformIds: mockFindConversationIdsByPlatformIds,
   setConversationOrder: mockSetConversationOrder,
   setConversationCompleted: mockSetConversationCompleted,
+  setConversationReady: mockSetConversationReady,
   markConversationRead: mockMarkConversationRead,
   setConversationArchived: mockSetConversationArchived,
   listConversations: mockListConversations,
@@ -484,6 +486,112 @@ describe('PATCH /api/conversations/:id', () => {
     });
     expect(mockSetConversationArchived).toHaveBeenCalledTimes(1);
     expect(mockSetConversationCompleted).not.toHaveBeenCalled();
+  });
+
+  test("records and withdraws the agent's ready claim through the same field", async () => {
+    for (const ready of [true, false]) {
+      mockFindConversationByPlatformId.mockImplementationOnce(async () => MOCK_CONV);
+      mockSetConversationReady.mockClear();
+
+      const app = new OpenAPIHono();
+      registerApiRoutes(app, {} as WebAdapter, {} as ConversationLockManager);
+
+      const response = await app.request('/api/conversations/web-test-abc', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ready }),
+      });
+      expect(response.status).toBe(200);
+      expect(mockSetConversationReady).toHaveBeenCalledWith('internal-uuid-123', ready);
+    }
+  });
+
+  test('`ready` never reaches the completion writer — an agent cannot close its own work', async () => {
+    // The whole reason these are two fields. If `ready` touched completed_at,
+    // the agent's claim and the human's judgement would be one column and
+    // nothing afterwards could tell which party spoke.
+    mockFindConversationByPlatformId.mockImplementationOnce(async () => MOCK_CONV);
+    mockSetConversationCompleted.mockClear();
+    mockSetConversationReady.mockClear();
+
+    const app = new OpenAPIHono();
+    registerApiRoutes(app, {} as WebAdapter, {} as ConversationLockManager);
+
+    await app.request('/api/conversations/web-test-abc', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ready: true }),
+    });
+    expect(mockSetConversationReady).toHaveBeenCalledTimes(1);
+    expect(mockSetConversationCompleted).not.toHaveBeenCalled();
+  });
+
+  test('marking a chat done spends the claim it was answering', async () => {
+    // One of the two acts that turn the mark off, and the reason the rail never
+    // has to decide between "finished" and "waiting to be judged" on one row.
+    mockFindConversationByPlatformId.mockImplementationOnce(async () => MOCK_CONV);
+    mockSetConversationReady.mockClear();
+
+    const app = new OpenAPIHono();
+    registerApiRoutes(app, {} as WebAdapter, {} as ConversationLockManager);
+
+    await app.request('/api/conversations/web-test-abc', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ completed: true }),
+    });
+    expect(mockSetConversationReady).toHaveBeenCalledWith('internal-uuid-123', false);
+  });
+
+  test('reopening a chat does not silently re-assert a claim nobody made', async () => {
+    // Only `completed: true` answers a claim. Reopening asks the work to
+    // continue, which is not the agent saying it is finished.
+    mockFindConversationByPlatformId.mockImplementationOnce(async () => MOCK_CONV);
+    mockSetConversationReady.mockClear();
+
+    const app = new OpenAPIHono();
+    registerApiRoutes(app, {} as WebAdapter, {} as ConversationLockManager);
+
+    await app.request('/api/conversations/web-test-abc', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ completed: false }),
+    });
+    expect(mockSetConversationReady).not.toHaveBeenCalled();
+  });
+
+  test('an explicit `ready: true` beside `completed: true` is not undone by the sweep', async () => {
+    // A caller that names both is stating an end state, and the end state it
+    // named is the one stored. Without the guard the sweep would overwrite the
+    // field the same request had just set.
+    mockFindConversationByPlatformId.mockImplementationOnce(async () => MOCK_CONV);
+    mockSetConversationReady.mockClear();
+
+    const app = new OpenAPIHono();
+    registerApiRoutes(app, {} as WebAdapter, {} as ConversationLockManager);
+
+    await app.request('/api/conversations/web-test-abc', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ completed: true, ready: true }),
+    });
+    expect(mockSetConversationReady).toHaveBeenCalledTimes(1);
+    expect(mockSetConversationReady).toHaveBeenCalledWith('internal-uuid-123', true);
+  });
+
+  test('an omitted `ready` leaves the claim alone', async () => {
+    mockFindConversationByPlatformId.mockImplementationOnce(async () => MOCK_CONV);
+    mockSetConversationReady.mockClear();
+
+    const app = new OpenAPIHono();
+    registerApiRoutes(app, {} as WebAdapter, {} as ConversationLockManager);
+
+    await app.request('/api/conversations/web-test-abc', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Renamed' }),
+    });
+    expect(mockSetConversationReady).not.toHaveBeenCalled();
   });
 
   test('an omitted `completed` leaves the done state alone', async () => {

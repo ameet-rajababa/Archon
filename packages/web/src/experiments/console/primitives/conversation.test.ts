@@ -26,7 +26,32 @@ const conv = (over: Partial<ConversationSummary> = {}): ConversationSummary => (
   askCandidate: null,
   sortOrder: null,
   lastReadAt: null,
+  ready: false,
   ...over,
+});
+
+describe('toConversationSummary — the ready claim', () => {
+  const raw = {
+    id: 'db-1',
+    platform_conversation_id: 'web-1',
+    platform_type: 'web',
+    title: null,
+    last_activity_at: null,
+    color: null,
+    ai_assistant_type: 'claude',
+  };
+
+  test('the timestamp IS the state', () => {
+    expect(toConversationSummary({ ...raw, ready_at: '2026-06-05T10:00:00Z' }).ready).toBe(true);
+    expect(toConversationSummary({ ...raw, ready_at: null }).ready).toBe(false);
+  });
+
+  // A server that predates the column sends nothing. Absent must read as "no
+  // claim": a missing mark costs a glance, a false one would say work had
+  // landed when it had not.
+  test('an older server that sends no field reads as no claim', () => {
+    expect(toConversationSummary(raw).ready).toBe(false);
+  });
 });
 
 describe('conversationLabel', () => {

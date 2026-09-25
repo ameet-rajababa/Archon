@@ -76,6 +76,7 @@ mock.module('../db/conversations', () => ({
   getConversationByPlatformId: mock(() => Promise.resolve(null)),
   updateConversation: mockUpdateConversation,
   touchConversation: mock(() => Promise.resolve()),
+  setConversationReady: mock(() => Promise.resolve()),
 }));
 
 const mockGetCodebase = mock((): Promise<Codebase | null> => Promise.resolve(null));
@@ -373,6 +374,7 @@ function makeConversation(overrides?: Partial<Conversation>): Conversation {
     title_pinned: null,
     completed_at: null,
     last_read_at: null,
+    ready_at: null,
     deleted_at: null,
     last_activity_at: null,
     user_id: null,

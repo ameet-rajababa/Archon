@@ -70,6 +70,7 @@ const mockGetOrCreateConversation = mock<typeof ConversationDb.getOrCreateConver
     title_pinned: null,
     completed_at: null,
     last_read_at: null,
+    ready_at: null,
     deleted_at: null,
     last_activity_at: null,
     user_id: null,
@@ -86,12 +87,16 @@ const mockUpdateConversation = mock<typeof ConversationDb.updateConversation>(()
 const mockTouchConversation = mock<typeof ConversationDb.touchConversation>(() =>
   Promise.resolve()
 );
+const mockSetConversationReady = mock<typeof ConversationDb.setConversationReady>(() =>
+  Promise.resolve()
+);
 
 mock.module('../db/conversations', () => ({
   getOrCreateConversation: mockGetOrCreateConversation,
   getConversationByPlatformId: mockGetConversationByPlatformId,
   updateConversation: mockUpdateConversation,
   touchConversation: mockTouchConversation,
+  setConversationReady: mockSetConversationReady,
 }));
 
 const mockGetCodebase = mock<typeof CodebaseDb.getCodebase>(() => Promise.resolve(null));
@@ -479,6 +484,7 @@ const mockConversation: Conversation = {
   title_pinned: null,
   completed_at: null,
   last_read_at: null,
+  ready_at: null,
   deleted_at: null,
   last_activity_at: null,
   user_id: null,
@@ -549,6 +555,7 @@ function clearAllMocks(): void {
   mockGetConversationByPlatformId.mockClear();
   mockUpdateConversation.mockClear();
   mockTouchConversation.mockClear();
+  mockSetConversationReady.mockClear();
   mockGetCodebase.mockClear();
   mockListCodebases.mockClear();
   mockCreateCodebase.mockClear();
@@ -948,6 +955,22 @@ describe('orchestrator-agent handleMessage', () => {
       await handleMessage(platform, 'chat-456', 'hello');
 
       expect(mockTouchConversation).toHaveBeenCalledWith('conv-123');
+    });
+
+    // The act that turns the "Ready to close" mark off. A human writing again
+    // is evidence against the agent's claim that the work is finished, and
+    // without a clearing act the mark could only ever turn on — the failure
+    // that killed the two previous attempts at this signal (see the console's
+    // primitives/chat-status.ts). Pinned here rather than left to the rail,
+    // because nothing in the UI can withdraw it.
+    test('a human message withdraws the agent\'s ready claim', async () => {
+      mockClient.sendQuery.mockImplementation(async function* () {
+        yield { type: 'result', sessionId: 'session-id' };
+      });
+
+      await handleMessage(platform, 'chat-456', 'actually, one more thing');
+
+      expect(mockSetConversationReady).toHaveBeenCalledWith('conv-123', false);
     });
   });
 

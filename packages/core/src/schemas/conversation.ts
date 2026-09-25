@@ -89,6 +89,27 @@ export const conversationRowSchema = z.object({
    * rail on the first boot after the upgrade.
    */
   last_read_at: z.date().nullable(),
+  /**
+   * When the agent declared this chat's work finished, pending a human saying so.
+   *
+   * The pair with `completed_at` is the point: that one is the HUMAN's answer to
+   * "did the work land", this one is the AGENT's claim awaiting that answer. Two
+   * parties, two assertions, two columns. Collapsing them would make the agent
+   * able to close its own work, which is the one thing this must not do.
+   *
+   * NULL means no claim, and it is also the honest answer for every row that
+   * predates the column — so, unlike `last_read_at`, there is nothing to
+   * backfill. The OFF state and the never-recorded state mean the same thing
+   * here, which is what makes a bare ADD COLUMN sufficient.
+   *
+   * Cleared by two acts, both a human's: marking the chat done (the judgement
+   * arrived, so the claim is spent) and sending another message (the work is not
+   * finished after all). Nothing the server observes on its own clears it —
+   * deliberately, because "the agent spoke last" is the derived version of this
+   * signal and it failed twice for being unable to turn off. See `last_read_at`
+   * above and the console's `chat-status.ts`.
+   */
+  ready_at: z.date().nullable(),
   deleted_at: z.date().nullable(),
   last_activity_at: z.date().nullable(),
   user_id: z.string().nullable(),
