@@ -25,6 +25,7 @@ const mockFindConversationIdsByPlatformIds = mock(
 const mockSetConversationOrder = mock(async (_ids: readonly string[]) => {});
 const mockUpdateConversationTitle = mock(async (_id: string, _title: string) => {});
 const mockSetConversationCompleted = mock(async (_id: string, _completed: boolean) => {});
+const mockMarkConversationRead = mock(async (_id: string) => {});
 const mockSetConversationArchived = mock(async (_id: string, _archived: boolean) => {});
 const mockListConversations = mock(
   async (_options?: {
@@ -98,6 +99,7 @@ mock.module('@archon/core/db/conversations', () => ({
   findConversationIdsByPlatformIds: mockFindConversationIdsByPlatformIds,
   setConversationOrder: mockSetConversationOrder,
   setConversationCompleted: mockSetConversationCompleted,
+  markConversationRead: mockMarkConversationRead,
   setConversationArchived: mockSetConversationArchived,
   listConversations: mockListConversations,
   getOrCreateConversation: mockGetOrCreateConversation,
@@ -316,6 +318,55 @@ describe('DELETE /api/conversations/:id', () => {
     expect(response.status).toBe(404);
     const body = (await response.json()) as { error: string };
     expect(body.error).toContain('not found');
+  });
+});
+
+describe('POST /api/conversations/:id/read', () => {
+  test('resolves the platform ID and marks the internal one read', async () => {
+    mockFindConversationByPlatformId.mockImplementationOnce(async () => MOCK_CONV);
+    mockMarkConversationRead.mockImplementationOnce(async () => {});
+
+    const app = new OpenAPIHono();
+    registerApiRoutes(app, {} as WebAdapter, {} as ConversationLockManager);
+
+    const response = await app.request('/api/conversations/web-test-abc/read', { method: 'POST' });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ success: true });
+    expect(mockMarkConversationRead).toHaveBeenCalledWith('internal-uuid-123');
+  });
+
+  // The route takes no body, deliberately: the client reports an event and the
+  // server owns the timestamp. A body would be a second clock.
+  test('a body is ignored rather than required', async () => {
+    mockFindConversationByPlatformId.mockImplementationOnce(async () => MOCK_CONV);
+    mockMarkConversationRead.mockImplementationOnce(async () => {});
+
+    const app = new OpenAPIHono();
+    registerApiRoutes(app, {} as WebAdapter, {} as ConversationLockManager);
+
+    const response = await app.request('/api/conversations/web-test-abc/read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ last_read_at: '1999-01-01T00:00:00Z' }),
+    });
+    expect(response.status).toBe(200);
+    expect(mockMarkConversationRead).toHaveBeenCalledWith('internal-uuid-123');
+  });
+
+  test('returns 404 for a chat that is not there', async () => {
+    mockFindConversationByPlatformId.mockImplementationOnce(async () => null);
+    // Mocks accumulate across tests in this file; the claim here is that THIS
+    // request wrote nothing, not that nothing was ever written.
+    mockMarkConversationRead.mockClear();
+
+    const app = new OpenAPIHono();
+    registerApiRoutes(app, {} as WebAdapter, {} as ConversationLockManager);
+
+    const response = await app.request('/api/conversations/web-nonexistent-id/read', {
+      method: 'POST',
+    });
+    expect(response.status).toBe(404);
+    expect(mockMarkConversationRead).not.toHaveBeenCalled();
   });
 });
 

@@ -14,6 +14,7 @@ const chat = (id: string, completed = false): ConversationSummary => ({
   completed,
   askCandidate: null,
   sortOrder: null,
+  lastReadAt: null,
 });
 
 const draw = (overrides: Partial<Parameters<typeof ConversationRail>[0]> = {}): string =>

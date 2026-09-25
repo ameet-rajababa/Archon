@@ -455,6 +455,35 @@ export async function setConversationCompleted(id: string, completed: boolean): 
 }
 
 /**
+ * Record that a human has read this chat to the end.
+ *
+ * The rail reads unread as `last_activity_at > last_read_at`, so this is the
+ * only thing that turns the mark off. It is what makes the mark safe to turn
+ * on at all: "the newest message is the agent's" was tried twice without a read
+ * marker and failed both times, because every finished chat ends with the agent
+ * (see the console's `chat-status.ts`).
+ *
+ * `updated_at` is deliberately NOT bumped. Every other writer in this file uses
+ * it to say the row's CONTENT changed, and reading a chat changes nothing about
+ * it — a reader that bumped it would make "when was this last edited"
+ * unanswerable for any chat anyone had opened.
+ *
+ * Unknown ids throw, like every sibling: the caller asked to mark a specific
+ * chat read, and silently marking nothing would leave the rail amber with no
+ * way to find out why.
+ */
+export async function markConversationRead(id: string): Promise<void> {
+  const dialect = getDialect();
+  const result = await pool.query(
+    `UPDATE remote_agent_conversations SET last_read_at = ${dialect.now()} WHERE id = $1`,
+    [id]
+  );
+  if (result.rowCount === 0) {
+    throw new ConversationNotFoundError(id);
+  }
+}
+
+/**
  * Set or clear a conversation's color label.
  *
  * `null` clears it. The value is validated at the API boundary against

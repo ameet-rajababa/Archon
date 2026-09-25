@@ -1,9 +1,10 @@
 /**
- * What a chat is, in four states.
+ * What a chat is, in five states.
  *
  *   working   the server is executing a turn for it right now
  *   awaiting  it is your move — a run it started is paused on a gate, or the
  *             agent asked a question and has not been answered
+ *   unread    it has moved since you last read it to the end
  *   done      a human said this chat's unit of work has landed
  *   idle      none of those
  *
@@ -16,26 +17,34 @@
  * has asked for something SPECIFIC: a run paused on a gate, or an unanswered
  * ask block. Both are things a human can act on and then be done with.
  *
- * "Done" is the odd one and is meant to be. The other three are claims about
- * this instant, which the server can observe; done is a claim about the WORK,
+ * "Done" is the odd one and is meant to be. The others are claims about this
+ * instant, which the server can observe; done is a claim about the WORK,
  * which it cannot. A chat is one unit of work — an issue, or a cluster of
  * them — and whether that work has landed is a judgement. Nothing the server
  * can see distinguishes "the issue is closed" from "no run happens to be
  * executing", and that second thing is exactly what idle already says. So it
  * is recorded, by a person, on the row.
  *
- * A chat whose last word was merely the agent's is NOT awaiting. That rule
- * existed twice and failed the same way both times: every finished chat ends
- * with the agent, so the rail went amber end to end and idle became a state
- * nothing ever reached. A mark that is always on is not a signal.
+ * A chat whose last word was merely the agent's is NOT awaiting, and the rule
+ * that said so existed twice and failed the same way both times: every
+ * finished chat ends with the agent, so the rail went amber end to end and
+ * idle became a state nothing ever reached. A mark that is always on is not a
+ * signal.
  *
- * That leaves idle meaning what it should — "nothing is pending here" — and
- * reachable, which is the point.
+ * `unread` is that idea built the way it had to be built. What was missing
+ * both previous times was a way to turn the mark OFF — so it is a stored read
+ * marker (`last_read_at`), written when a human actually reaches the bottom of
+ * the stream, and unread is the COMPARISON against activity rather than a
+ * property of the last message. Reading a chat clears it; idle stays reachable.
+ *
+ * It shares amber with `awaiting` because both ask the same thing of someone
+ * scanning the rail. It ranks below `working` because a chat mid-sentence is
+ * unfinished rather than unread.
  */
 import { splitReply } from './ask';
 import { runMessageConversationId } from './run';
 
-export type ChatStatus = 'working' | 'awaiting' | 'done' | 'idle';
+export type ChatStatus = 'working' | 'awaiting' | 'unread' | 'done' | 'idle';
 
 export interface ChatStatusSets {
   /** Platform conversation ids the server is executing a turn for. */
@@ -53,14 +62,25 @@ export interface ChatStatusSets {
    * green when it stops.
    */
   done: ReadonlySet<string>;
+  /**
+   * Chats that have moved since the reader last reached the bottom of them.
+   *
+   * Ranked BELOW working, deliberately: a chat mid-sentence is unfinished, not
+   * unread, and marking it while it streams would put the whole rail amber for
+   * the duration of every turn.
+   */
+  unread: ReadonlySet<string>;
 }
 
 /**
- * Exclusive and ordered: awaiting, working, done, idle.
+ * Exclusive and ordered: awaiting, working, unread, done, idle.
  *
  * The two live states come first because they are about right now, and right
- * now outranks a claim about the work as a whole. Done sits above idle because
- * "this landed" is strictly more than "nothing is pending".
+ * now outranks a claim about the work as a whole. Unread sits under both: a
+ * chat still streaming has not been missed yet, it is simply not finished, and
+ * amber on every turn in flight would be noise. Done sits above idle because
+ * "this landed" is strictly more than "nothing is pending", and under unread
+ * because a finished chat that has since spoken is worth looking at again.
  *
  * There was once another set — chats whose last word was the agent's — ranked
  * below working so a streaming chat would not go amber mid-sentence. The
@@ -76,6 +96,7 @@ export interface ChatStatusSets {
 export function chatStatus(conversationId: string, sets: ChatStatusSets): ChatStatus {
   if (sets.awaiting.has(conversationId)) return 'awaiting';
   if (sets.working.has(conversationId)) return 'working';
+  if (sets.unread.has(conversationId)) return 'unread';
   if (sets.done.has(conversationId)) return 'done';
   return 'idle';
 }
@@ -115,6 +136,45 @@ export function askAwaitingIds(
     if (splitReply(c.askCandidate).some(part => part.kind === 'ask')) out.add(c.id);
   }
   return out;
+}
+
+/**
+ * Chats that have moved since the reader last reached the bottom of them.
+ *
+ * This is the rule that failed twice as "the newest message is the agent's".
+ * It failed because it could only ever turn ON: every finished chat ends with
+ * the agent, so the rail went amber end to end and `idle` became unreachable.
+ * The read marker is the whole difference — `lastReadAt` is written when a
+ * human scrolls to the bottom, so the mark clears and the state is reachable
+ * in both directions.
+ *
+ * Both timestamps are compared as instants rather than strings. They are ISO-8601
+ * from the same server, so lexical order would usually agree — but "usually"
+ * is not a property worth resting a signal on, and a differing offset or
+ * fractional precision breaks it silently rather than loudly.
+ *
+ * An unparseable or absent `lastActivityAt` is NOT unread: the chat has no
+ * activity to be behind on. An absent `lastReadAt` with real activity IS
+ * unread, which is what a chat nobody has opened should say.
+ */
+export function unreadIds(
+  conversations: readonly { id: string; lastActivityAt: string | null; lastReadAt: string | null }[]
+): Set<string> {
+  const out = new Set<string>();
+  for (const c of conversations) {
+    const activity = instant(c.lastActivityAt);
+    if (activity === null) continue;
+    const read = instant(c.lastReadAt);
+    if (read === null || activity > read) out.add(c.id);
+  }
+  return out;
+}
+
+/** An ISO timestamp as a comparable number, or null when there is nothing to compare. */
+function instant(raw: string | null): number | null {
+  if (raw === null || raw === '') return null;
+  const ms = Date.parse(raw);
+  return Number.isNaN(ms) ? null : ms;
 }
 
 /**
@@ -161,14 +221,24 @@ export function awaitingInputIds(
 export const STATUS_LABEL: Readonly<Record<ChatStatus, string>> = {
   working: 'Working',
   awaiting: 'Needs you',
+  unread: 'Unread',
   done: 'Done',
   idle: 'Idle',
 };
 
-/** The token that renders each state. Amber is "your move", red stays failure. */
+/**
+ * The token that renders each state. Amber is "your move", red stays failure.
+ *
+ * `unread` deliberately shares `awaiting`'s amber. The two are different facts
+ * — one is a question you have not answered, the other is a message you have
+ * not seen — but they ask for the same thing from a reader scanning the rail,
+ * and a second shade of amber would have to be decoded rather than scanned.
+ * The distinction stays available in the label and the tooltip.
+ */
 export const STATUS_COLOR: Readonly<Record<ChatStatus, string>> = {
   working: 'var(--running)',
   awaiting: 'var(--warning)',
+  unread: 'var(--warning)',
   done: 'var(--success)',
   idle: 'var(--text-tertiary)',
 };
@@ -176,6 +246,7 @@ export const STATUS_COLOR: Readonly<Record<ChatStatus, string>> = {
 export const STATUS_TITLE: Readonly<Record<ChatStatus, string>> = {
   working: 'The agent is working on this chat right now',
   awaiting: 'This chat is waiting for your answer',
+  unread: 'This chat has replied since you last read it',
   done: "This chat's work is finished",
   idle: 'Nothing is running in this chat',
 };

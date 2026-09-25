@@ -21,6 +21,7 @@ import {
   findConversationByPlatformId,
   listConversations,
   nextOrderSlots,
+  markConversationRead,
   setConversationCompleted,
   setConversationOrder,
 } from './conversations';
@@ -58,6 +59,7 @@ describe('conversations', () => {
       sort_order: null,
       title_pinned: null,
       completed_at: null,
+      last_read_at: null,
       hidden: false,
       deleted_at: null,
       user_id: null,
@@ -306,6 +308,7 @@ describe('conversations', () => {
       sort_order: null,
       title_pinned: null,
       completed_at: null,
+      last_read_at: null,
       hidden: false,
       deleted_at: null,
       user_id: null,
@@ -610,6 +613,40 @@ describe('conversations', () => {
       await expect(setConversationCompleted('gone', true)).rejects.toBeInstanceOf(
         ConversationNotFoundError
       );
+    });
+  });
+
+  describe('markConversationRead', () => {
+    test('the SERVER stamps the time — the client never sends one', async () => {
+      // Two clocks deciding what "now" means is how an unread mark clears
+      // itself a second before the message that set it.
+      mockQuery.mockResolvedValueOnce(createQueryResult([], 1));
+      await markConversationRead('conv-1');
+      const sql = String(mockQuery.mock.calls[0]?.[0]);
+      expect(sql).toContain('last_read_at = NOW()');
+      expect(mockQuery.mock.calls[0]?.[1]).toEqual(['conv-1']);
+    });
+
+    test('it does not bump updated_at — reading is not an edit', async () => {
+      // Every other writer here uses updated_at to say the row's CONTENT
+      // changed. A reader that bumped it would make "when was this last
+      // edited" unanswerable for any chat anyone had opened.
+      mockQuery.mockResolvedValueOnce(createQueryResult([], 1));
+      await markConversationRead('conv-1');
+      expect(String(mockQuery.mock.calls[0]?.[0])).not.toContain('updated_at');
+    });
+
+    test('it never touches last_activity_at — reading is not activity', async () => {
+      // Unread is the COMPARISON of the two columns. A reader that moved the
+      // activity side could never clear the mark it was trying to clear.
+      mockQuery.mockResolvedValueOnce(createQueryResult([], 1));
+      await markConversationRead('conv-1');
+      expect(String(mockQuery.mock.calls[0]?.[0])).not.toContain('last_activity_at');
+    });
+
+    test('a chat that is not there is an error, not a silent no-op', async () => {
+      mockQuery.mockResolvedValueOnce(createQueryResult([], 0));
+      await expect(markConversationRead('gone')).rejects.toBeInstanceOf(ConversationNotFoundError);
     });
   });
 });

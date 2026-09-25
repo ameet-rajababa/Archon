@@ -358,6 +358,42 @@ ALTER TABLE remote_agent_conversations
 ALTER TABLE remote_agent_conversations
   ADD COLUMN IF NOT EXISTS title_pinned BOOLEAN DEFAULT FALSE;
 
+-- From migration 033: when a human last read this chat to the end, and every
+-- chat that predates the column is treated as already read.
+--
+-- Unread is `last_activity_at > last_read_at`, and the marker is what makes
+-- that rule survivable at all: "the newest message is the agent's" was built
+-- and removed twice (see primitives/chat-status.ts), because every finished
+-- chat ends with the agent, so the rail went amber forever and `idle` became
+-- unreachable. Reading a chat clears the mark; without this column the signal
+-- could only ever turn on.
+--
+-- THE GUARD IS LOAD-BEARING, for the same reason it is on 032 above. This file
+-- is re-executed on EVERY boot, so a standing UPDATE would mark every chat read
+-- on every restart and silently delete the feature. Running the backfill only
+-- in the boot that ADDS the column makes it a one-time reading of history.
+--
+-- And the backfill has to happen: every existing row answers "never read" for
+-- want of anywhere to record the answer, not because nobody read it. Left
+-- alone, the first boot after the upgrade paints the whole history amber —
+-- exactly the failure this column exists to prevent, on day one.
+--
+-- Rows created after keep NULL until someone reads them, which is correct: a
+-- new chat that has spoken and never been opened is unread.
+DO $migration_033$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'remote_agent_conversations' AND column_name = 'last_read_at'
+  ) THEN
+    ALTER TABLE remote_agent_conversations ADD COLUMN last_read_at TIMESTAMP WITH TIME ZONE;
+    UPDATE remote_agent_conversations
+    SET last_read_at = last_activity_at
+    WHERE last_activity_at IS NOT NULL;
+  END IF;
+END
+$migration_033$;
+
 -- From migrations 031 and 032: the chat's unit of work is finished, and every
 -- chat archived before the column existed becomes a finished one.
 --
@@ -798,6 +834,8 @@ COMMENT ON COLUMN remote_agent_conversations.title_pinned IS
   'A human named this chat. Automatic re-titling skips the row; an explicit request still overrides it. NULL means not pinned.';
 COMMENT ON COLUMN remote_agent_conversations.completed_at IS
   'When a human marked this chat''s unit of work finished. NULL means not finished. Independent of deleted_at: done says the work landed, archived says stop showing it.';
+COMMENT ON COLUMN remote_agent_conversations.last_read_at IS
+  'When a human last read this chat to the end. Unread is last_activity_at > last_read_at; NULL means never read.';
 
 -- Sessions
 CREATE INDEX IF NOT EXISTS idx_remote_agent_sessions_conversation

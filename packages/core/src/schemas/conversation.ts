@@ -69,6 +69,26 @@ export const conversationRowSchema = z.object({
    * chat you still want in the rail is the normal case.
    */
   completed_at: z.date().nullable(),
+  /**
+   * When a human last read this chat to the end.
+   *
+   * Paired with `last_activity_at`, and only meaningful beside it: unread is
+   * `last_activity_at > last_read_at`. NULL means never read, which is the
+   * answer for a chat nobody has opened and for every row that predates the
+   * column — one meaning, not two.
+   *
+   * It exists because the cheap version of the signal does not work. "The
+   * newest message is the agent's" was built and removed twice, since every
+   * finished chat ends with the agent, so the whole rail went amber and `idle`
+   * became unreachable. A mark that is always on is not a signal. Reading is
+   * what turns this one off.
+   *
+   * Rows that predate the column were backfilled from `last_activity_at` once,
+   * in the boot that added it: they were read, there was simply nowhere to
+   * record it, and leaving them NULL would have delivered that same all-amber
+   * rail on the first boot after the upgrade.
+   */
+  last_read_at: z.date().nullable(),
   deleted_at: z.date().nullable(),
   last_activity_at: z.date().nullable(),
   user_id: z.string().nullable(),
