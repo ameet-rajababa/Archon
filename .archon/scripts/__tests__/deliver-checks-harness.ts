@@ -56,8 +56,11 @@ export interface GhFake {
   /**
    * What `gh pr checks --json` knows about each check; the fake prints only the
    * fields the reader requests. 'fail' prints no document and exits 1.
+   * 'garbage' prints a document the reader cannot classify and exits 0 — a gh
+   * version whose payload this pack does not understand, which is an absence of
+   * evidence rather than a successful read.
    */
-  readonly checks?: readonly GhCheckRow[] | 'fail';
+  readonly checks?: readonly GhCheckRow[] | 'fail' | 'garbage';
   /** `statusCheckRollup | length`; 'fail' exits 1. */
   readonly rollup?: number | 'fail';
   /** Active Actions workflow count, printed one id per line; 'fail' exits 1. */
@@ -148,6 +151,7 @@ Object.defineProperty(Bun, 'spawnSync', { value: (argv, settings) => {
     return Object.fromEntries(fields.map(field => [field, row[field]]));
   };
   if (text.startsWith('pr checks')) {
+    if (fake.checks === 'garbage') return result(0, '{"message":"Not Found"}');
     if (fake.checks === undefined || fake.checks === 'fail')
       return result(1, '', fake.checks === 'fail' ? 'HTTP 502' : 'no checks reported');
     const fields = argv[argv.indexOf('--json') + 1].split(',');
