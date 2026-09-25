@@ -23,15 +23,17 @@
 
 /* ══ LAYER 1 — PRIMITIVES ══════════════════════════════════════════════ */
 :root {
-  /* Label palette — eight hues that must stay mutually distinguishable in
-     BOTH modes, so they are defined once and never aliased to a status token.
-     (A 'green' label and a 'teal' one rendered the same pixel when --success
-     aliased --brand-teal; that must not become possible again.) */
+  /* Label palette — one hue per conversation label, and they must stay
+     mutually distinguishable in BOTH modes. Defined here and never aliased to
+     a status token: a label that borrows --success or --warning silently
+     follows a status retune to a colour that no longer means what the label
+     said. Hues are spread so no two read as the same swatch; --lbl-green sits
+     at 165, near --success at 168, but holds its own value so the two move
+     independently. `conversation.test.ts` fails if any two labels share a
+     token. */
   --lbl-rose: oklch(0.62 0.17 15);
-  --lbl-coral: oklch(0.64 0.15 40);
   --lbl-amber: oklch(0.68 0.14 75);
-  --lbl-olive: oklch(0.62 0.13 120);
-  --lbl-teal: oklch(0.66 0.13 170);
+  --lbl-green: oklch(0.66 0.15 165);
   --lbl-blue: oklch(0.64 0.15 245);
   --lbl-violet: oklch(0.58 0.17 300);
   --lbl-plum: oklch(0.56 0.16 330);
