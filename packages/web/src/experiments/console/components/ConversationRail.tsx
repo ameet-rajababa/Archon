@@ -18,6 +18,7 @@ import {
 import { relativeTime } from '../lib/format';
 import {
   askAwaitingIds,
+  readyIds,
   chatStatus,
   completedIds,
   unreadIds,
@@ -290,6 +291,9 @@ export function ConversationRail({
   /** Finished chats, read off the rows the rail already has. */
   const done = useMemo(() => completedIds(conversations), [conversations]);
 
+  /** Chats the agent flagged finished, which nobody has filed yet. */
+  const ready = useMemo(() => readyIds(conversations), [conversations]);
+
   /**
    * Chats that have spoken since the reader last reached the bottom of them.
    *
@@ -539,6 +543,7 @@ export function ConversationRail({
             working: liveIds ?? EMPTY_SET,
             awaiting,
             unread,
+            ready,
             done,
           });
           const shift =

@@ -4,6 +4,7 @@ import {
   awaitingInputIds,
   chatStatus,
   completedIds,
+  readyIds,
   unreadIds,
 } from './chat-status';
 
@@ -11,22 +12,25 @@ const sets = (
   working: string[],
   awaiting: string[],
   done: string[] = [],
-  unread: string[] = []
+  unread: string[] = [],
+  ready: string[] = []
 ) => ({
   working: new Set(working),
   awaiting: new Set(awaiting),
   done: new Set(done),
   unread: new Set(unread),
+  ready: new Set(ready),
 });
 
 describe('chatStatus', () => {
   test('awaiting outranks working — the half that needs a human wins', () => {
     expect(chatStatus('a', sets(['a'], ['a']))).toBe('awaiting');
   });
-  test('the five states', () => {
+  test('the six states', () => {
     expect(chatStatus('a', sets(['a'], []))).toBe('working');
     expect(chatStatus('a', sets([], ['a']))).toBe('awaiting');
     expect(chatStatus('a', sets([], [], [], ['a']))).toBe('unread');
+    expect(chatStatus('a', sets([], [], [], [], ['a']))).toBe('ready');
     expect(chatStatus('a', sets([], [], ['a']))).toBe('done');
     expect(chatStatus('a', sets([], []))).toBe('idle');
   });
@@ -52,6 +56,32 @@ describe('chatStatus', () => {
   });
   test('done still outranks idle', () => {
     expect(chatStatus('a', sets([], [], ['a']))).toBe('done');
+  });
+  // Ready is the agent's claim and carries no more weight than done, which is
+  // the human's: anything happening right now, or unseen, still outranks it.
+  test('every louder state outranks ready', () => {
+    expect(chatStatus('a', sets(['a'], [], [], [], ['a']))).toBe('working');
+    expect(chatStatus('a', sets([], ['a'], [], [], ['a']))).toBe('awaiting');
+    expect(chatStatus('a', sets([], [], [], ['a'], ['a']))).toBe('unread');
+  });
+  test('ready outranks idle, so a finished chat stops looking like nothing', () => {
+    expect(chatStatus('a', sets([], [], [], [], ['a']))).toBe('ready');
+  });
+});
+
+describe('readyIds', () => {
+  const row = (id: string, color: string | null, completed: boolean) => ({ id, color, completed });
+
+  test('a green row that nobody has filed', () => {
+    expect([...readyIds([row('a', 'green', false)])]).toEqual(['a']);
+  });
+  // The whole point of the state: it is the step BEFORE done, so once a person
+  // has filed the chat the flag has said everything it had to say.
+  test('completed wins, so the two greens never compete', () => {
+    expect([...readyIds([row('a', 'green', true)])]).toEqual([]);
+  });
+  test('any other colour, and no colour, is not a claim about the work', () => {
+    expect([...readyIds([row('a', 'blue', false), row('b', null, false)])]).toEqual([]);
   });
 });
 
@@ -155,14 +185,20 @@ describe('chatStatus when the working signal is missing', () => {
   // that matters now is a different one: membership has to be EARNED by the
   // comparison in `unreadIds`, and an empty set still falls to silence.
   test('the agent having spoken last is not a call for help', () => {
-    expect(chatStatus('a', { working: none, awaiting: none, done: none, unread: none })).toBe(
-      'idle'
-    );
+    expect(
+      chatStatus('a', { working: none, awaiting: none, done: none, unread: none, ready: none })
+    ).toBe('idle');
   });
 
   test('an unknown answer falls to silence, never to amber', () => {
     expect(
-      chatStatus('unheard-of', { working: none, awaiting: none, done: none, unread: none })
+      chatStatus('unheard-of', {
+        working: none,
+        awaiting: none,
+        done: none,
+        unread: none,
+        ready: none,
+      })
     ).toBe('idle');
   });
 
@@ -171,7 +207,13 @@ describe('chatStatus when the working signal is missing', () => {
   // takes it back out. That is what makes idle reachable.
   test('unread is amber on its own, and is still not a call for help', () => {
     expect(
-      chatStatus('a', { working: none, awaiting: none, done: none, unread: new Set(['a']) })
+      chatStatus('a', {
+        working: none,
+        awaiting: none,
+        done: none,
+        unread: new Set(['a']),
+        ready: none,
+      })
     ).toBe('unread');
   });
 
@@ -182,6 +224,7 @@ describe('chatStatus when the working signal is missing', () => {
         awaiting: new Set(['a']),
         done: none,
         unread: none,
+        ready: none,
       })
     ).toBe('awaiting');
   });

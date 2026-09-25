@@ -18,6 +18,7 @@ import {
   awaitingInputIds,
   chatStatus,
   completedIds,
+  readyIds,
   unreadIds,
   type ChatStatus,
 } from '../primitives/chat-status';
@@ -424,7 +425,10 @@ export function ChatPage(): ReactElement {
    */
   const unread = useMemo(() => unreadIds(conversations ?? []), [conversations]);
 
-  /** The status of the chat being READ. Same five states and same ordering as
+  /** Same flag the rail reads: finished by the agent, not yet filed by a person. */
+  const ready = useMemo(() => readyIds(conversations ?? []), [conversations]);
+
+  /** The status of the chat being READ. Same six states and same ordering as
    * every row in the rail — `chatStatus` owns the precedence. */
   const status: ChatStatus =
     activeConvId === null
@@ -433,6 +437,7 @@ export function ChatPage(): ReactElement {
           working: railLiveIds,
           awaiting: awaitingIds,
           unread,
+          ready,
           done: doneIds,
         });
 
