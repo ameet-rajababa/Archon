@@ -22,6 +22,7 @@ import {
   listConversations,
   nextOrderSlots,
   markConversationRead,
+  setConversationReady,
   setConversationCompleted,
   setConversationOrder,
 } from './conversations';
@@ -60,6 +61,7 @@ describe('conversations', () => {
       title_pinned: null,
       completed_at: null,
       last_read_at: null,
+      ready_at: null,
       hidden: false,
       deleted_at: null,
       user_id: null,
@@ -309,6 +311,7 @@ describe('conversations', () => {
       title_pinned: null,
       completed_at: null,
       last_read_at: null,
+      ready_at: null,
       hidden: false,
       deleted_at: null,
       user_id: null,
@@ -611,6 +614,46 @@ describe('conversations', () => {
     test('a chat that is not there is an error, not a silent no-op', async () => {
       mockQuery.mockResolvedValueOnce(createQueryResult([], 0));
       await expect(setConversationCompleted('gone', true)).rejects.toBeInstanceOf(
+        ConversationNotFoundError
+      );
+    });
+  });
+
+  describe('setConversationReady', () => {
+    test('the timestamp IS the state — there is no boolean to disagree with it', async () => {
+      mockQuery.mockResolvedValueOnce(createQueryResult([], 1));
+      await setConversationReady('conv-1', true);
+      expect(String(mockQuery.mock.calls[0]?.[0])).toContain('ready_at = NOW()');
+    });
+
+    // The half that makes the mark safe to set at all. "The newest message is
+    // the agent's" was built and removed twice because it could only ever turn
+    // ON, which lit the whole rail and made `idle` unreachable. A writer that
+    // could not clear would recreate that exactly.
+    test('false CLEARS it — a mark that cannot turn off is not a signal', async () => {
+      mockQuery.mockResolvedValueOnce(createQueryResult([], 1));
+      await setConversationReady('conv-1', false);
+      expect(String(mockQuery.mock.calls[0]?.[0])).toContain('ready_at = NULL');
+    });
+
+    // The pair it must never become. An agent writing completed_at would be
+    // closing its own work, and afterwards nothing could tell the agent's claim
+    // from the human's judgement.
+    test('it never writes completed_at — the agent does not get to close its own work', async () => {
+      mockQuery.mockResolvedValueOnce(createQueryResult([], 1));
+      await setConversationReady('conv-1', true);
+      expect(String(mockQuery.mock.calls[0]?.[0])).not.toContain('completed_at');
+    });
+
+    test('it bumps updated_at — claiming the work is finished changes what the row asserts', async () => {
+      mockQuery.mockResolvedValueOnce(createQueryResult([], 1));
+      await setConversationReady('conv-1', true);
+      expect(String(mockQuery.mock.calls[0]?.[0])).toContain('updated_at');
+    });
+
+    test('a chat that is not there is an error, not a silent no-op', async () => {
+      mockQuery.mockResolvedValueOnce(createQueryResult([], 0));
+      await expect(setConversationReady('gone', true)).rejects.toBeInstanceOf(
         ConversationNotFoundError
       );
     });

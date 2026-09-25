@@ -965,7 +965,7 @@ export interface paths {
     };
     options?: never;
     head?: never;
-    /** Update a conversation (title, color, archived, completed) */
+    /** Update a conversation (title, color, archived, completed, ready) */
     patch: {
       parameters: {
         query?: never;
@@ -4194,6 +4194,8 @@ export interface components {
       /** Format: date-time */
       last_read_at: string | null;
       /** Format: date-time */
+      ready_at: string | null;
+      /** Format: date-time */
       deleted_at: string | null;
       /** Format: date-time */
       last_activity_at: string | null;
@@ -4221,6 +4223,7 @@ export interface components {
       color?: 'magenta' | 'violet' | 'blue' | 'green' | 'amber' | 'red' | null;
       archived?: boolean;
       completed?: boolean;
+      ready?: boolean;
     };
     SetConversationOrderBody: {
       ids: string[];

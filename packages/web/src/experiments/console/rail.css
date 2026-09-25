@@ -777,6 +777,20 @@
 .chat-status.is-done {
   color: var(--success);
 }
+/* Ready to close: the AGENT says the work landed, and no human has answered.
+   Done's green, hollow. The claim and the confirmation are one family and read
+   better as one colour; a seventh hue would have to be learned, where "not
+   filled in yet" reads on sight. Geometry carries the whole difference, so the
+   diameter stated once above is left alone and only the fill changes — an
+   inset shadow rather than a border, which would round differently and make
+   this the one dot in the column with its own size. */
+.chat-status.is-ready {
+  color: var(--success);
+}
+.chat-status.is-ready i {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px currentColor;
+}
 /* Idle: nothing pending here. Quiet rather than empty — the one state with
    nothing to announce, so it is the one that is dimmed. */
 .chat-status.is-idle {

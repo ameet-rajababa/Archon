@@ -20,6 +20,7 @@ import {
   askAwaitingIds,
   chatStatus,
   completedIds,
+  readyIds,
   unreadIds,
   STATUS_TITLE,
 } from '../primitives/chat-status';
@@ -289,6 +290,7 @@ export function ConversationRail({
 
   /** Finished chats, read off the rows the rail already has. */
   const done = useMemo(() => completedIds(conversations), [conversations]);
+  const ready = useMemo(() => readyIds(conversations), [conversations]);
 
   /**
    * Chats that have spoken since the reader last reached the bottom of them.
@@ -540,6 +542,7 @@ export function ConversationRail({
             awaiting,
             unread,
             done,
+            ready,
           });
           const shift =
             dragId === null ? 0 : previewShift(boxesRef.current, dragFrom, dropIndex, index);
