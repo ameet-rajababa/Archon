@@ -30,9 +30,35 @@ describe('chatStatus', () => {
     expect(chatStatus('a', sets(['a'], []))).toBe('working');
     expect(chatStatus('a', sets([], ['a']))).toBe('awaiting');
     expect(chatStatus('a', sets([], [], [], ['a']))).toBe('unread');
-    expect(chatStatus('a', sets([], [], [], [], ['a']))).toBe('ready');
     expect(chatStatus('a', sets([], [], ['a']))).toBe('done');
+    expect(chatStatus('a', sets([], [], [], [], ['a']))).toBe('ready');
     expect(chatStatus('a', sets([], []))).toBe('idle');
+  });
+
+  // The pair this state exists to separate. `done` is the human's answer and
+  // `ready` is the agent asking for one, so a chat the server has been told is
+  // finished must not still be asking. The server clears `ready` when a chat is
+  // marked done, so this combination should not occur — the ordering is what
+  // makes a stale row read as settled rather than as two contradictory claims.
+  test('done outranks ready — the human answer settles the question', () => {
+    expect(chatStatus('a', sets([], [], ['a'], [], ['a']))).toBe('done');
+  });
+  // The other side of it: waiting on a decision is something to act on, and
+  // "nothing is pending" is not. Reporting it as idle is the gap the state
+  // exists to close.
+  test('ready outranks idle — a claim waiting on a decision is not nothing', () => {
+    expect(chatStatus('a', sets([], [], [], [], ['a']))).toBe('ready');
+  });
+  // Ranked with `done`, for the same reason `done` is: a chat that has spoken
+  // since you looked is worth reading before it is worth filing.
+  test('unread outranks ready', () => {
+    expect(chatStatus('a', sets([], [], [], ['a'], ['a']))).toBe('unread');
+  });
+  // Both live states are about right now, which outranks any claim about the
+  // work as a whole — the rule `done` already follows.
+  test('working and awaiting both outrank ready', () => {
+    expect(chatStatus('a', sets(['a'], [], [], [], ['a']))).toBe('working');
+    expect(chatStatus('a', sets([], ['a'], [], [], ['a']))).toBe('awaiting');
   });
   // A chat mid-sentence is unfinished, not missed. Amber on every turn in
   // flight is the noise that made the two previous attempts unusable.
@@ -57,32 +83,6 @@ describe('chatStatus', () => {
   test('done still outranks idle', () => {
     expect(chatStatus('a', sets([], [], ['a']))).toBe('done');
   });
-  // Ready is the agent's claim and carries no more weight than done, which is
-  // the human's: anything happening right now, or unseen, still outranks it.
-  test('every louder state outranks ready', () => {
-    expect(chatStatus('a', sets(['a'], [], [], [], ['a']))).toBe('working');
-    expect(chatStatus('a', sets([], ['a'], [], [], ['a']))).toBe('awaiting');
-    expect(chatStatus('a', sets([], [], [], ['a'], ['a']))).toBe('unread');
-  });
-  test('ready outranks idle, so a finished chat stops looking like nothing', () => {
-    expect(chatStatus('a', sets([], [], [], [], ['a']))).toBe('ready');
-  });
-});
-
-describe('readyIds', () => {
-  const row = (id: string, color: string | null, completed: boolean) => ({ id, color, completed });
-
-  test('a green row that nobody has filed', () => {
-    expect([...readyIds([row('a', 'green', false)])]).toEqual(['a']);
-  });
-  // The whole point of the state: it is the step BEFORE done, so once a person
-  // has filed the chat the flag has said everything it had to say.
-  test('completed wins, so the two greens never compete', () => {
-    expect([...readyIds([row('a', 'green', true)])]).toEqual([]);
-  });
-  test('any other colour, and no colour, is not a claim about the work', () => {
-    expect([...readyIds([row('a', 'blue', false), row('b', null, false)])]).toEqual([]);
-  });
 });
 
 describe('completedIds', () => {
@@ -93,6 +93,30 @@ describe('completedIds', () => {
         { id: 'b', completed: false },
       ]),
     ]).toEqual(['a']);
+  });
+});
+
+describe('readyIds', () => {
+  test('only the chats the agent has declared finished', () => {
+    expect([
+      ...readyIds([
+        { id: 'a', ready: true },
+        { id: 'b', ready: false },
+      ]),
+    ]).toEqual(['a']);
+  });
+
+  // The guard that the two previous attempts at this signal failed. Nothing is
+  // inferred from the shape of the conversation, so a rail full of chats whose
+  // last word was the agent's produces an EMPTY set — which is what keeps
+  // `idle` reachable.
+  test('nothing is derived — a chat that has merely finished speaking is not ready', () => {
+    expect([
+      ...readyIds([
+        { id: 'a', ready: false },
+        { id: 'b', ready: false },
+      ]),
+    ]).toEqual([]);
   });
 });
 

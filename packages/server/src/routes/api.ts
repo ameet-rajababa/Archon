@@ -134,6 +134,7 @@ import type { WorkflowRun } from '@archon/workflows/schemas/workflow-run';
 import type { MessageRow } from '@archon/core/schemas/message';
 import type { DashboardWorkflowRun } from '@archon/core/schemas/workflow-run';
 import { findCommandFiles } from '@archon/core/utils/commands';
+import { type DeployStatus, getDeployStatus } from '../services/deploy-status';
 import { resumeWorkflowRunFromServer } from '../services/workflow-resume-service';
 
 /** Lazy-initialized logger (deferred so test mocks can intercept createLogger) */
@@ -766,7 +767,7 @@ const updateConversationRoute = createRoute({
   method: 'patch',
   path: '/api/conversations/{id}',
   tags: ['Conversations'],
-  summary: 'Update a conversation (title, color, archived, completed)',
+  summary: 'Update a conversation (title, color, archived, completed, ready)',
   request: {
     params: conversationIdParamsSchema,
     body: {
@@ -1859,6 +1860,40 @@ const getHealthRoute = createRoute({
                     queuedMessages: z.number(),
                     runningWorkflows: z.number(),
                   }),
+                })
+                .optional(),
+              // What the deploy replacing this server is doing, derived from the
+              // host's own files at read time (see services/deploy-status). It
+              // rides THIS read rather than a route of its own because the
+              // console already polls health, and because watching a deploy must
+              // not take a conversation turn — a turn is one of the things the
+              // deploy is waiting for. Omitted when the files cannot be read, so
+              // the strip says nothing rather than something wrong.
+              deploy: z
+                .object({
+                  phase: z.enum([
+                    'requested',
+                    'building',
+                    'draining',
+                    'swapping',
+                    'verifying',
+                    'idle',
+                    'unknown',
+                  ]),
+                  sha: z.string().optional(),
+                  startedAt: z.string().optional(),
+                  step: z
+                    .object({ number: z.number(), of: z.number(), name: z.string() })
+                    .optional(),
+                  holding: z.string().optional(),
+                  last: z
+                    .object({
+                      at: z.string(),
+                      verdict: z.enum(['OK', 'FAILED', 'REFUSED', 'KILLED']),
+                      sha: z.string(),
+                      reason: z.string().optional(),
+                    })
+                    .optional(),
                 })
                 .optional(),
               // Schema vintage (#2316) so a bug report can state which Archon build
@@ -2983,6 +3018,7 @@ export function registerApiRoutes(
       deleted_at: toISOString(row.deleted_at),
       completed_at: toISOString(row.completed_at),
       last_read_at: toISOString(row.last_read_at),
+      ready_at: toISOString(row.ready_at),
       last_activity_at: toISOString(row.last_activity_at),
     };
   }
@@ -3215,10 +3251,13 @@ export function registerApiRoutes(
     }
   });
 
-  // PATCH /api/conversations/:id - Update conversation (title, color, archived, completed)
+  // PATCH /api/conversations/:id - Update conversation (title, color, archived, completed, ready)
   registerOpenApiRoute(updateConversationRoute, async c => {
     const platformId = c.req.param('id') ?? '';
-    const { title, color, archived, completed } = getValidatedBody(c, updateConversationBodySchema);
+    const { title, color, archived, completed, ready } = getValidatedBody(
+      c,
+      updateConversationBodySchema
+    );
     try {
       const conv = await conversationDb.findConversationByPlatformId(platformId);
       if (!conv) {
@@ -3249,6 +3288,23 @@ export function registerApiRoutes(
       // other.
       if (completed !== undefined) {
         await conversationDb.setConversationCompleted(conv.id, completed);
+      }
+      // The agent's claim that the work is finished. Written before the
+      // completion sweep below so an explicit `ready` in the same request is not
+      // silently undone by it — a caller that says both is stating the end
+      // state, and the end state it named is the one that is stored.
+      if (ready !== undefined) {
+        await conversationDb.setConversationReady(conv.id, ready);
+      }
+      // Marking a chat done ANSWERS the agent's claim, so the claim is spent.
+      // Leaving it would show a chat as both finished and waiting to be judged,
+      // and the rail would have to decide which — a precedence question that
+      // only exists if this row is allowed to hold two contradictory states at
+      // once. Clearing it here is what makes `ready` reachable in both
+      // directions without the console doing anything: the mark that could only
+      // turn on is the failure this whole signal is shaped around.
+      if (completed === true && ready !== true) {
+        await conversationDb.setConversationReady(conv.id, false);
       }
       return c.json({ success: true });
     } catch (error) {
@@ -6120,6 +6176,18 @@ export function registerApiRoutes(
       getLog().warn({ err }, 'api.schema_version_read_failed');
     }
 
+    // Read from files on every request, never persisted: the server being
+    // replaced is the one answering, so a stored phase would be stale across
+    // exactly the swap it describes. Health is public and must stay answerable,
+    // so a failed read is logged and the key omitted — the same contract as the
+    // schema vintage above.
+    let deploy: DeployStatus | undefined;
+    try {
+      deploy = await getDeployStatus();
+    } catch (err) {
+      getLog().warn({ err }, 'api.deploy_status_read_failed');
+    }
+
     // Drained is derived from the two counts this route already reports, so the
     // deploy's own busy check and the server's answer can never disagree.
     const drainStatus = lockManager.getDrainStatus();
@@ -6159,6 +6227,7 @@ export function registerApiRoutes(
       ...(wslDistro ? { wsl_distro: wslDistro } : {}),
       activePlatforms: activePlatforms ? [...activePlatforms] : ['Web'],
       ...(drain ? { drain } : {}),
+      ...(deploy ? { deploy } : {}),
       ...(schema ? { schema } : {}),
     });
   });
