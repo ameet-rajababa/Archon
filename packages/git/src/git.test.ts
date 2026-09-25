@@ -2878,7 +2878,12 @@ branch refs/heads/feature/auth
       } finally {
         server.stop(true);
       }
-    }, 15_000);
+      // 15 s was inside the range it had to exceed. This test serves a real repository
+      // over HTTP and clones it, and on windows-latest it measured 4341 ms and 8484 ms on
+      // green runs and timed out at 15089 ms on a third — the attributed per-spawn runner
+      // residual (coleam00/Archon#3294) is 5 to 15 s by itself, so any budget inside that
+      // range decides nothing about the code. A ceiling on a hung test instead.
+    }, 120_000);
 
     test('rejects a malformed credential-bearing HTTP URL before spawning Git', async () => {
       execSpy.mockResolvedValue({ stdout: '', stderr: '' });
