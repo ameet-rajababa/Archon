@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { parseDeploy, type DeployStatus } from '../skills/activeChats';
-import { deployStripView, shortSha } from './deploy-strip';
+import { deployInterruption, deployStripView, shortSha } from './deploy-strip';
 
 const SHA = '92b597234d5505fc98e71f2a7fd0aa3ea153f7fe';
 
@@ -165,5 +165,69 @@ describe('parseDeploy', () => {
       last: { at: '2026-09-25T11:45:06Z', verdict: 'MAYBE', sha: SHA },
     });
     expect(parsed).toEqual({ phase: 'building' });
+  });
+});
+
+describe('deployInterruption', () => {
+  // The whole table, because the point of this function is which phases are
+  // NOT allowed to interrupt. A test that only checked the two that do would
+  // pass just as well if it interrupted for everything.
+  test('blocks only while swapping, because only then does HTTP fail', () => {
+    const interruption = deployInterruption(status({ phase: 'swapping', sha: SHA }));
+    expect(interruption?.kind).toBe('blocking');
+    expect(interruption?.title).toBe('Swapping the container');
+    // Nothing still works, and the card must not claim otherwise.
+    expect(interruption?.stillWorks).toBeNull();
+  });
+
+  test('explains without blocking while draining, because reading still works', () => {
+    const interruption = deployInterruption(
+      status({ phase: 'draining', holding: '1 chat mid-turn' })
+    );
+    expect(interruption?.kind).toBe('notice');
+    expect(interruption?.body).toContain('1 chat mid-turn');
+    expect(interruption?.stillWorks).toContain('Reading still works');
+  });
+
+  test('names the drain without inventing a holder when the server did not say', () => {
+    const interruption = deployInterruption(status({ phase: 'draining' }));
+    expect(interruption?.kind).toBe('notice');
+    expect(interruption?.body).toContain('waiting for the box to finish what it holds');
+  });
+
+  test('does not interrupt while building — steps 1-4 leave the app fully usable', () => {
+    expect(
+      deployInterruption(
+        status({ phase: 'building', sha: SHA, step: { number: 4, of: 7, name: 'Build' } })
+      )
+    ).toBeNull();
+  });
+
+  test('does not interrupt for the phases where nothing is disturbed', () => {
+    for (const phase of ['requested', 'verifying', 'idle'] as const) {
+      expect(deployInterruption(status({ phase }))).toBeNull();
+    }
+  });
+
+  test('does not interrupt for a phase it cannot prove', () => {
+    // The server answers `unknown` when it cannot follow its own deploy log.
+    // Covering the screen on a guess is exactly the lie this surface avoids.
+    expect(deployInterruption(status({ phase: 'unknown' }))).toBeNull();
+    expect(deployStripView(status({ phase: 'unknown' })).label).toBe('Deploying');
+    expect(deployStripView(status({ phase: 'unknown' })).detail).toBe('phase unknown');
+  });
+
+  test('every phase the server can answer with gets a decision, and only two interrupt', () => {
+    const phases = [
+      'requested',
+      'building',
+      'draining',
+      'swapping',
+      'verifying',
+      'idle',
+      'unknown',
+    ] as const;
+    const interrupting = phases.filter(phase => deployInterruption(status({ phase })) !== null);
+    expect(interrupting).toEqual(['draining', 'swapping']);
   });
 });
