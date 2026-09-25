@@ -41,8 +41,11 @@ nodes:
           type: boolean
         green:
           type: boolean
-        # Why the verdict is not green: a failing check's cause, or `incomplete`
-        # when the checks did not all run. A green turn has no red to
+        # Why the verdict is not green: a failing check's cause, `incomplete`
+        # when the checks did not all run, or `deliberate` when the work order
+        # asked for the failing assertion. The last two are refused downstream
+        # like any red; they exist so this node can say what is true rather
+        # than pick the nearest wrong label. A green turn has no red to
         # explain, and the empty string is how it says so: OpenAI strict mode rejects
         # any schema whose `required` omits a declared property, so optionality has to
         # live inside the type rather than in what `required` leaves out: every
@@ -51,7 +54,7 @@ nodes:
         # no cause declared, so the gate that spends on this verdict is unchanged.
         red_cause:
           type: string
-          enum: [introduced, inherited, environment, incomplete, ""]
+          enum: [introduced, inherited, environment, incomplete, deliberate, ""]
         summary:
           type: string
       required: [done, green, red_cause, summary]

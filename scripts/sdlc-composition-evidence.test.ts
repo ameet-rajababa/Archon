@@ -387,11 +387,13 @@ it('forwards interaction through the CI projection without making it an accepted
     red_cause: 'interaction',
   });
   const route = Bun.spawnSync([process.execPath, join(root, 'ci-attention-route.ts')], {
-    env: { ...process.env, INPUTS_RED_CAUSE: 'interaction' },
+    env: { ...process.env, INPUTS_RED_CAUSE: 'interaction', INPUTS_CI_STATE: 'red' },
   });
   expect(route.exitCode).toBe(0);
   expect(JSON.parse(route.stdout.toString())).toEqual({
     attention: false,
     red_cause: 'interaction',
+    reason: '',
+    action: '',
   });
 });

@@ -1,0 +1,69 @@
+# Dry-run fixture: the delivery is complete, validated and reviewed, and then the
+# pull request's check state cannot be read at all — the token that opened the PR
+# holds no `checks` scope. That says nothing about the change, so the run must not
+# end failed and must not flip anything ready. It pauses with the read failure and
+# the action required both visible. ci-attention-route is deliberately unstubbed so
+# the real routing decision is what this pins.
+impl__implement:
+  done: true
+  green: true
+  red_cause: ""
+  summary: "stub: implemented and green"
+impl__assert-changed: "3 files changed"
+gate-green: '{"gate":"green","red_cause":"","stage":"The implementation","summary":""}'
+pr__target: { host: "github.com", path: "example/repo", remote: "origin", branch: "fixture-branch" }
+pr__pr: { intent: "/fixture/pr-intent.json" }
+pr__publish: { schemaVersion: 1, repo: { host: "github.com", path: "example/repo" }, number: 12, url: "https://github.com/example/repo/pull/12", head: "fixture-branch", base: "dev", is_draft: true, state: "open", head_repo: { host: "github.com", path: "example/repo" }, head_revision: "fixturehead", base_revision: "fixturebase", maintainer_can_modify: null }
+review__mode: '{"continuation":false}'
+review__scope:
+  # PR diff in scope; head sha stubbed
+  docs: false
+  pr: { repo: { host: "github.com", path: "example/repo" }, number: 12 }
+review__code: "0 findings"
+review__seams: "0 findings"
+review__simplify: "0 findings"
+review__tests: "0 findings"
+review__review-complete: "settled"
+review__synthesize:
+  ready: true
+  action: none
+  findings_summary: "stub: clean on initial review"
+  report: { type: archon_artifact, run_id: "fixture-run", path: "review/report.md" }
+review__publish:
+  ready: true
+  action: none
+  findings_summary: "stub: clean on initial review"
+  report: { type: archon_artifact, run_id: "fixture-run", path: "review/report.md" }
+gate-ready: '{"ready":"true"}'
+validate__mode: '{"comparison":false}'
+validate__validate:
+  green: true
+  red_cause: ""
+  summary: "stub: full gate green"
+validate__result:
+  evidence: null
+  green: true
+  red_cause: ""
+  summary: "stub: full gate green"
+gate-validated: '{"gate":"green","red_cause":"","stage":"The project gate","summary":""}'
+# Not red: nothing was observed. The correction pass is gated on red and stays
+# skipped, so no autonomous round is spent chasing a failure nobody saw.
+ci-probe: '{"state":"unreadable","detail":"the check state could not be read: GraphQL: Resource not accessible by personal access token"}'
+ci-verdict: '{"state":"unreadable","detail":"the check state could not be read: GraphQL: Resource not accessible by personal access token"}'
+# Still unreadable on the fresh read, so the wait holds instead of converging.
+attention-ci-probe: '{"state":"unreadable","detail":"the check state could not be read: GraphQL: Resource not accessible by personal access token"}'
+classify:
+  errors: false
+  docs: false
+  reasons:
+    errors: "stub: no failure paths"
+    docs: "stub: no doc-facing changes"
+resolve-scope: '{"errors":"false"}'
+fixture:
+  expect: paused
+  reached: [review__synthesize, gate-validated, ci-verdict, ci-attention-route, attention-ci-probe]
+  # flip-ready is deliberately unstubbed and absent from `reached`: the pause is
+  # upstream of it, so the pull request is still draft when the run stops.
+  resolved-text-contains:
+    attention-ci-pause: "Pull request #12 needs an operator. Archon could not read this pull request's check state: the check state could not be read: GraphQL: Resource not accessible by personal access token — Clear what blocked the read — a token scope, a repository setting, or a forge outage — then resume this run. Nothing flips ready on a check that was never read."
+exec-code: true

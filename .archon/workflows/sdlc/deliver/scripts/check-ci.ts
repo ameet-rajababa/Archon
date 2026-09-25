@@ -15,9 +15,26 @@
  *              never blocked on and never called green
  *   red        concluded with non-green checks, named. A cancelled or unrecognized
  *              check is not a green check.
+ *   unreadable the check state could not be observed at all: a denied token scope, a
+ *              forge outage, a repository setting, or a payload this pack cannot
+ *              classify. It says nothing about the change under review, so it is not
+ *              red — and nothing was observed, so it is certainly not concluded.
  *
  * Red is a report, never a verdict: the deliver tail's convergence pass decides what
- * it means. A failed read refuses: it is never evidence that no CI exists.
+ * it means. A failed read is a report for the same reason, and it used to refuse. A
+ * refusing script node fails its loop group, which fails the run — so a token that
+ * could not read the check rollup discarded a complete, validated, reviewed pull
+ * request and recorded the run as failed, with nothing saying what a human should do
+ * next. What must never happen is calling an unread state green, and that is
+ * unchanged: `unreadable` is its own state, the correction pass stays gated on `red`,
+ * and the attention loop converges only on `concluded`. Who owns the condition is
+ * what was wrong — an unreadable read is the operator's to clear, not the change's
+ * defect, and the tail already has a route for exactly that.
+ *
+ * A run that is MISCONFIGURED still refuses here: an unparseable bound pull request,
+ * an unrecognized source, a selected forge with no plugin. Those are the operator's
+ * wiring rather than the forge's condition, and `CheckReadError` is what tells them
+ * apart — never the wording of the failure.
  *
  * The one in-process wait: when nothing has registered yet, registration gets a
  * single 60 s grace before the maintainer-gated skip is declared. The gh source first
@@ -27,6 +44,7 @@
 
 import {
   atRevision,
+  CheckReadError,
   describeUnits,
   gateState,
   hasActiveWorkflows,
@@ -113,5 +131,12 @@ function probe(): void {
 try {
   probe();
 } catch (error) {
-  refuse(`check-ci: ${error instanceof Error ? error.message : String(error)}`);
+  const detail = error instanceof Error ? error.message : String(error);
+  if (error instanceof CheckReadError) {
+    // Nothing was observed. The forge's own words are the operator's whole diagnostic;
+    // nothing downstream classifies on them — the certified `state` is what branches.
+    emit({ state: 'unreadable', detail });
+  } else {
+    refuse(`check-ci: ${detail}`);
+  }
 }
