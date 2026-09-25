@@ -195,7 +195,13 @@ describe('test-suite change decision', () => {
       workflow.indexOf('  test:')
     );
 
-    expect(pullRequestTrigger).toBe('  pull_request:\n    branches: [main, dev]');
+    // Pinned as a whole string rather than a `toContain`, so a `paths:` filter added
+    // here fails this test — that is the thing it is guarding, since a filtered
+    // trigger would silently stop running the fixtures for some pull requests.
+    // The branch LIST is not the guard and may grow: `deploy` is a base branch that
+    // receives pull requests, and it went uncovered long enough that GitHub's "no
+    // checks reported" was being read as a pass.
+    expect(pullRequestTrigger).toBe('  pull_request:\n    branches: [main, dev, deploy]');
     // No `if:` and no `changes` gate: this job is the only Linux run of the fixtures.
     expect(fixtureJob).not.toContain('if:');
     expect(fixtureJob).toContain('runs-on: ubuntu-latest');
