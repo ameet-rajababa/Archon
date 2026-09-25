@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -131,6 +131,47 @@ function processExists(pid: number): boolean {
   } catch {
     return false;
   }
+}
+
+// Reads `ProcessId` and `ParentProcessId` for every process. Encoded rather than passed
+// through `-Command` so Windows argument quoting cannot alter it, as the production
+// listing in windows-process-tree.ts is.
+const PARENTAGE_SCRIPT = [
+  "$ErrorActionPreference = 'Stop'",
+  'Get-CimInstance -ClassName Win32_Process | ForEach-Object {',
+  '  "$($_.ProcessId) $($_.ParentProcessId)"',
+  '}',
+].join('\n');
+const PARENTAGE_ENCODED = Buffer.from(PARENTAGE_SCRIPT, 'utf16le').toString('base64');
+
+/**
+ * Which of `pids` are alive AND still name `parentPid` as their parent.
+ *
+ * `process.kill(pid, 0)` cannot answer that, and on Windows it is the wrong question. The
+ * spawning target below creates a child every 10 ms and the stop kills every one it
+ * finds, so this test frees dozens of PIDs while the rest of the Windows leg is spawning
+ * thousands of processes of its own. Windows reissues a freed PID quickly, so a bare
+ * liveness check reports an unrelated process that reused a dead child's PID as a
+ * survivor — which is why the assertion failed only under a full parallel suite and
+ * passed every time the file ran alone.
+ *
+ * This is the same PID-reuse hazard `WindowsProcessTree` pins with creation ticks; an
+ * assertion about that code has to pin identity too, or it is not testing the claim. A
+ * genuine survivor is still caught: Windows keeps a child's `ParentProcessId` after the
+ * parent exits, so a child the kill missed continues to name the spawner.
+ */
+function aliveChildrenOf(parentPid: number, pids: readonly number[]): number[] {
+  const listing = execFileSync(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-EncodedCommand', PARENTAGE_ENCODED],
+    { encoding: 'utf8', windowsHide: true, maxBuffer: 64 * 1024 * 1024 }
+  );
+  const parentOf = new Map<number, number>();
+  for (const line of listing.split('\n')) {
+    const [pid, parent] = line.trim().split(' ').map(Number);
+    if (Number.isInteger(pid) && Number.isInteger(parent)) parentOf.set(pid, parent);
+  }
+  return pids.filter((pid): boolean => parentOf.get(pid) === parentPid);
 }
 
 async function listen(server: Server, path: string): Promise<void> {
@@ -334,17 +375,27 @@ describe('detached run control integration', () => {
         await target.stop();
 
         // A stop that resolves claims the whole tree is gone. Check that claim against
-        // every child the target ever recorded.
+        // every child the target ever recorded, by parentage rather than by PID alone.
         expect(processExists(spawner.pid)).toBe(false);
-        expect(recordedKids().filter(pid => processExists(pid))).toEqual([]);
+        expect(aliveChildrenOf(spawner.pid, recordedKids())).toEqual([]);
       } finally {
-        for (const pid of [spawner.pid, ...recordedKids()]) {
+        // Only PIDs this test still owns. Most of the recorded children are dead by now
+        // and Windows has reissued their PIDs, so killing the recorded list unfiltered
+        // killed whatever process had inherited each one — other packages' `git` and
+        // `bun` processes, in a leg that runs them by the thousand in parallel. That
+        // reached the rest of the suite as unexplained non-zero exits with empty stderr
+        // (a killed process reports no error of its own), which is why the Windows leg
+        // failed in a different package on almost every run. `spawner.pid` is checked
+        // the same way, with the spawn's own handle rather than its bare PID.
+        for (const pid of aliveChildrenOf(spawner.pid, recordedKids())) {
           try {
             process.kill(pid);
           } catch {
-            // Already gone: the assertions above report a survivor.
+            // Already gone between the listing and the kill; the assertions above are
+            // what report a survivor.
           }
         }
+        if (spawner.exitCode === null && spawner.signalCode === null) spawner.kill();
         await close(server);
       }
     },
