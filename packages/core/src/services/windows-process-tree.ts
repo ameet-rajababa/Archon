@@ -16,6 +16,24 @@ const execFileAsync = promisify(execFile);
 const COMMAND_TIMEOUT_MS = 30_000;
 
 /**
+ * The terminator's own bound on the work it does BETWEEN being granted a termination
+ * lease and issuing the kill: exactly one process listing.
+ *
+ * The lease is an idle timeout on a socket neither side writes to during a stop, so it
+ * lapses on wall-clock time while the terminator is doing the one thing it must do
+ * first. Sizing the lease independently made those two numbers disagree: an 8 s lease
+ * against a listing this file allows 30 s and documents as taking seconds. On a saturated
+ * `windows-latest` runner the listing exceeded 8 s and `archon workflow cancel` then
+ * refused with "released its termination lease before it was stopped", leaving the tree
+ * alive and the run row untouched. Exported so the lease is derived from this rather than
+ * kept in agreement with it by discipline.
+ *
+ * Only the pre-kill window matters: `ownsLiveLease` is consulted once, before `taskkill`,
+ * because after the kill the owner's socket closes on its own.
+ */
+export const WINDOWS_PRE_KILL_BOUND_MS = COMMAND_TIMEOUT_MS;
+
+/**
  * How many listings the stop takes after `taskkill`, killing what each one still shows,
  * before it reports that it could not confirm the tree exited. A bound on attempts, not on
  * time: running out never counts as proof that anything died.
