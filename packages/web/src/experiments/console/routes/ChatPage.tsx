@@ -18,6 +18,7 @@ import {
   awaitingInputIds,
   chatStatus,
   completedIds,
+  unreadIds,
   type ChatStatus,
 } from '../primitives/chat-status';
 import type { Run } from '../primitives/run';
@@ -413,7 +414,17 @@ export function ChatPage(): ReactElement {
   /** Finished chats, read off the same rows the rail draws. */
   const doneIds = useMemo(() => completedIds(conversations ?? []), [conversations]);
 
-  /** The status of the chat being READ. Same four states and same ordering as
+  /**
+   * Chats with unseen activity, off the same rows.
+   *
+   * The chat on screen is included rather than excluded. Being open is not the
+   * same as having been read — that is the whole point of clearing the mark at
+   * the BOTTOM of the stream — so exempting it here would make this header
+   * disagree with the rail row beside it.
+   */
+  const unread = useMemo(() => unreadIds(conversations ?? []), [conversations]);
+
+  /** The status of the chat being READ. Same five states and same ordering as
    * every row in the rail — `chatStatus` owns the precedence. */
   const status: ChatStatus =
     activeConvId === null
@@ -421,6 +432,7 @@ export function ChatPage(): ReactElement {
       : chatStatus(activeConvId, {
           working: railLiveIds,
           awaiting: awaitingIds,
+          unread,
           done: doneIds,
         });
 
@@ -493,6 +505,43 @@ export function ChatPage(): ReactElement {
   // ↑/↓ scroll the transcript. The composer re-focuses itself after each send,
   // so without this the arrows land in an empty textarea and do nothing.
   useArrowScroll(scrollRef, { onUserScroll: noteUserIntent });
+
+  /**
+   * Clear the unread mark once the reader actually reaches the bottom.
+   *
+   * Opening a chat is not reading it — a long reply you land on top of is the
+   * exact case the mark exists for — so the trigger is `atBottom`, not mount.
+   *
+   * `working` gates it because a turn still streaming has not been read yet, by
+   * anyone: its last line does not exist. That also matches the rail, where
+   * working outranks unread.
+   *
+   * The ref keys on the ACTIVITY TIMESTAMP, not just the chat, and is what
+   * stops this being a write per render. `unread` is derived from a polled
+   * feed, so it stays true for a beat after the POST lands; without the key
+   * every one of those renders would fire another. A new reply moves the
+   * timestamp, which is exactly when a second write is wanted.
+   */
+  const markedReadRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (activeConvId === null || lastActivityAt === null) return;
+    if (!atBottom || working) return;
+    if (!unread.has(activeConvId)) return;
+    const key = `${activeConvId}|${lastActivityAt}`;
+    if (markedReadRef.current === key) return;
+    markedReadRef.current = key;
+    void skill
+      .markConversationRead(activeConvId)
+      .then(() => {
+        invalidateConversationsRef.current();
+      })
+      .catch(() => {
+        // Let the next scroll to the bottom try again. Nothing is shown: an
+        // unread mark that failed to clear is a stale dot, not a lost message,
+        // and an error banner over a cosmetic write would be the louder bug.
+        markedReadRef.current = null;
+      });
+  }, [activeConvId, lastActivityAt, atBottom, working, unread]);
 
   // Held in a ref so `onAnswer` below can be referentially stable without
   // threading every dependency of onSend through a useCallback. Memoized

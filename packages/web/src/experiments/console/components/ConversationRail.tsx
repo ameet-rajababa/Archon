@@ -16,7 +16,13 @@ import {
   type ConversationSummary,
 } from '../primitives/conversation';
 import { relativeTime } from '../lib/format';
-import { askAwaitingIds, chatStatus, completedIds, STATUS_TITLE } from '../primitives/chat-status';
+import {
+  askAwaitingIds,
+  chatStatus,
+  completedIds,
+  unreadIds,
+  STATUS_TITLE,
+} from '../primitives/chat-status';
 import { MenuCheckItem, MenuItem, RowMenu } from './RowMenu';
 import { clampPaneWidth, readPaneWidth, writePaneWidth, type PaneBounds } from '../lib/pane-width';
 
@@ -284,6 +290,15 @@ export function ConversationRail({
   /** Finished chats, read off the rows the rail already has. */
   const done = useMemo(() => completedIds(conversations), [conversations]);
 
+  /**
+   * Chats that have spoken since the reader last reached the bottom of them.
+   *
+   * Read off the same rows, and deliberately NOT merged into `awaiting` above:
+   * the two share a colour but not a rank, since a chat still streaming is
+   * unfinished rather than missed. `chatStatus` owns that precedence.
+   */
+  const unread = useMemo(() => unreadIds(conversations), [conversations]);
+
   // The server has caught up; stop overriding it. Anything else — a failed
   // write — leaves the arrangement on screen and the error on the page.
 
@@ -520,7 +535,12 @@ export function ConversationRail({
 
         {visible.map((c, index) => {
           const isActive = c.id === activeConvId;
-          const status = chatStatus(c.id, { working: liveIds ?? EMPTY_SET, awaiting, done });
+          const status = chatStatus(c.id, {
+            working: liveIds ?? EMPTY_SET,
+            awaiting,
+            unread,
+            done,
+          });
           const shift =
             dragId === null ? 0 : previewShift(boxesRef.current, dragFrom, dropIndex, index);
           return (
