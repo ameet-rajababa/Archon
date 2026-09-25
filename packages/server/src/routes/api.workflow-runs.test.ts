@@ -5,12 +5,12 @@ import * as fsPromises from 'fs/promises';
 import { tmpdir } from 'os';
 import { join, sep } from 'path';
 import { OpenAPIHono } from '@hono/zod-openapi';
-import type { ConversationLockManager } from '@archon/core';
 import type { DashboardWorkflowRun } from '@archon/core/db/workflows';
 import type { resumeWorkflow } from '@archon/core/operations';
 import type { resolveRunWorkflow } from '@archon/core/workflows/resolve-run-workflow';
 import type { WorkflowRun } from '@archon/workflows/schemas/workflow-run';
 import { makeTestResolvedWorkflow } from '@archon/workflows/test-utils';
+import type { ConversationLockManager } from '@archon/core';
 import type { WebAdapter } from '../adapters/web';
 import { validationErrorHook } from './openapi-defaults';
 import {
@@ -20,6 +20,7 @@ import {
 import {
   makeDashboardRunsResult,
   makeListDashboardRunsMock,
+  makeMockLockManager,
   mockAllWorkflowModules,
 } from '../test/workflow-mock-factories';
 
@@ -408,6 +409,17 @@ const mockResolveRunWorkflow = mock<typeof resolveRunWorkflow>(async () => ({
   ok: true,
   workflow: makeTestResolvedWorkflow({ name: 'deploy' }),
 }));
+// Capture the real class before mock.module replaces the module.
+import { DetachedRunOwnerUnavailableError as RealDetachedRunOwnerUnavailableError } from '@archon/core/services/run-owner-stop';
+// Abandon asks the run's live-owner endpoint first (#2325). Default: nothing answers.
+const mockRequestDetachedRunStop = mock<
+  typeof import('@archon/core/services/run-owner-stop').requestDetachedRunStop
+>(() => Promise.reject(new RealDetachedRunOwnerUnavailableError('run', 'ENOENT', 'unreachable')));
+mock.module('@archon/core/services/run-owner-stop', () => ({
+  requestDetachedRunStop: mockRequestDetachedRunStop,
+  DetachedRunOwnerUnavailableError: RealDetachedRunOwnerUnavailableError,
+}));
+
 mock.module('@archon/core/operations', () => ({
   resumeWorkflow: mockResumeWorkflow,
 }));
@@ -432,6 +444,7 @@ mock.module('@archon/workflows/executor', () => ({
 }));
 
 import { registerApiRoutes } from './api';
+import { startRunLiveOwner } from '@archon/core/services/run-live-owner';
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -458,6 +471,7 @@ const MOCK_RUNNING_RUN = {
   parent_run_id: null,
   adopted_from_run_id: null,
   output_root: null,
+  checkout_baseline: null,
 } satisfies MockWorkflowRun;
 
 const MOCK_COMPLETED_RUN = {
@@ -541,20 +555,17 @@ const MOCK_CONV = {
   codebase_id: null,
 };
 
-function makeApp(): { app: OpenAPIHono; mockWebAdapter: WebAdapter } {
+function makeApp(lockManagerOverrides: Partial<ConversationLockManager> = {}): {
+  app: OpenAPIHono;
+  mockWebAdapter: WebAdapter;
+} {
   const app = new OpenAPIHono({ defaultHook: validationErrorHook });
   const mockWebAdapter = {
     setConversationDbId: mock((_platformId: string, _dbId: string) => {}),
     emitSSE: mock(async () => {}),
     emitLockEvent: mock(async () => {}),
   } as unknown as WebAdapter;
-  const mockLockManager = {
-    acquireLock: mock(async (_id: string, fn: () => Promise<void>) => {
-      await fn();
-      return { status: 'started' };
-    }),
-    getStats: mock(() => ({ active: 0, queued: 0 })),
-  } as unknown as ConversationLockManager;
+  const mockLockManager = makeMockLockManager(lockManagerOverrides);
   registerApiRoutes(app, mockWebAdapter, mockLockManager);
   return { app, mockWebAdapter };
 }
@@ -594,6 +605,24 @@ describe('POST /api/workflows/:name/run', () => {
     const body = (await response.json()) as { accepted: boolean; status: string };
     expect(body.accepted).toBe(true);
     expect(body.status).toBe('started');
+  });
+
+  // The run route is the second way new work enters the box: drain has to refuse it
+  // or a deploy would swap out a workflow it had just started.
+  test('refuses a workflow run while draining and starts nothing', async () => {
+    mockFindConversationByPlatformId.mockImplementationOnce(async () => MOCK_CONV);
+
+    const { app } = makeApp({ isDraining: mock(() => true) });
+    const response = await app.request('/api/workflows/deploy/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversationId: 'web-test-abc', message: 'Deploy to staging' }),
+    });
+
+    expect(response.status).toBe(503);
+    const body = (await response.json()) as { error: string };
+    expect(body.error.length).toBeGreaterThan(0);
+    expect(mockHandleMessage).not.toHaveBeenCalled();
   });
 
   test('sends /workflow run <name> <message> to orchestrator', async () => {
@@ -1120,53 +1149,135 @@ describe('POST /api/workflows/runs/:runId/cancel', () => {
   beforeEach(() => {
     mockGetWorkflowRun.mockReset();
     mockCancelWorkflowRun.mockReset();
+    mockCancelWorkflowRun.mockResolvedValue({ cancelled: true });
+    mockFindChildRuns.mockReset();
+    mockFindChildRuns.mockResolvedValue([]);
+    mockRequestDetachedRunStop.mockReset();
+    mockRequestDetachedRunStop.mockImplementation(() =>
+      Promise.reject(new RealDetachedRunOwnerUnavailableError('run', 'ENOENT', 'unreachable'))
+    );
   });
 
-  test('cancels a running workflow run and returns success', async () => {
-    mockGetWorkflowRun.mockImplementationOnce(async () => MOCK_RUNNING_RUN);
-    mockCancelWorkflowRun.mockImplementationOnce(async () => ({ cancelled: true }));
+  /** A running run this server process executes: it holds the run's real endpoint. */
+  async function withRunInThisProcess(body: (runId: string) => Promise<void>): Promise<void> {
+    const runId = `api-cancel-${crypto.randomUUID()}`;
+    const owner = await startRunLiveOwner(runId);
+    try {
+      mockGetWorkflowRun.mockResolvedValue({ ...MOCK_RUNNING_RUN, id: runId });
+      await body(runId);
+    } finally {
+      await owner.close();
+    }
+  }
+
+  test('cancels cooperatively a run this server executes', async () => {
+    await withRunInThisProcess(async runId => {
+      const { app } = makeApp();
+      const response = await app.request(`/api/workflows/runs/${runId}/cancel`, {
+        method: 'POST',
+      });
+      expect(response.status).toBe(200);
+
+      const body = (await response.json()) as { success: boolean; message: string };
+      expect(body.success).toBe(true);
+      expect(body.message).toBe('Cancelled workflow: deploy');
+      expect(mockCancelWorkflowRun).toHaveBeenCalledWith(runId);
+      expect(mockRequestDetachedRunStop).not.toHaveBeenCalled();
+    });
+  });
+
+  test('reports "nothing to cancel" when the run finished in the cancel TOCTOU window', async () => {
+    // The run passes the status check (running), but cancelWorkflowRun no-ops
+    // because the run reached a terminal state first — the route must not claim
+    // a false "Cancelled" (#1830 I1).
+    await withRunInThisProcess(async runId => {
+      mockCancelWorkflowRun.mockResolvedValue({ cancelled: false });
+      const { app } = makeApp();
+      const response = await app.request(`/api/workflows/runs/${runId}/cancel`, {
+        method: 'POST',
+      });
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { success: boolean; message: string };
+      expect(body.success).toBe(true);
+      expect(body.message).toContain('nothing to cancel');
+    });
+  });
+
+  test('stops an owner in another process before recording cancelled', async () => {
+    mockGetWorkflowRun.mockResolvedValue(MOCK_RUNNING_RUN);
+    const order: string[] = [];
+    mockRequestDetachedRunStop.mockImplementationOnce(async () => ({
+      pid: 4242,
+      stop: async () => {
+        order.push('stop');
+      },
+      release: () => undefined,
+    }));
+    mockCancelWorkflowRun.mockImplementationOnce(async () => {
+      order.push('cancel');
+      return { cancelled: true };
+    });
 
     const { app } = makeApp();
     const response = await app.request('/api/workflows/runs/run-uuid-1/cancel', {
       method: 'POST',
     });
-    expect(response.status).toBe(200);
 
-    const body = (await response.json()) as { success: boolean; message: string };
-    expect(body.success).toBe(true);
-    expect(body.message).toContain('deploy');
-    expect(mockCancelWorkflowRun).toHaveBeenCalledWith('run-uuid-1');
+    expect(response.status).toBe(200);
+    expect(order).toEqual(['stop', 'cancel']);
+    const body = (await response.json()) as { message: string };
+    expect(body.message).toContain("Stopped the run's live owner process (pid 4242)");
   });
 
-  test('cancels a pending workflow run and returns success', async () => {
-    mockGetWorkflowRun.mockImplementationOnce(async () => MOCK_PENDING_RUN);
-    mockCancelWorkflowRun.mockImplementationOnce(async () => ({ cancelled: true }));
+  test('returns 409 with the recorded owner facts when no owner answers, run unchanged', async () => {
+    mockGetWorkflowRun.mockResolvedValue({
+      ...MOCK_RUNNING_RUN,
+      metadata: { execution_owner: { host: 'build-box', pid: 4242 } },
+    });
+
+    const { app } = makeApp();
+    const response = await app.request('/api/workflows/runs/run-uuid-1/cancel', {
+      method: 'POST',
+    });
+
+    expect(response.status).toBe(409);
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toContain('Recorded owner: host build-box, pid 4242.');
+    expect(body.error).toContain('abandon the run');
+    expect(mockCancelWorkflowRun).not.toHaveBeenCalled();
+  });
+
+  test('returns 409 when an owner answers but cannot be stopped, run unchanged', async () => {
+    mockGetWorkflowRun.mockResolvedValue(MOCK_RUNNING_RUN);
+    mockRequestDetachedRunStop.mockImplementationOnce(async () => ({
+      pid: 4242,
+      stop: () => Promise.reject(new Error('process still exists')),
+      release: () => undefined,
+    }));
+
+    const { app } = makeApp();
+    const response = await app.request('/api/workflows/runs/run-uuid-1/cancel', {
+      method: 'POST',
+    });
+
+    expect(response.status).toBe(409);
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toContain('Could not stop the live owner of run run-uuid-1 (pid 4242)');
+    expect(mockCancelWorkflowRun).not.toHaveBeenCalled();
+  });
+
+  test('returns 400 for a pending run: nothing executes it yet, so abandon is the action', async () => {
+    mockGetWorkflowRun.mockResolvedValue(MOCK_PENDING_RUN);
 
     const { app } = makeApp();
     const response = await app.request('/api/workflows/runs/run-uuid-3/cancel', {
       method: 'POST',
     });
-    expect(response.status).toBe(200);
 
-    const body = (await response.json()) as { success: boolean };
-    expect(body.success).toBe(true);
-  });
-
-  test('reports "nothing to cancel" when the run finished in the cancel TOCTOU window', async () => {
-    // Run passes the status pre-check (running), but cancelWorkflowRun no-ops
-    // because the run reached a terminal state first — the route must not claim
-    // a false "Cancelled" (#1830 I1).
-    mockGetWorkflowRun.mockImplementationOnce(async () => MOCK_RUNNING_RUN);
-    mockCancelWorkflowRun.mockImplementationOnce(async () => ({ cancelled: false }));
-
-    const { app } = makeApp();
-    const response = await app.request('/api/workflows/runs/run-uuid-1/cancel', {
-      method: 'POST',
-    });
-    expect(response.status).toBe(200);
-    const body = (await response.json()) as { success: boolean; message: string };
-    expect(body.success).toBe(true);
-    expect(body.message).toContain('nothing to cancel');
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toContain("status 'pending'");
+    expect(mockCancelWorkflowRun).not.toHaveBeenCalled();
   });
 
   test('returns 404 when run not found', async () => {
@@ -1183,7 +1294,7 @@ describe('POST /api/workflows/runs/:runId/cancel', () => {
   });
 
   test('returns 400 when trying to cancel a completed run', async () => {
-    mockGetWorkflowRun.mockImplementationOnce(async () => MOCK_COMPLETED_RUN);
+    mockGetWorkflowRun.mockImplementation(async () => MOCK_COMPLETED_RUN);
 
     const { app } = makeApp();
     const response = await app.request('/api/workflows/runs/run-uuid-2/cancel', {
@@ -1196,7 +1307,7 @@ describe('POST /api/workflows/runs/:runId/cancel', () => {
   });
 
   test('returns 400 when trying to cancel an already-cancelled run', async () => {
-    mockGetWorkflowRun.mockImplementationOnce(async () => ({
+    mockGetWorkflowRun.mockImplementation(async () => ({
       ...MOCK_RUNNING_RUN,
       status: 'cancelled' as const,
     }));
@@ -1212,7 +1323,7 @@ describe('POST /api/workflows/runs/:runId/cancel', () => {
   });
 
   test('returns 400 when trying to cancel a failed run', async () => {
-    mockGetWorkflowRun.mockImplementationOnce(async () => ({
+    mockGetWorkflowRun.mockImplementation(async () => ({
       ...MOCK_RUNNING_RUN,
       status: 'failed' as const,
     }));
@@ -1225,19 +1336,20 @@ describe('POST /api/workflows/runs/:runId/cancel', () => {
   });
 
   test('returns 500 when DB throws during cancel', async () => {
-    mockGetWorkflowRun.mockImplementationOnce(async () => MOCK_RUNNING_RUN);
-    mockCancelWorkflowRun.mockImplementationOnce(async () => {
-      throw new Error('DB locked');
-    });
+    await withRunInThisProcess(async runId => {
+      mockCancelWorkflowRun.mockImplementationOnce(async () => {
+        throw new Error('DB locked');
+      });
 
-    const { app } = makeApp();
-    const response = await app.request('/api/workflows/runs/run-uuid-1/cancel', {
-      method: 'POST',
-    });
-    expect(response.status).toBe(500);
+      const { app } = makeApp();
+      const response = await app.request(`/api/workflows/runs/${runId}/cancel`, {
+        method: 'POST',
+      });
+      expect(response.status).toBe(500);
 
-    const body = (await response.json()) as { error: string };
-    expect(body.error).toContain('Failed to cancel');
+      const body = (await response.json()) as { error: string };
+      expect(body.error).toContain('Failed to cancel');
+    });
   });
 });
 
@@ -1821,6 +1933,72 @@ describe('POST /api/workflows/runs/:runId/resume', () => {
     expect(body.error).toContain('Cannot resume');
   });
 
+  // The headless branch bypasses the conversation lock entirely, so drain has to
+  // refuse here or it would start a run the process is about to abandon.
+  test('refuses a headless resume while draining and leaves the run untouched', async () => {
+    mockGetWorkflowRun.mockResolvedValueOnce({
+      ...MOCK_FAILED_RUN,
+      parent_conversation_id: null,
+      working_path: '/tmp/worktrees/run-uuid-4',
+    });
+    const { app } = makeApp({ isDraining: mock(() => true) });
+    const response = await app.request('/api/workflows/runs/run-uuid-4/resume', {
+      method: 'POST',
+    });
+
+    expect(response.status).toBe(503);
+    const body = (await response.json()) as { error: string };
+    expect(body.error.length).toBeGreaterThan(0);
+    // Invariant: drain starts no work and transitions no run.
+    expect(mockHydrateResumableRun).not.toHaveBeenCalled();
+    expect(mockExecuteWorkflow).not.toHaveBeenCalled();
+    expect(mockResumeWorkflow).not.toHaveBeenCalled();
+  });
+
+  test('refuses a dispatched resume while draining', async () => {
+    mockGetWorkflowRun.mockResolvedValueOnce({
+      ...MOCK_FAILED_RUN,
+      parent_conversation_id: 'parent-conv-uuid',
+    });
+    mockGetConversationById.mockResolvedValueOnce({
+      id: 'parent-conv-uuid',
+      platform_conversation_id: 'web-plat-abc',
+      platform_type: 'web',
+    });
+    const { app } = makeApp({ isDraining: mock(() => true) });
+    const response = await app.request('/api/workflows/runs/run-uuid-1/resume', {
+      method: 'POST',
+    });
+
+    expect(response.status).toBe(503);
+    expect(mockHandleMessage).not.toHaveBeenCalled();
+  });
+
+  // Drain can begin between the route's entry guard and the dispatch itself. The
+  // lock manager is the authority, so its refusal has to reach the caller too.
+  test('refuses a dispatched resume when the lock refuses after the entry check', async () => {
+    mockGetWorkflowRun.mockResolvedValueOnce({
+      ...MOCK_FAILED_RUN,
+      parent_conversation_id: 'parent-conv-uuid',
+    });
+    mockGetConversationById.mockResolvedValueOnce({
+      id: 'parent-conv-uuid',
+      platform_conversation_id: 'web-plat-abc',
+      platform_type: 'web',
+    });
+
+    const { app } = makeApp({
+      isDraining: mock(() => false),
+      acquireLock: mock(async () => ({ status: 'refused-draining' as const })),
+    });
+    const response = await app.request('/api/workflows/runs/run-uuid-1/resume', {
+      method: 'POST',
+    });
+
+    expect(response.status).toBe(503);
+    expect(mockHandleMessage).not.toHaveBeenCalled();
+  });
+
   test('resumes headlessly (no dispatch) when run has no parent_conversation_id (#2008)', async () => {
     // A CLI-launched run has no parent conversation to dispatch a chat
     // message through — it now resumes directly, in-process, instead of
@@ -2221,6 +2399,39 @@ describe('POST /api/workflows/runs/:runId/abandon', () => {
     expect(body.success).toBe(true);
     expect(body.message).toContain('Abandoned');
     expect(mockCancelWorkflowRun).toHaveBeenCalledWith('run-uuid-1');
+  });
+
+  test('returns 409 with the reason and leaves the run when a live owner cannot be stopped', async () => {
+    mockGetWorkflowRun.mockResolvedValue(MOCK_RUNNING_RUN);
+    mockRequestDetachedRunStop.mockImplementationOnce(async () => ({
+      pid: 4242,
+      stop: () => Promise.reject(new Error('process still exists')),
+      release: () => undefined,
+    }));
+    const { app } = makeApp();
+    const response = await app.request('/api/workflows/runs/run-uuid-1/abandon', {
+      method: 'POST',
+    });
+    expect(response.status).toBe(409);
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toContain('Could not stop the live owner of run run-uuid-1 (pid 4242)');
+    expect(mockCancelWorkflowRun).not.toHaveBeenCalled();
+  });
+
+  test('reports the stopped owner in the success message', async () => {
+    mockGetWorkflowRun.mockResolvedValue(MOCK_RUNNING_RUN);
+    mockRequestDetachedRunStop.mockImplementationOnce(async () => ({
+      pid: 4242,
+      stop: () => Promise.resolve(),
+      release: () => undefined,
+    }));
+    const { app } = makeApp();
+    const response = await app.request('/api/workflows/runs/run-uuid-1/abandon', {
+      method: 'POST',
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { message: string };
+    expect(body.message).toContain("Stopped the run's live owner process (pid 4242) first.");
   });
 
   // #1887: a failed run is terminal but resumable, so it must remain
@@ -3055,6 +3266,38 @@ describe('approve/reject auto-resume', () => {
     expect(dispatchedMessage).toBe('/workflow resume run-auto-resume-approve');
   });
 
+  // Same race as the resume route: the entry guard can pass and the lock still
+  // refuse. Reporting "Resuming workflow" then would leave the run paused forever.
+  test('approve: reports not-resumed when the lock refuses the dispatch', async () => {
+    mockGetWorkflowRun.mockResolvedValue({
+      ...MOCK_PAUSED_RUN,
+      id: 'run-auto-resume-approve',
+      parent_conversation_id: 'parent-conv-uuid',
+      user_message: 'Deploy feature X',
+    });
+    mockGetConversationById.mockResolvedValueOnce({
+      id: 'parent-conv-uuid',
+      platform_conversation_id: 'web-plat-abc',
+      platform_type: 'web',
+    });
+
+    const { app } = makeApp({
+      isDraining: mock(() => false),
+      acquireLock: mock(async () => ({ status: 'refused-draining' as const })),
+    });
+    const response = await app.request('/api/workflows/runs/run-auto-resume-approve/approve', {
+      method: 'POST',
+      body: JSON.stringify({ comment: 'LGTM' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { message: string };
+    expect(body.message).not.toContain('Resuming workflow');
+    expect(body.message).toContain('archon workflow resume run-auto-resume-approve');
+    expect(mockHandleMessage).not.toHaveBeenCalled();
+  });
+
   test('approve: resumes headlessly when parent_conversation_id is null (CLI-dispatched run, #2008)', async () => {
     mockGetWorkflowRun.mockResolvedValue({
       ...MOCK_PAUSED_RUN,
@@ -3092,6 +3335,34 @@ describe('approve/reject auto-resume', () => {
     const opts = mockExecuteWorkflow.mock.calls[0]?.[7];
     expect(opts?.resolveChildIsolation).toBeDefined();
     expect(opts?.baseBranch).toBe('main');
+  });
+
+  // The headless branch has no lock manager between it and `executeWorkflow`, so the
+  // entry guard in `tryAutoResumeAfterGate` is the only thing standing between drain
+  // and a run started on a process that is about to be replaced.
+  test('approve: does not resume a headless run while draining, and records the gate anyway', async () => {
+    mockGetWorkflowRun.mockResolvedValue({
+      ...MOCK_PAUSED_RUN,
+      parent_conversation_id: null,
+    });
+
+    const { app } = makeApp({ isDraining: mock(() => true) });
+    const response = await app.request('/api/workflows/runs/run-paused-1/approve', {
+      method: 'POST',
+      body: JSON.stringify({ comment: 'LGTM' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { message: string };
+    // The approval is recorded — drain refuses new work, it does not discard a decision.
+    expect(mockResolveApprovalGate).toHaveBeenCalled();
+    expect(body.message).not.toContain('Resuming workflow');
+    expect(body.message).toContain('archon workflow resume run-paused-1');
+    // Invariant: nothing started, and the run keeps its status.
+    expect(mockHydrateResumableRun).not.toHaveBeenCalled();
+    expect(mockExecuteWorkflow).not.toHaveBeenCalled();
+    expect(mockResumeWorkflow).not.toHaveBeenCalled();
   });
 
   test('approve: skips the child-isolation resolver for a folder-project codebase', async () => {
@@ -3443,6 +3714,38 @@ describe('GET /api/runs/:runId/artifacts', () => {
     expect(body.files.map(f => f.path)).toEqual(['report.md']);
   });
 
+  // Same rule as `archon workflow get`: only the engine's own root child is
+  // left out, so the console and the CLI list the same files.
+  test("hides only the engine's own store and lists a workflow's dotfiles", async () => {
+    const runId = 'run-dotfiles-listing';
+    const dir = join(wsRoot(), '_local', 'workspace', 'artifacts', 'runs', runId);
+    await mkdir(join(dir, '.archon', 'typed-artifacts'), { recursive: true });
+    await mkdir(join(dir, 'review', '.archon'), { recursive: true });
+    await writeFile(join(dir, '.archon', 'typed-artifacts', 'listing.json'), '{}');
+    await writeFile(join(dir, '.pr-number'), '42');
+    await writeFile(join(dir, 'review', '.archon', 'notes.md'), 'notes');
+    await writeFile(join(dir, 'plan.md'), '# plan');
+    mockGetWorkflowRun.mockImplementationOnce(async () => ({
+      ...MOCK_RUNNING_RUN,
+      id: runId,
+      codebase_id: 'cb-1',
+    }));
+    mockGetCodebase.mockImplementationOnce(async () => ({
+      name: 'workspace',
+      kind: 'repo',
+      default_cwd: '/home/u/workspace',
+    }));
+    const { app } = makeApp();
+    const response = await app.request(`/api/runs/${runId}/artifacts`);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { files: { path: string }[] };
+    expect(body.files.map(f => f.path).sort()).toEqual([
+      '.pr-number',
+      'plan.md',
+      'review/.archon/notes.md',
+    ]);
+  });
+
   test('a persisted output_root wins over a codebase renamed since the run', async () => {
     const runId = 'run-persisted-root';
     const root = join(wsRoot(), 'acme', 'original');
@@ -3454,6 +3757,7 @@ describe('GET /api/runs/:runId/artifacts', () => {
       id: runId,
       codebase_id: 'cb-renamed',
       output_root: root,
+      checkout_baseline: null,
     }));
     mockGetCodebase.mockImplementationOnce(async () => ({
       name: 'acme/renamed-since',
@@ -3485,6 +3789,7 @@ describe('GET /api/runs/:runId/artifacts', () => {
       codebase_id: 'cb-1',
       // A root from the OLD home — the shape every run has after a relocation.
       output_root: '/previous/archon/home/workspaces/_local/workspace',
+      checkout_baseline: null,
     }));
     mockGetCodebase.mockImplementationOnce(async () => ({
       name: 'workspace',
@@ -3509,6 +3814,7 @@ describe('GET /api/runs/:runId/artifacts', () => {
       id: 'run-escape-root',
       codebase_id: null,
       output_root: '/etc',
+      checkout_baseline: null,
     }));
     const { app } = makeApp();
     const response = await app.request('/api/runs/run-escape-root/artifacts');
@@ -3683,6 +3989,7 @@ describe('GET /api/artifacts/:runId/* storage-key resolution', () => {
       id: runId,
       codebase_id: 'cb-1',
       output_root: '/previous/archon/home/workspaces/_local/workspace',
+      checkout_baseline: null,
     }));
     mockGetCodebase.mockImplementationOnce(async () => ({
       name: 'workspace',
@@ -3703,6 +4010,7 @@ describe('GET /api/artifacts/:runId/* storage-key resolution', () => {
       id: 'run-serve-escape-root',
       codebase_id: null,
       output_root: '/etc',
+      checkout_baseline: null,
     }));
     const { app } = makeApp();
     const response = await app.request('/api/artifacts/run-serve-escape-root/passwd');
@@ -3729,6 +4037,38 @@ describe('GET /api/artifacts/:runId/* storage-key resolution', () => {
     expect(response.status).toBe(404);
     const body = (await response.json()) as { error: string };
     expect(body.error).toBe('Artifact file not found');
+  });
+
+  test('a backslash climb out of the artifacts directory is refused on Windows', async () => {
+    // The route's `..` segment check splits on `/` only. On Windows `\` is a
+    // separator too, so only the containment check stops `..\` from leaving the
+    // run's directory for a sibling run whose name shares this one's prefix.
+    // On POSIX `\` is an ordinary filename character and the name stays inside.
+    const runId = 'run-serve-backslash';
+    const runsDir = join(wsRoot(), '_local', 'workspace', 'artifacts', 'runs');
+    await mkdir(join(runsDir, runId), { recursive: true });
+    await mkdir(join(runsDir, `${runId}-old`), { recursive: true });
+    await writeFile(join(runsDir, `${runId}-old`, 'plan.md'), '# another run');
+    mockGetWorkflowRun.mockImplementationOnce(async () => ({
+      ...MOCK_RUNNING_RUN,
+      id: runId,
+      codebase_id: 'cb-local',
+    }));
+    mockGetCodebase.mockImplementationOnce(async () => ({
+      name: 'workspace',
+      kind: 'repo',
+      default_cwd: '/home/u/workspace',
+    }));
+    const { app } = makeApp();
+    const escape = encodeURIComponent(`..\\${runId}-old\\plan.md`);
+    const response = await app.request(`/api/artifacts/${runId}/${escape}`);
+
+    if (process.platform === 'win32') {
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: 'Invalid filename' });
+    } else {
+      expect(response.status).toBe(404);
+    }
   });
 
   test('an artifact pointer from a run result addresses this route with no extra machinery', async () => {

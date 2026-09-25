@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach } from 'bun:test';
+import { describe, test, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { OpenAPIHono } from '@hono/zod-openapi';
 import {
   registerBuiltinProviders,
@@ -6,14 +6,15 @@ import {
   getRegistration,
   registerProvider,
 } from '@archon/providers';
-import type { ConversationLockManager } from '@archon/core';
 import type { WebAdapter } from '../adapters/web';
 import { EFFORT_LADDER } from '@archon/paths/effort';
+import { InvalidConfigError } from '@archon/core/config';
 import {
-  makeDiscoverWorkflowsMock,
-  makeLoaderMock,
   makeCommandValidationMock,
+  makeDiscoverWorkflowsMock,
   makeListDashboardRunsMock,
+  makeLoaderMock,
+  makeMockLockManager,
 } from '../test/workflow-mock-factories';
 
 // ---------------------------------------------------------------------------
@@ -161,19 +162,7 @@ function makeApp(): Hono {
     emitSSE: mock(async () => {}),
     emitLockEvent: mock(async () => {}),
   } as unknown as WebAdapter;
-  const mockLockManager = {
-    acquireLock: mock(async (_id: string, fn: () => Promise<void>) => {
-      await fn();
-      return { status: 'started' };
-    }),
-    getStats: mock(() => ({
-      active: 0,
-      queuedTotal: 0,
-      queuedByConversation: [],
-      maxConcurrent: 10,
-      activeConversationIds: [],
-    })),
-  } as unknown as ConversationLockManager;
+  const mockLockManager = makeMockLockManager();
   registerApiRoutes(app, mockWebAdapter, mockLockManager);
   return app;
 }
@@ -529,5 +518,64 @@ describe('PATCH /api/config/chats', () => {
   test('is ungated — succeeds with no auth identity', async () => {
     const res = await patch({ autoHandoff: true });
     expect(res.status).toBe(200);
+  });
+});
+
+// Tests: a config write the loader refuses reaches the caller as a 400
+// ---------------------------------------------------------------------------
+
+describe('PATCH /api/config/* refused by config validation', () => {
+  let app: Hono;
+  const refused = new InvalidConfigError(
+    'Invalid model binding config',
+    '/home/operator/.archon/config.yaml',
+    'tiers.large.model: Required'
+  );
+
+  beforeEach(() => {
+    app = makeApp();
+    mockUpdateGlobalConfig.mockClear();
+  });
+
+  afterEach(() => {
+    mockUpdateGlobalConfig.mockImplementation(async () => {});
+  });
+
+  async function patch(path: string, body: unknown): Promise<Response> {
+    return await app.request(path, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  test.each([
+    ['/api/config/assistants', { assistants: { codex: { model: 'gpt-5.6-sol' } } }],
+    ['/api/config/tiers', { tiers: { small: { provider: 'claude', model: 'haiku' } } }],
+    ['/api/config/aliases', { aliases: { '@fast': { provider: 'claude', model: 'haiku' } } }],
+  ])('%s → 400 naming the refused key, without the server path', async (path, body) => {
+    mockUpdateGlobalConfig.mockImplementation(async () => {
+      throw refused;
+    });
+
+    const res = await patch(path, body);
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: 'Invalid model binding config: tiers.large.model: Required',
+    });
+  });
+
+  test('a genuine write failure stays a 500', async () => {
+    mockUpdateGlobalConfig.mockImplementation(async () => {
+      throw Object.assign(new Error('Permission denied'), { code: 'EACCES' });
+    });
+
+    const res = await patch('/api/config/tiers', {
+      tiers: { small: { provider: 'claude', model: 'haiku' } },
+    });
+
+    expect(res.status).toBe(500);
+    expect(await res.text()).not.toContain('Permission denied');
   });
 });

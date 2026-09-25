@@ -28,8 +28,7 @@ import { getArchonPublicPath } from '@archon/paths';
  * development too. A request that reached the catch-all would be answered with
  * index.html — a 200 of HTML where an image was asked for, which reads to the
  * browser as a corrupt file rather than as a missing one.
- */
-/**
+ *
  * `root` is injectable for the test only. Production reads ARCHON_HOME, and a
  * caller that passes a root is choosing one deliberately rather than
  * inheriting the environment.

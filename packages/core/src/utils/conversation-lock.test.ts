@@ -1,5 +1,9 @@
-import { describe, expect, test } from 'bun:test';
-import { ConversationLockManager } from './conversation-lock';
+import { describe, expect, mock, test } from 'bun:test';
+import {
+  ConversationLockManager,
+  DRAIN_REFUSAL_NOTICE,
+  notifyDrainRefusal,
+} from './conversation-lock';
 
 /**
  * Nothing in this file sleeps. `acquireLock` resolves with the acquisition
@@ -250,5 +254,185 @@ describe('ConversationLockManager', () => {
     b.release();
     await drainUntilIdle(manager);
     expect(manager.getStats().activeConversationIds).toEqual([]);
+  });
+
+  describe('drain', () => {
+    test('refuses a new conversation instead of queueing it', async () => {
+      const manager = new ConversationLockManager(10);
+      const log: string[] = [];
+      const inFlight = gate(log, 'in-flight');
+
+      await manager.acquireLock('conv-a', inFlight.handler);
+      await drainUntilStarted(log, 1);
+      manager.beginDrain(60);
+
+      const refused = gate(log, 'refused');
+      const result = await manager.acquireLock('conv-b', refused.handler);
+
+      expect(result.status).toBe('refused-draining');
+      // Refused, not hidden in a queue: a queued message would be lost by the restart.
+      const stats = manager.getStats();
+      expect(stats.active).toBe(1);
+      expect(stats.queuedTotal).toBe(0);
+      expect(log).toEqual(['in-flight']);
+
+      inFlight.release();
+      await drainUntilIdle(manager);
+    });
+
+    test('lets a turn already in flight run to completion', async () => {
+      const manager = new ConversationLockManager(10);
+      const log: string[] = [];
+      const inFlight = gate(log, 'in-flight');
+
+      await manager.acquireLock('conv-a', inFlight.handler);
+      await drainUntilStarted(log, 1);
+      manager.beginDrain(60);
+      expect(manager.getStats().active).toBe(1);
+
+      inFlight.release();
+      await drainUntilIdle(manager);
+      expect(manager.getStats().active).toBe(0);
+    });
+
+    test('still runs a message queued before drain began', async () => {
+      const manager = new ConversationLockManager(10);
+      const log: string[] = [];
+      const first = gate(log, 'first');
+      const queued = gate(log, 'queued');
+
+      await manager.acquireLock('conv-a', first.handler);
+      await drainUntilStarted(log, 1);
+      const queueResult = await manager.acquireLock('conv-a', queued.handler);
+      expect(queueResult.status).toBe('queued-conversation');
+
+      manager.beginDrain(60);
+      first.release();
+
+      // The sender was already told this one was accepted; dropping it at dequeue
+      // would be the silent loss drain exists to prevent.
+      await drainUntilStarted(log, 2);
+      expect(log).toEqual(['first', 'queued']);
+
+      queued.release();
+      await drainUntilIdle(manager);
+      expect(manager.getStats().queuedTotal).toBe(0);
+    });
+
+    test('reports what it is still holding while work is in flight', async () => {
+      const manager = new ConversationLockManager(10);
+      const log: string[] = [];
+      const inFlight = gate(log, 'in-flight');
+
+      await manager.acquireLock('conv-a', inFlight.handler);
+      await drainUntilStarted(log, 1);
+      manager.beginDrain(60);
+      expect(manager.getStats().active).toBe(1);
+
+      inFlight.release();
+      await drainUntilIdle(manager);
+      const stats = manager.getStats();
+      expect(stats.active).toBe(0);
+      expect(stats.queuedTotal).toBe(0);
+    });
+
+    test('counts every refusal so an operator can see the cost', async () => {
+      const manager = new ConversationLockManager(10);
+      manager.beginDrain(60);
+
+      await manager.acquireLock('conv-a', async () => {});
+      await manager.acquireLock('conv-b', async () => {});
+
+      expect(manager.getDrainStatus()?.refusedCount).toBe(2);
+    });
+
+    test('cancelDrain restores admission', async () => {
+      const manager = new ConversationLockManager(10);
+      const log: string[] = [];
+      manager.beginDrain(60);
+      expect((await manager.acquireLock('conv-a', async () => {})).status).toBe('refused-draining');
+
+      manager.cancelDrain();
+      expect(manager.isDraining()).toBe(false);
+      expect(manager.getDrainStatus()).toBeUndefined();
+
+      const after = gate(log, 'after');
+      expect((await manager.acquireLock('conv-a', after.handler)).status).toBe('started');
+      after.release();
+      await drainUntilIdle(manager);
+    });
+
+    test('cancelDrain is idempotent when not draining', () => {
+      const manager = new ConversationLockManager(10);
+      manager.cancelDrain();
+      expect(manager.isDraining()).toBe(false);
+    });
+
+    test('the budget lapses on its own so an abandoned deploy cannot wedge the box', async () => {
+      const manager = new ConversationLockManager(10);
+      const status = manager.beginDrain(10);
+      const expiresAtMs = Date.parse(status.expiresAt);
+
+      expect(manager.isDraining(expiresAtMs - 1)).toBe(true);
+      expect(manager.isDraining(expiresAtMs)).toBe(false);
+      expect(manager.getDrainStatus()).toBeUndefined();
+
+      const log: string[] = [];
+      const after = gate(log, 'after');
+      expect((await manager.acquireLock('conv-a', after.handler)).status).toBe('started');
+      after.release();
+      await drainUntilIdle(manager);
+    });
+
+    test('re-requesting replaces the budget and keeps the refusal count', async () => {
+      const manager = new ConversationLockManager(10);
+      const first = manager.beginDrain(10);
+      await manager.acquireLock('conv-a', async () => {});
+
+      const second = manager.beginDrain(60);
+      expect(second.requestedAt).toBe(first.requestedAt);
+      expect(second.refusedCount).toBe(1);
+      expect(Date.parse(second.expiresAt)).toBeGreaterThan(Date.parse(first.expiresAt));
+    });
+
+    test('refuses a budget that cannot expire', () => {
+      const manager = new ConversationLockManager(10);
+      expect(() => manager.beginDrain(0)).toThrow(RangeError);
+      expect(() => manager.beginDrain(-1)).toThrow(RangeError);
+      expect(() => manager.beginDrain(Number.NaN)).toThrow(RangeError);
+      expect(() => manager.beginDrain(Number.POSITIVE_INFINITY)).toThrow(RangeError);
+      expect(manager.isDraining()).toBe(false);
+    });
+  });
+
+  describe('notifyDrainRefusal', () => {
+    test('tells the sender only when the refusal was a drain refusal', async () => {
+      const sendMessage = mock(async () => {});
+
+      await notifyDrainRefusal('discord', { sendMessage }, 'conv-a', {
+        status: 'refused-draining',
+      });
+      expect(sendMessage).toHaveBeenCalledWith('conv-a', DRAIN_REFUSAL_NOTICE);
+
+      sendMessage.mockClear();
+      for (const status of ['started', 'queued-conversation', 'queued-capacity'] as const) {
+        await notifyDrainRefusal('discord', { sendMessage }, 'conv-a', { status });
+      }
+      expect(sendMessage).not.toHaveBeenCalled();
+    });
+
+    // The caller has already finished with the message and has nothing to undo, so a
+    // failed notice must not become a second failure on top of the refusal.
+    test('does not throw when the notice cannot be delivered', async () => {
+      const sendMessage = mock(async () => {
+        throw new Error('platform unreachable');
+      });
+
+      await notifyDrainRefusal('discord', { sendMessage }, 'conv-a', {
+        status: 'refused-draining',
+      });
+
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+    });
   });
 });

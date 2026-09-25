@@ -18,7 +18,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SCRATCH_REGISTRY_ENV, removeTempTree } from '@archon/paths/test-utils';
-import { requestDetachedRunStop } from '../utils/detached-run-control';
+import { requestDetachedRunStop } from '@archon/core/services/run-owner-stop';
 
 const CLI_ENTRY = join(import.meta.dir, '..', 'cli.ts');
 const cleanupPaths: string[] = [];

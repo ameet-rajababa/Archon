@@ -22,7 +22,7 @@ import {
   rename,
 } from 'fs/promises';
 import { existsSync, readFileSync } from 'fs';
-import { normalize, join, sep, basename, dirname, resolve } from 'path';
+import { normalize, join, basename, dirname, resolve } from 'path';
 import { randomUUID, createHash } from 'crypto';
 import type { Context } from 'hono';
 import { cleanupUploads } from './upload-cleanup';
@@ -84,9 +84,10 @@ import {
   setUserTiers,
   setUserAliases,
   setUserDefault,
+  DRAIN_REFUSAL_NOTICE,
 } from '@archon/core';
 import type { UserTiersPatch, UserAliasesPatch, AliasesPatch } from '@archon/core';
-import { parseWorkflowRunConfig } from '@archon/core/config';
+import { InvalidConfigError, parseWorkflowRunConfig } from '@archon/core/config';
 import type { WorkflowRunConfigInput } from '@archon/workflows/schemas/run-config';
 import type { EffortLevel } from '@archon/workflows/schemas/effort';
 import { findRepoRoot, removeWorktree, toRepoPath, toWorktreePath } from '@archon/git';
@@ -100,8 +101,11 @@ import {
   getHomeCommandsPath,
   getHomeWorkflowsPath,
   getRunArtifactsDirForRoot,
+  isRunArtifactsEngineEntry,
   resolveRunStorageRoot,
   isInsideArchonHome,
+  isInsideArchonWorkspaces,
+  isPathInside,
   getArchonHome,
   isDocker,
   isWSL,
@@ -295,6 +299,10 @@ import * as messageDb from '@archon/core/db/messages';
 import * as userDb from '@archon/core/db/users';
 import {
   abandonWorkflow,
+  AbandonOwnerNotStoppedError,
+  cancelWorkflow,
+  CancelRefusedError,
+  describeAbandonOwner,
   approveWorkflow,
   rejectWorkflow,
   respondToWorkflow,
@@ -458,13 +466,6 @@ function resolveRunArtifactDir(
   return root ? getRunArtifactsDirForRoot(root, runId) : null;
 }
 
-function isPathInside(parent: string, candidate: string): boolean {
-  const normalisedParent = normalize(parent);
-  const normalisedCandidate = normalize(candidate);
-  const parentPrefix = normalisedParent.endsWith(sep) ? normalisedParent : normalisedParent + sep;
-  return normalisedCandidate === normalisedParent || normalisedCandidate.startsWith(parentPrefix);
-}
-
 /**
  * Why a caller-supplied path was refused. The caller maps these to its own
  * status codes and wording, because "not found" and "you may not ask that" are
@@ -500,15 +501,28 @@ function fileEtag(bytes: Buffer): string {
   return createHash('sha256').update(bytes).digest('hex').slice(0, 32);
 }
 
+/**
+ * Separators for the RAW `..` scan below. `\` is a separator on Windows and an
+ * ordinary filename character everywhere else, so the scan follows the host:
+ * splitting on both unconditionally refused `..\..\etc\passwd` on POSIX, where
+ * it names one file that simply is not there. Containment is still proved after
+ * this, so the looser scan cannot admit an escape — it only stops a refusal
+ * standing in for a 404.
+ */
+const RAW_PATH_SEGMENTS = process.platform === 'win32' ? /[/\\]/ : /\//;
+
 async function resolveContainedPath(root: string, rawRelative: string): Promise<ContainedPath> {
-  if (rawRelative.includes('\0') || rawRelative.split(/[/\\]/).some(seg => seg === '..')) {
+  if (
+    rawRelative.includes('\0') ||
+    rawRelative.split(RAW_PATH_SEGMENTS).some(seg => seg === '..')
+  ) {
     return { ok: false, reason: 'invalid' };
   }
 
   const relative = normalize(rawRelative).replace(/^[/\\]+/, '');
   const candidate = relative === '' || relative === '.' ? root : join(root, relative);
 
-  if (!isPathInside(root, candidate)) {
+  if (!isPathInside(root, candidate, { includeRoot: true, lexical: true })) {
     return { ok: false, reason: 'escaped' };
   }
 
@@ -527,7 +541,7 @@ async function resolveContainedPath(root: string, rawRelative: string): Promise<
     return { ok: false, reason: 'error', err };
   }
 
-  if (!isPathInside(realRoot, realPath)) {
+  if (!isPathInside(realRoot, realPath, { includeRoot: true, lexical: true })) {
     return { ok: false, reason: 'symlink-escape' };
   }
 
@@ -717,6 +731,7 @@ const createConversationRoute = createRoute({
     },
     400: jsonError('Bad request'),
     500: jsonError('Server error'),
+    503: jsonError('Server is draining for a restart'),
   },
 });
 
@@ -825,6 +840,7 @@ const sendMessageRoute = createRoute({
     },
     400: jsonError('Bad request'),
     500: jsonError('Server error'),
+    503: jsonError('Server is draining for a restart'),
   },
 });
 
@@ -1051,6 +1067,7 @@ const runWorkflowRoute = createRoute({
     },
     400: jsonError('Bad request'),
     500: jsonError('Server error'),
+    503: jsonError('Server is draining for a restart'),
   },
 });
 
@@ -1061,7 +1078,9 @@ const listRunArtifactsRoute = createRoute({
   summary: "List a run's artifact files",
   description:
     "Walks the run's artifact directory and returns relative file paths with size + " +
-    'mtime. Drives the console Artifacts tab. Resolves for every project kind — ' +
+    "mtime. Drives the console Artifacts tab. Leaves out only the engine's own " +
+    '`.archon` child at the root, the same rule `archon workflow get` applies; a ' +
+    "workflow's own dotfiles are listed. Resolves for every project kind — " +
     "`owner/repo`, `_local/<basename>`, and `_folder/<slug>` — preferring the run's " +
     'persisted `output_root` and re-deriving from the codebase when it is absent or ' +
     'no longer inside ARCHON_HOME. Returns `{ files: [] }` only when the location ' +
@@ -1140,6 +1159,9 @@ const cancelWorkflowRunRoute = createRoute({
     },
     400: jsonError('Bad request'),
     404: jsonError('Not found'),
+    409: jsonError(
+      'No live owner answered, or the owner could not be stopped; the run was not changed'
+    ),
     500: jsonError('Server error'),
   },
 });
@@ -1158,6 +1180,7 @@ const resumeWorkflowRunRoute = createRoute({
     400: jsonError('Bad request'),
     404: jsonError('Not found'),
     500: jsonError('Server error'),
+    503: jsonError('Server is draining for a restart'),
   },
 });
 
@@ -1207,6 +1230,7 @@ const abandonWorkflowRunRoute = createRoute({
     },
     400: jsonError('Bad request'),
     404: jsonError('Not found'),
+    409: jsonError('A live owner answered but could not be stopped; the run was not changed'),
     500: jsonError('Server error'),
   },
 });
@@ -1362,7 +1386,7 @@ const patchAssistantConfigRoute = createRoute({
       content: { 'application/json': { schema: updateAssistantConfigResponseSchema } },
       description: 'Updated configuration',
     },
-    400: jsonError('Invalid request body'),
+    400: jsonError('Invalid request body, or the resulting config is invalid'),
     500: jsonError('Server error'),
   },
 });
@@ -1386,7 +1410,7 @@ const patchTiersConfigRoute = createRoute({
       content: { 'application/json': { schema: configResponseSchema } },
       description: 'Updated configuration',
     },
-    400: jsonError('Invalid request body'),
+    400: jsonError('Invalid request body, or the resulting config is invalid'),
     500: jsonError('Server error'),
   },
 });
@@ -1410,7 +1434,9 @@ const patchAliasesConfigRoute = createRoute({
       content: { 'application/json': { schema: configResponseSchema } },
       description: 'Updated configuration',
     },
-    400: jsonError('Invalid alias name, unknown provider, or invalid effort'),
+    400: jsonError(
+      'Invalid alias name, unknown provider, invalid effort, or the resulting config is invalid'
+    ),
     500: jsonError('Server error'),
   },
 });
@@ -1768,6 +1794,23 @@ const getHealthRoute = createRoute({
               is_wsl: z.boolean(),
               wsl_distro: z.string().optional(),
               activePlatforms: z.array(z.string()).optional(),
+              // Present only while the server is draining for a restart (see
+              // /internal/drain). `holding` names each reason the box is not yet
+              // drained, so an operator watching a deploy wait can see what it is
+              // waiting for rather than only that it is waiting.
+              drain: z
+                .object({
+                  state: z.enum(['draining', 'drained']),
+                  requestedAt: z.string(),
+                  expiresAt: z.string(),
+                  refusedCount: z.number(),
+                  holding: z.object({
+                    activeConversations: z.number(),
+                    queuedMessages: z.number(),
+                    runningWorkflows: z.number(),
+                  }),
+                })
+                .optional(),
               // Schema vintage (#2316) so a bug report can state which Archon build
               // created this database and which last applied schema to it. Omitted
               // when unrecorded or unreadable — health must answer regardless.
@@ -1908,11 +1951,9 @@ export function registerApiRoutes(
    */
   async function validateCwd(cwd: string): Promise<boolean> {
     const codebases = await codebaseDb.listCodebases();
-    const normalizedCwd = normalize(cwd);
-    return codebases.some(cb => {
-      const base = normalize(cb.default_cwd);
-      return normalizedCwd === base || normalizedCwd.startsWith(base + sep);
-    });
+    return codebases.some(cb =>
+      isPathInside(cb.default_cwd, cwd, { includeRoot: true, lexical: true })
+    );
   }
 
   // CORS for Web UI — allow-all is fine for a single-developer tool.
@@ -2543,7 +2584,7 @@ export function registerApiRoutes(
 
     const archonHome = getArchonHome();
     const uploadDir = join(archonHome, 'artifacts', 'uploads', conversationId);
-    if (!uploadDir.startsWith(archonHome + sep)) {
+    if (!isPathInside(archonHome, uploadDir, { lexical: true })) {
       return { ok: false, status: 400, error: 'Invalid conversation ID' };
     }
 
@@ -2602,6 +2643,23 @@ export function registerApiRoutes(
     return { ok: true, savedFiles, uploadDir };
   }
 
+  /**
+   * How a cleanup failure is reported. Shared by both call sites so the dispatch
+   * that was refused and the dispatch that ran log the same way. The removal
+   * itself lives in `./upload-cleanup`, which owns its own tests — this route
+   * used to carry a second copy of it.
+   */
+  function warnCleanup(
+    conversationId: string
+  ): (err: NodeJS.ErrnoException, ctx: { uploadDir?: string }) => void {
+    return (err, ctx) => {
+      getLog().warn(
+        { err, ...ctx, conversationId },
+        ctx.uploadDir === undefined ? 'upload.cleanup_failed' : 'upload.dir_cleanup_failed'
+      );
+    };
+  }
+
   async function dispatchToOrchestrator(
     conversationId: string,
     message: string,
@@ -2638,15 +2696,26 @@ export function registerApiRoutes(
         // has had a chance to read them. Doing this in the HTTP handler's finally block
         // would delete files while the fire-and-forget lock handler is still running.
         if (filesToCleanup) {
-          await cleanupUploads(filesToCleanup.files, filesToCleanup.uploadDir, (err, ctx) => {
-            getLog().warn(
-              { err, ...ctx, conversationId },
-              ctx.uploadDir === undefined ? 'upload.cleanup_failed' : 'upload.dir_cleanup_failed'
-            );
-          });
+          await cleanupUploads(
+            filesToCleanup.files,
+            filesToCleanup.uploadDir,
+            warnCleanup(conversationId)
+          );
         }
       }
     });
+
+    if (result.status === 'refused-draining') {
+      // The handler never ran, so nothing else will remove what the upload staged and
+      // no lock event was ever emitted to pair a release with.
+      if (filesToCleanup)
+        await cleanupUploads(
+          filesToCleanup.files,
+          filesToCleanup.uploadDir,
+          warnCleanup(conversationId)
+        );
+      return { accepted: false, status: result.status };
+    }
 
     if (result.status === 'queued-conversation' || result.status === 'queued-capacity') {
       // Intentionally fire-and-forget: the lock-acquire signal (locked: true) is sent
@@ -2696,6 +2765,12 @@ export function registerApiRoutes(
     // Undefined on solo installs (no web identity) → creator fallback applies.
     gateActorUserId?: string
   ): Promise<boolean> {
+    if (lockManager.isDraining()) {
+      // The gate decision is already recorded and the run stays paused; the three
+      // routes' existing "not resumed" text already tells the user how to continue.
+      getLog().info({ runId: run.id, action }, 'api.workflow_gate_auto_resume_skipped_draining');
+      return false;
+    }
     // Literal event names per action — greppable for ops tooling. Keeping the
     // branch explicit rather than templating avoids the earlier 3-segment
     // `api.workflow_*.dispatched` shape that broke `{domain}.{action}_{state}`.
@@ -2779,7 +2854,15 @@ export function registerApiRoutes(
       // instead rely on implicit resume detection and collide with the
       // ambiguity guard for any non-paused resumable state (#2075).
       const resumeMessage = `/workflow resume ${run.id}`;
-      await dispatchToOrchestrator(platformConvId, resumeMessage, { userId: gateActorUserId });
+      const dispatched = await dispatchToOrchestrator(platformConvId, resumeMessage, {
+        userId: gateActorUserId,
+      });
+      if (!dispatched.accepted) {
+        // Drain can begin between the entry guard above and this dispatch; falling
+        // through to `true` would tell the user the run resumed when nothing started.
+        getLog().info({ runId: run.id, action }, 'api.workflow_gate_auto_resume_skipped_draining');
+        return false;
+      }
       getLog().info(
         { runId: run.id, workflowName: run.workflow_name, platformConvId },
         events.dispatched
@@ -3007,6 +3090,13 @@ export function registerApiRoutes(
         }
       }
 
+      // Refuse before the row exists: creating it and then refusing the dispatch would
+      // leave exactly the ghost "Untitled" conversation this route dispatches atomically
+      // to avoid. An empty conversation carries no work, so drain still allows it.
+      if (message && lockManager.isDraining()) {
+        return apiError(c, 503, DRAIN_REFUSAL_NOTICE);
+      }
+
       const conversationId = `web-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
       const conversation = await conversationDb.getOrCreateConversation(
@@ -3055,6 +3145,9 @@ export function registerApiRoutes(
           message,
           { userId }
         );
+        // Backstop for a drain that begins after the check above: never answer
+        // `dispatched: true` for a turn the lock manager refused.
+        if (!result.accepted) return apiError(c, 503, DRAIN_REFUSAL_NOTICE);
 
         return c.json({
           conversationId: conversation.platform_conversation_id,
@@ -3299,6 +3392,7 @@ export function registerApiRoutes(
       extraContext,
       filesToCleanup
     );
+    if (!result.accepted) return apiError(c, 503, DRAIN_REFUSAL_NOTICE);
     return c.json(result);
   });
 
@@ -3868,12 +3962,8 @@ export function registerApiRoutes(
       await codebaseDb.deleteCodebase(id);
 
       // Remove workspace directory from disk — only for Archon-managed repos
-      const workspacesRoot = normalize(getArchonWorkspacesPath());
       const normalizedCwd = normalize(codebase.default_cwd);
-      if (
-        normalizedCwd.startsWith(workspacesRoot + '/') ||
-        normalizedCwd.startsWith(workspacesRoot + '\\')
-      ) {
+      if (isInsideArchonWorkspaces(normalizedCwd)) {
         try {
           await rm(normalizedCwd, { recursive: true, force: true });
           getLog().info({ path: normalizedCwd }, 'workspace_removed');
@@ -4304,6 +4394,7 @@ export function registerApiRoutes(
         extraContext,
         filesToCleanup
       );
+      if (!result.accepted) return apiError(c, 503, DRAIN_REFUSAL_NOTICE);
       return c.json(result);
     } catch (error) {
       getLog().error({ err: error }, 'run_workflow_failed');
@@ -4352,26 +4443,38 @@ export function registerApiRoutes(
     }
   });
 
-  // POST /api/workflows/runs/:runId/cancel - Cancel a workflow run
+  // POST /api/workflows/runs/:runId/cancel - Cancel a workflow run through the shared
+  // owner-checked cancel: cooperative for a run this server executes, an owner stop for
+  // one another process owns, and a 409 refusal when no owner answers.
   registerOpenApiRoute(cancelWorkflowRunRoute, async c => {
+    const runId = c.req.param('runId') ?? '';
     try {
-      const runId = c.req.param('runId') ?? '';
       const run = await workflowDb.getWorkflowRun(runId);
       if (!run) {
         return apiError(c, 404, 'Workflow run not found');
       }
-      if (run.status !== 'running' && run.status !== 'pending' && run.status !== 'paused') {
-        return apiError(c, 400, `Cannot cancel workflow in '${run.status}' status`);
+      const result = await cancelWorkflow(runId);
+      if (result.kind === 'cooperative') {
+        return c.json({
+          success: true,
+          message: result.cancelled
+            ? `Cancelled workflow: ${run.workflow_name}`
+            : `Workflow ${run.workflow_name} already finished — nothing to cancel.`,
+        });
       }
-      const { cancelled } = await workflowDb.cancelWorkflowRun(runId);
-      return c.json({
-        success: true,
-        message: cancelled
-          ? `Cancelled workflow: ${run.workflow_name}`
-          : `Workflow ${run.workflow_name} already finished — nothing to cancel.`,
-      });
+      let message = `Stopped the run's live owner process (pid ${String(result.pid)}), then cancelled workflow: ${run.workflow_name}`;
+      if (result.cascadeFailures > 0) {
+        message += ` — warning: ${String(result.cascadeFailures)} sub-run(s) could not be cancelled and may still be running`;
+      }
+      if (result.blockedParentRunId) {
+        message += ` — parent run ${result.blockedParentRunId} was blocked on this sub-run and stays paused; resume it to fail the node cleanly or abandon it too`;
+      }
+      return c.json({ success: true, message });
     } catch (error) {
-      getLog().error({ err: error }, 'cancel_workflow_run_api_failed');
+      if (error instanceof CancelRefusedError) {
+        return apiError(c, error.reason === 'not_running' ? 400 : 409, error.message);
+      }
+      getLog().error({ err: error, runId }, 'cancel_workflow_run_api_failed');
       return apiError(c, 500, 'Failed to cancel workflow run');
     }
   });
@@ -4386,6 +4489,12 @@ export function registerApiRoutes(
       }
       if (!RESUMABLE_WORKFLOW_STATUSES.includes(run.status)) {
         return apiError(c, 400, `Cannot resume workflow in '${run.status}' status`);
+      }
+      // Covers both branches below: the headless execution bypasses the conversation
+      // lock entirely, so nothing else would refuse it. The run keeps its current
+      // status — drain starts no work and finishes none.
+      if (lockManager.isDraining()) {
+        return apiError(c, 503, DRAIN_REFUSAL_NOTICE);
       }
       // Dispatch resume by sending `/workflow resume <id>` to the parent web
       // conversation; the command handler validates the run and hands the
@@ -4424,9 +4533,15 @@ export function registerApiRoutes(
       const resumeMessage = `/workflow resume ${run.id}`;
       // Resume executes as the user who clicked resume (sender-first, #1982),
       // not the conversation creator. Undefined on solo installs → fallback.
-      await dispatchToOrchestrator(parentConv.platform_conversation_id, resumeMessage, {
-        userId: await resolveWebUserId(c),
-      });
+      const dispatched = await dispatchToOrchestrator(
+        parentConv.platform_conversation_id,
+        resumeMessage,
+        { userId: await resolveWebUserId(c) }
+      );
+      if (!dispatched.accepted) {
+        // Drain can begin between the entry guard above and this dispatch.
+        return apiError(c, 503, DRAIN_REFUSAL_NOTICE);
+      }
       getLog().info(
         {
           runId,
@@ -4491,8 +4606,8 @@ export function registerApiRoutes(
       // Delegate to the SHARED op — a raw cancelWorkflowRun here previously skipped
       // the sub-run cascade cancel AND the container reclaim (M2), so a web abandon
       // orphaned children that CLI/chat abandons cleaned up.
-      const { cascadeFailures, blockedParentRunId } = await abandonWorkflow(runId);
-      let message = `Abandoned workflow: ${run.workflow_name}`;
+      const { cascadeFailures, blockedParentRunId, owner } = await abandonWorkflow(runId);
+      let message = `${describeAbandonOwner(owner).join(' ')} Abandoned workflow: ${run.workflow_name}`;
       if (cascadeFailures > 0) {
         message += ` — warning: ${String(cascadeFailures)} sub-run(s) could not be cancelled and may still be running`;
       }
@@ -4501,6 +4616,9 @@ export function registerApiRoutes(
       }
       return c.json({ success: true, message });
     } catch (error) {
+      if (error instanceof AbandonOwnerNotStoppedError) {
+        return apiError(c, 409, error.message);
+      }
       getLog().error({ err: error, runId }, 'api.workflow_run_abandon_failed');
       return apiError(c, 500, 'Failed to abandon workflow run');
     }
@@ -5393,8 +5511,9 @@ export function registerApiRoutes(
         throw err;
       }
       for (const entry of entries) {
-        // Skip dotfiles — they're workflow-internal scratch (.pr-number, etc.)
-        if (entry.name.startsWith('.')) continue;
+        // The engine's own store is left out by the rule the CLI's listing shares;
+        // a workflow's own dotfiles are its output and stay listed.
+        if (isRunArtifactsEngineEntry(rel, entry.name)) continue;
         const child = join(dir, entry.name);
         const childRel = rel === '' ? entry.name : `${rel}/${entry.name}`;
         if (entry.isDirectory()) {
@@ -5679,6 +5798,23 @@ export function registerApiRoutes(
     }
   });
 
+  /**
+   * A write the config validators refused is the caller's to fix: return it as a
+   * 400 with the refused key. Anything else is a server fault and stays opaque.
+   */
+  function configUpdateFailed(
+    c: Context,
+    error: unknown,
+    logEvent: string,
+    message: string
+  ): Response {
+    if (error instanceof InvalidConfigError) {
+      return apiError(c, 400, error.summary);
+    }
+    getLog().error({ err: error }, logEvent);
+    return apiError(c, 500, message);
+  }
+
   // PATCH /api/config/assistants - Update assistant configuration
   registerOpenApiRoute(patchAssistantConfigRoute, async c => {
     try {
@@ -5721,8 +5857,12 @@ export function registerApiRoutes(
         database: getDatabaseType(),
       });
     } catch (error) {
-      getLog().error({ err: error }, 'config.assistants_update_failed');
-      return apiError(c, 500, 'Failed to update assistant configuration');
+      return configUpdateFailed(
+        c,
+        error,
+        'config.assistants_update_failed',
+        'Failed to update assistant configuration'
+      );
     }
   });
 
@@ -5753,8 +5893,12 @@ export function registerApiRoutes(
         database: getDatabaseType(),
       });
     } catch (error) {
-      getLog().error({ err: error }, 'config.tiers_update_failed');
-      return apiError(c, 500, 'Failed to update tier configuration');
+      return configUpdateFailed(
+        c,
+        error,
+        'config.tiers_update_failed',
+        'Failed to update tier configuration'
+      );
     }
   });
 
@@ -5783,8 +5927,12 @@ export function registerApiRoutes(
         database: getDatabaseType(),
       });
     } catch (error) {
-      getLog().error({ err: error }, 'config.aliases_update_failed');
-      return apiError(c, 500, 'Failed to update alias configuration');
+      return configUpdateFailed(
+        c,
+        error,
+        'config.aliases_update_failed',
+        'Failed to update alias configuration'
+      );
     }
   });
 
@@ -5902,6 +6050,24 @@ export function registerApiRoutes(
       getLog().warn({ err }, 'api.schema_version_read_failed');
     }
 
+    // Drained is derived from the two counts this route already reports, so the
+    // deploy's own busy check and the server's answer can never disagree.
+    const drainStatus = lockManager.getDrainStatus();
+    const holding = {
+      activeConversations: allActiveIds.length,
+      queuedMessages: stats.queuedTotal,
+      runningWorkflows: runningWorkflowRows.length,
+    };
+    const drain = drainStatus
+      ? {
+          ...drainStatus,
+          state: Object.values(holding).every(count => count === 0)
+            ? ('drained' as const)
+            : ('draining' as const),
+          holding,
+        }
+      : undefined;
+
     return c.json({
       status: 'ok',
       adapter: 'web',
@@ -5922,6 +6088,7 @@ export function registerApiRoutes(
       is_wsl: isWSL(),
       ...(wslDistro ? { wsl_distro: wslDistro } : {}),
       activePlatforms: activePlatforms ? [...activePlatforms] : ['Web'],
+      ...(drain ? { drain } : {}),
       ...(schema ? { schema } : {}),
     });
   });

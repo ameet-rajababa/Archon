@@ -8,7 +8,7 @@ sidebar:
   order: 6
 ---
 
-Archon exposes a REST API via a [Hono](https://hono.dev/) server with OpenAPI spec generation. All endpoints are prefixed with `/api/`.
+Archon exposes a REST API via a [Hono](https://hono.dev/) server with OpenAPI spec generation. All endpoints are prefixed with `/api/`, except the host-only `/internal/*` surface -- see [Drain](#drain) -- which is unprefixed, authenticated, and must never be proxied.
 
 ## Base URL
 
@@ -32,7 +32,7 @@ You can feed this into tools like Swagger UI or use it to generate typed API cli
 
 ## Authentication
 
-None. Archon is a single-developer tool -- there is no authentication on the API by default. If you expose Archon on a network, use a reverse proxy or firewall to restrict access.
+None. Archon is a single-developer tool -- there is no authentication on the API by default. If you expose Archon on a network, use a reverse proxy or firewall to restrict access. The `/internal/*` routes are the exception: they carry their own bearer token and only exist when it is configured.
 
 ---
 
@@ -50,6 +50,64 @@ curl http://localhost:3090/health
 curl http://localhost:3090/api/health
 # {"status":"ok","adapter":"...","concurrency":{...},"runningWorkflows":0}
 ```
+
+While the server is draining (see below), `/api/health` also carries a `drain` block
+naming what is still held:
+
+```json
+{
+  "drain": {
+    "state": "draining",
+    "requestedAt": "2026-09-23T19:00:00.000Z",
+    "expiresAt": "2026-09-23T19:30:00.000Z",
+    "refusedCount": 4,
+    "holding": { "activeConversations": 1, "queuedMessages": 0, "runningWorkflows": 2 }
+  }
+}
+```
+
+`state` is `drained` only when all three `holding` counts are zero. The key is absent
+entirely when the server is not draining.
+
+---
+
+## Drain
+
+A deploy that recreates the container needs the server to be holding nothing at the
+moment of the swap. Drain makes that moment instead of waiting for one: the server
+stops admitting new conversation turns and workflow continuations, finishes what it
+already holds, and reports `drain.state: "drained"` on `/api/health` once it holds
+nothing. Work already in flight always runs to completion -- drain never cancels,
+fails, or abandons a run.
+
+A message that arrives during drain is refused with `503` and a message the sender can
+act on; it is never silently dropped. Messages already queued before drain began still
+run.
+
+These endpoints exist only when `ARCHON_DRAIN_TOKEN` is set, and require it as a bearer
+token. Like every `/internal/*` path they are host-only -- your reverse proxy must not
+forward them.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/internal/drain` | Begin draining for `budgetSeconds` (1--3600) |
+| DELETE | `/internal/drain` | Stop draining and accept work again (idempotent) |
+
+```bash
+curl -X POST http://127.0.0.1:3090/internal/drain \
+  -H "Authorization: Bearer $ARCHON_DRAIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"budgetSeconds": 1800}'
+# {"requestedAt":"...","expiresAt":"...","refusedCount":0}
+
+curl -X DELETE http://127.0.0.1:3090/internal/drain \
+  -H "Authorization: Bearer $ARCHON_DRAIN_TOKEN"
+# {"draining":false}
+```
+
+The budget is mandatory and lapses on its own, so a deploy that dies mid-drain cannot
+leave a server refusing work forever. A deploy whose budget expires before the server
+drains should deploy nothing and say so -- the box is still running what it was.
 
 ---
 
@@ -288,9 +346,9 @@ Only user-defined workflows can be deleted. Bundled defaults cannot be removed.
 | GET | `/api/workflows/runs/{runId}` | Get run details with events |
 | GET | `/api/runs/{runId}/artifacts` | List artifact files produced by a run |
 | GET | `/api/workflows/runs/by-worker/{platformId}` | Look up a run by worker conversation ID |
-| POST | `/api/workflows/runs/{runId}/cancel` | Cancel a running workflow |
+| POST | `/api/workflows/runs/{runId}/cancel` | Cancel a running workflow: a run this server executes stops at its next status check; a run another process owns has that owner stopped first. Returns **409** with the reason, and leaves the run unchanged, when no owner answers (abandon it once its process is gone) or the owner cannot be stopped; **400** for a run that is not running |
 | POST | `/api/workflows/runs/{runId}/resume` | Resume a failed or paused workflow |
-| POST | `/api/workflows/runs/{runId}/abandon` | Abandon a run (running, paused, or failed); cascade-cancels non-terminal `workflow:` sub-run descendants |
+| POST | `/api/workflows/runs/{runId}/abandon` | Abandon a run (running, paused, or failed); stops a live detached owner first and cascade-cancels non-terminal `workflow:` sub-run descendants. Returns **409** with the reason, and leaves the run unchanged, when an owner answers but cannot be stopped |
 | POST | `/api/workflows/runs/{runId}/approve` | Approve a paused workflow (400 if paused blocked on a `workflow:` child — approve the child) |
 | POST | `/api/workflows/runs/{runId}/reject` | Reject a paused workflow (400 if paused blocked on a `workflow:` child — reject the child) |
 | DELETE | `/api/workflows/runs/{runId}` | Delete a terminal run and its events |
@@ -382,7 +440,7 @@ Supported inline keys are `assistant` or `defaultAssistant`, `assistants`, `tier
 curl http://localhost:3090/api/runs/{runId}/artifacts
 ```
 
-Walks the run's on-disk artifact directory (dotfiles skipped) and returns `{ files: [{ path, size, modifiedAt }] }`. Used by the console UI's Artifacts tab. Returns `{ files: [] }` when the run has no codebase or the codebase name is not in `owner/repo` form; 400 on invalid run id or path-escape attempt, 404 if the run does not exist.
+Walks the run's on-disk artifact directory and returns `{ files: [{ path, size, modifiedAt }] }`. Used by the console UI's Artifacts tab. It leaves out only the engine's own `$ARTIFACTS_DIR/.archon/` child, the same rule `archon workflow get` applies, so a workflow's own dotfiles are listed. Returns 400 on an invalid run id or path-escape attempt, and 404 if the run does not exist or its output location cannot be resolved.
 
 #### Resume a Failed or Paused Run
 
@@ -436,7 +494,7 @@ Returns `{ commands: [{ name, source: "bundled" | "project" }] }`.
 Query parameters include status filters, date ranges, and pagination. Used by the Command Center UI.
 
 Each run includes `active_nodes`, ordered by unresolved `node_started` event order. Completion,
-failure, and both skip lifecycle events remove a node; a retrying start adds it again. Concurrent
+failure, and both skip lifecycle events remove a node; `node_suspended` keeps it active; a retrying start adds it again. Concurrent
 nodes remain separate entries. The compatibility fields `current_step_name` and
 `current_step_status` are populated only when exactly one node is active, and are `null` for zero
 or multiple active nodes. `total_steps` is `null`; observed lifecycle events do not define the
@@ -457,6 +515,8 @@ workflow's total node count. This state describes node lifecycle, not process-ow
 `GET /api/config` returns the safe config subset, now including the configured `tiers`, the built-in `tierDefaults` for the current default provider (what an unset tier resolves to), and the configured `aliases`.
 
 These config routes are **ungated** -- they write non-secret model config to `~/.archon/config.yaml` and work on solo installs (no `TOKEN_ENCRYPTION_KEY` required). Contrast with the [AI Provider Credentials](#ai-provider-credentials) routes below, which require an identity.
+
+A `PATCH` whose resulting config would be invalid is refused with `400` and nothing is written. The `error` field names the refused key, for example `Invalid assistants config: 'assistants.codex.modelReasoningEffort': ...`. This includes an invalid value already in the file that the patch leaves in place: fix that key (in the same request or by editing the file) before other changes save.
 
 ```bash
 # Read current config (includes `tiers` + `tierDefaults`)

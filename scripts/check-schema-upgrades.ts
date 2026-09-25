@@ -106,7 +106,15 @@ function admin(sql: string): { code: number; out: string } {
  * real install can actually have, rather than a sample of recent releases, and it
  * grows with schema churn instead of release cadence.
  */
-function defaultBaselines(): string[] {
+/**
+ * The baselines to upgrade from, plus how many release tags the repository has
+ * at all.
+ *
+ * The count is returned because an empty baseline list has two very different
+ * meanings, and reporting both as a failure is what made this check useless in
+ * a fork. See the caller.
+ */
+function defaultBaselines(): { refs: string[]; tagCount: number } {
   const tags = git('tag', '--sort=creatordate').stdout.split('\n').filter(Boolean);
   const oldestTagPerSchema = new Map<string, string>();
   let withoutSchema = 0;
@@ -129,7 +137,7 @@ function defaultBaselines(): string[] {
   console.log(
     `note: ${tags.length - withoutSchema} tag(s) carry ${oldestTagPerSchema.size} distinct schema version(s)`
   );
-  return [...oldestTagPerSchema.values()];
+  return { refs: [...oldestTagPerSchema.values()], tagCount: tags.length };
 }
 
 function loadBaselines(refs: string[], dir: string): Baseline[] {
@@ -229,9 +237,29 @@ function dbNameFor(ref: string): string {
 }
 
 const requested = process.argv.slice(2).filter(a => !a.startsWith('-'));
-const refs = requested.length > 0 ? requested : defaultBaselines();
+const baseline =
+  requested.length > 0 ? { refs: requested, tagCount: requested.length } : defaultBaselines();
+const refs = baseline.refs;
 if (refs.length === 0) {
-  console.error('no baseline refs to test (no release tags carry the schema file)');
+  // "I had nothing to compare against" and "this change breaks upgrades" are
+  // different outcomes, and sharing an exit code made every pull request in a
+  // fork red for a reason that says nothing about the change. A fork carries no
+  // release tags, so it lands here on every run.
+  //
+  // No tags at all: nothing was verified, and that is reported plainly rather
+  // than claimed as a violation. Loud, not silent — a reader of the job output
+  // can see that this check proved nothing.
+  if (baseline.tagCount === 0) {
+    console.log('NOT VERIFIED: this repository has no release tags, so there is no');
+    console.log('shipped schema to upgrade from. No compatibility claim is made here.');
+    console.log('Tag a release, or pass explicit baseline refs, to get a real verdict.');
+    process.exit(0);
+  }
+  // Tags exist but none carry the schema file. That is a genuine
+  // misconfiguration in a repository that ships releases, and stays a failure.
+  console.error(
+    `no baseline refs to test (${baseline.tagCount} release tag(s) exist, but none carry ${SCHEMA_REPO_PATH})`
+  );
   process.exit(1);
 }
 

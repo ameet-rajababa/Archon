@@ -41,6 +41,11 @@ if (envPath) {
 import { loadArchonEnv } from '@archon/paths/env-loader';
 loadArchonEnv(process.cwd());
 
+// Workflow scripts started by this server call back into the CLI through the
+// same host command the CLI publishes for its own runs.
+import { publishArchonCliCommand } from '@archon/paths/cli-command';
+publishArchonCliCommand();
+
 // Smart default: fall back to Claude Code's built-in OAuth (`claude /login`)
 // ONLY for solo installs with no explicit credentials. Per-user installs
 // (TOKEN_ENCRYPTION_KEY) deliver Claude auth per-request, so the global-auth
@@ -82,7 +87,10 @@ import {
   CONVERSATION_EVENT_NOTIFY_CHANNEL,
 } from '@archon/core/db/adapters/types';
 import { registerApiRoutes } from './routes/api';
-import { registerGithubWebhookRoute } from './routes/webhooks';
+import { registerGithubWebhookRoute, registerWebhookSourceRoutes } from './routes/webhooks';
+import { registerInternalDrainRoutes } from './routes/internal-drain';
+import { loadWebhookSourcePlugins } from './services/webhook-source-plugins';
+import { createServerResourceStartHost } from './services/resource-start-hosting';
 import {
   startWorkflowContinuationScheduler,
   stopWorkflowContinuationScheduler,
@@ -109,6 +117,7 @@ import {
   assertEncryptionKeyAtBoot,
   assertProviderKeysKeyAtBoot,
   getDecryptedAccessToken,
+  notifyDrainRefusal,
   type GitHubAuth,
   type IGitHubAppAuthProvider,
 } from '@archon/core';
@@ -192,7 +201,7 @@ function createMessageErrorHandler(
   return async (error: unknown): Promise<void> => {
     getLog().error({ err: error, platform, conversationId }, 'message_processing_failed');
     try {
-      const userMessage = classifyAndFormatError(error as Error);
+      const userMessage = classifyAndFormatError(error as Error, adapter);
       await adapter.sendMessage(conversationId, userMessage);
     } catch (sendError) {
       getLog().error({ err: sendError, platform, conversationId }, 'error_message_send_failed');
@@ -207,7 +216,8 @@ function createMessageErrorHandler(
  * ("Operation aborted" when the PostToolUse hook writes to a closed pipe after
  * a DAG node abort). Those are logged at error level but do not exit the process.
  * All other unhandled rejections are unexpected bugs — they are logged at fatal
- * level and the process exits immediately (Fail Fast principle).
+ * level and the process exits as soon as queued telemetry flushes (bounded, so
+ * still Fail Fast).
  */
 export function handleUnhandledRejection(reason: unknown): void {
   const message = (reason instanceof Error ? reason.message : String(reason)).toLowerCase();
@@ -220,7 +230,16 @@ export function handleUnhandledRejection(reason: unknown): void {
   // All other unhandled rejections are unexpected — crash loudly so they are
   // not silently swallowed (CLAUDE.md: "Fail Fast + Explicit Errors").
   getLog().fatal({ reason }, 'unhandled_rejection.fatal');
-  process.exit(1);
+  void exitAfterTelemetryFlush(1);
+}
+
+/**
+ * Exit after flushing queued telemetry. Boot failures after `archon_started`
+ * otherwise drop that event, since `process.exit` skips pending async work.
+ */
+export async function exitAfterTelemetryFlush(code: number): Promise<never> {
+  await shutdownTelemetry();
+  process.exit(code);
 }
 
 export interface ServerOptions {
@@ -303,7 +322,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<void> {
       },
       'no_ai_credentials'
     );
-    process.exit(1);
+    await exitAfterTelemetryFlush(1);
   }
 
   if (!hasClaudeCredentials) {
@@ -325,7 +344,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<void> {
     getLog().info('database_connected');
   } catch (error) {
     getLog().fatal({ err: error }, 'database_connection_failed');
-    process.exit(1);
+    await exitAfterTelemetryFlush(1);
   }
 
   const config = await loadConfig();
@@ -501,7 +520,9 @@ export async function startServer(opts: ServerOptions = {}): Promise<void> {
         ? async (userId: string): Promise<string | undefined> =>
             (await getDecryptedAccessToken(userId)) ?? undefined
         : undefined;
-      github = new GitHubAdapter(auth, webhookSecret, lockManager, botMention, { getUserToken });
+      github = new GitHubAdapter(auth, webhookSecret, lockManager, botMention, {
+        getUserToken,
+      });
       await github.start();
       activePlatforms.push('GitHub (App)');
       getLog().info(
@@ -620,6 +641,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<void> {
               userId,
             });
           })
+          .then(result => notifyDrainRefusal('Discord', discordAdapter, conversationId, result))
           .catch(createMessageErrorHandler('Discord', discordAdapter, conversationId));
       });
 
@@ -696,6 +718,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<void> {
               userId,
             });
           })
+          .then(result => notifyDrainRefusal('Slack', slackAdapter, conversationId, result))
           .catch(createMessageErrorHandler('Slack', slackAdapter, conversationId));
       });
 
@@ -722,6 +745,27 @@ export async function startServer(opts: ServerOptions = {}): Promise<void> {
   // Setup Hono server
   const app = new OpenAPIHono({ defaultHook: validationErrorHook });
   const port = opts.port ?? (await getPort());
+
+  const webhookSourcesConfigPath = process.env.ARCHON_WEBHOOK_SOURCES;
+  const webhookSources = webhookSourcesConfigPath
+    ? await loadWebhookSourcePlugins(webhookSourcesConfigPath)
+    : undefined;
+  // Explicit only: bindings choose their execution host, so the server never guesses one.
+  const resourceStartHostId = process.env.ARCHON_TRIGGER_HOST?.trim();
+  const resourceStartHost = resourceStartHostId
+    ? createServerResourceStartHost(resourceStartHostId)
+    : undefined;
+  // Unrelated to server drain despite the shared word: this one pulls queued trigger
+  // requests INTO execution. While the server is draining it must not, or the box
+  // would start fresh runs it is trying to finish holding. A webhook receipt still
+  // commits — that write is durable — so the requests stay pending for the
+  // replacement container to admit.
+  const requestResourceStartDrain = resourceStartHost
+    ? (): void => {
+        if (lockManager.isDraining()) return;
+        void resourceStartHost.requestDrain();
+      }
+    : undefined;
 
   // Global error handler for unhandled exceptions
   app.onError((err, c) => {
@@ -774,6 +818,10 @@ export async function startServer(opts: ServerOptions = {}): Promise<void> {
     registerGithubWebhookRoute(app, github);
     getLog().info('github_webhook_registered');
   }
+  if (webhookSources) {
+    registerWebhookSourceRoutes(app, webhookSources, requestResourceStartDrain);
+    getLog().info('webhook_sources_registered');
+  }
 
   // Internal endpoint: git credential helper.
   //
@@ -814,6 +862,13 @@ export async function startServer(opts: ServerOptions = {}): Promise<void> {
       }
     });
     getLog().info('internal_git_credential_endpoint_registered');
+  }
+
+  // Internal endpoint: drain control. Registered only when a token is configured,
+  // so the default install gains no new surface. See ./routes/internal-drain.
+  const drainToken = process.env.ARCHON_DRAIN_TOKEN?.trim();
+  if (drainToken) {
+    registerInternalDrainRoutes(app, lockManager, drainToken);
   }
 
   // Gitea webhook endpoint
@@ -940,6 +995,11 @@ export async function startServer(opts: ServerOptions = {}): Promise<void> {
   // firewall externally (so loopback bind would block their reverse proxy's
   // upstream) can opt out via ARCHON_ALLOW_INTERNAL_ON_PUBLIC_BIND=1.
   //
+  // Scope is deliberate: this does not arm for /internal/drain, which carries its
+  // own bearer token (see ./routes/internal-drain). A fatal guard that fires only
+  // in App mode cannot be widened to an endpoint any operator can enable without
+  // refusing to start the default Docker bind.
+  //
   // Runs BEFORE Bun.serve so a rejected config never opens the listening
   // socket — even briefly — and `server_listening` is never logged.
   if (githubAppAuthProvider && hostname !== '127.0.0.1' && hostname !== 'localhost') {
@@ -1011,6 +1071,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<void> {
               userId,
             });
           })
+          .then(result => notifyDrainRefusal('Telegram', telegramAdapter, conversationId, result))
           .catch(createMessageErrorHandler('Telegram', telegramAdapter, conversationId));
       }
     );
@@ -1035,30 +1096,36 @@ export async function startServer(opts: ServerOptions = {}): Promise<void> {
   for (const platform of [webAdapter, github, gitea, gitlab, discord, slack, telegram]) {
     if (platform !== null) workflowPlatforms.set(platform.getPlatformType(), platform);
   }
-  startWorkflowContinuationScheduler(async run => {
-    const conversation = await conversationDb.getConversationById(
-      workflowResumeConversationId(run)
-    );
-    if (!conversation) {
-      return { kind: 'unavailable', reason: 'origin conversation no longer exists' };
-    }
-    if (run.parent_conversation_id !== null) {
-      const parent = await conversationDb.getConversationById(run.parent_conversation_id);
-      if (!parent?.platform_conversation_id) {
-        return { kind: 'unavailable', reason: 'parent conversation no longer exists' };
-      }
-      if (!conversation.platform_conversation_id) {
-        return { kind: 'unavailable', reason: 'worker conversation has no platform id' };
-      }
-      return workflowResumeTargetForConversation(
-        parent,
-        workflowPlatforms,
-        conversation.platform_conversation_id,
-        parent.platform_conversation_id
+  startWorkflowContinuationScheduler(
+    async run => {
+      const conversation = await conversationDb.getConversationById(
+        workflowResumeConversationId(run)
       );
-    }
-    return workflowResumeTargetForConversation(conversation, workflowPlatforms);
-  });
+      if (!conversation) {
+        return { kind: 'unavailable', reason: 'origin conversation no longer exists' };
+      }
+      if (run.parent_conversation_id !== null) {
+        const parent = await conversationDb.getConversationById(run.parent_conversation_id);
+        if (!parent?.platform_conversation_id) {
+          return { kind: 'unavailable', reason: 'parent conversation no longer exists' };
+        }
+        if (!conversation.platform_conversation_id) {
+          return { kind: 'unavailable', reason: 'worker conversation has no platform id' };
+        }
+        return workflowResumeTargetForConversation(
+          parent,
+          workflowPlatforms,
+          conversation.platform_conversation_id,
+          parent.platform_conversation_id
+        );
+      }
+      return workflowResumeTargetForConversation(conversation, workflowPlatforms);
+    },
+    requestResourceStartDrain,
+    () => lockManager.isDraining()
+  );
+  if (resourceStartHostId)
+    getLog().info({ hostId: resourceStartHostId }, 'resource_start_host_enabled');
 
   // Graceful shutdown
   const shutdown = (): void => {
@@ -1149,8 +1216,8 @@ async function checkGhAuth(): Promise<void> {
 
 // Run the application when executed directly (not imported as a library)
 if (import.meta.main) {
-  startServer().catch(error => {
+  startServer().catch(async (error: unknown) => {
     getLog().fatal({ err: error }, 'startup_failed');
-    process.exit(1);
+    await exitAfterTelemetryFlush(1);
   });
 }

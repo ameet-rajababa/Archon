@@ -183,7 +183,7 @@ describe('workflow run config', () => {
           { assistants: { pi: { [key]: value } } },
           { kind: 'http', label: 'inline' }
         )
-      ).toThrow(`Run config key 'assistants.pi.${key}' cannot apply`);
+      ).toThrow(`Invalid run config at 'assistants.pi.${key}': Pi `);
     }
   });
 

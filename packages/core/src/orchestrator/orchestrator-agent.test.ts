@@ -364,6 +364,19 @@ const DEFAULT_PROVIDER_CAPS: ProviderCapabilities = {
   requiresAllPropertiesRequired: false,
 };
 
+// The orchestrator gets its provider from the admission wrapper, not from
+// `@archon/providers` directly — that wrapper puts every `sendQuery` behind a
+// database-backed slot. Unmocked, the turn below never reaches its result
+// event, so the context reading that drives the handoff nudge is simply absent
+// and the nudge goes quiet without an error to read.
+mock.module('../services/provider-admission', () => ({
+  getAgentProvider: mock(() => ({
+    sendQuery: mockSendQuery,
+    getType: mock(() => 'claude'),
+    getCapabilities: mock(() => ({})),
+  })),
+}));
+
 mock.module('@archon/providers', () => ({
   getAgentProvider: mock(() => ({
     sendQuery: mockSendQuery,
@@ -660,6 +673,7 @@ function makeRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
     parent_run_id: null,
     adopted_from_run_id: null,
     output_root: null,
+    checkout_baseline: null,
     ...overrides,
   };
 }
@@ -4130,7 +4144,8 @@ describe('paused approval gate routing', () => {
 
     expect(mockGetPausedWorkflowRun).not.toHaveBeenCalled();
     expect(mockCreateWorkflowEvent).not.toHaveBeenCalled();
-    expect(mockHandleCommand).toHaveBeenCalledWith(conversation, '   /status');
+    // The platform rides along so command suggestions use its spelling.
+    expect(mockHandleCommand).toHaveBeenCalledWith(conversation, '   /status', platform);
     expect(platform.sendMessage).toHaveBeenCalledWith('conv-1', 'status ok');
   });
 
@@ -6798,6 +6813,54 @@ describe('continueResolvedGateRun — chat gate continuation source (#2646)', ()
 
     expect(messages.some(m => m.includes('final status could not be saved'))).toBe(true);
     expect(messages.some(m => m.includes('retry with `/workflow resume'))).toBe(false);
+  });
+
+  describe('recovery commands use the surface spelling', () => {
+    // Mirrors the Slack adapter: its registered slash command is `/archon-workflow`.
+    function makeSlackPlatform(): ReturnType<typeof makePlatform> &
+      Pick<IPlatformAdapter, 'formatWorkflowCommand'> {
+      return {
+        ...makePlatform(),
+        formatWorkflowCommand: (command: string) => `/archon-workflow ${command}`,
+      };
+    }
+
+    function expectSlackSpelling(messages: string[]): void {
+      const text = messages.join('\n');
+      expect(text).toContain('/archon-workflow ');
+      expect(text.replaceAll('/archon-workflow ', '')).not.toContain('/workflow ');
+    }
+
+    test('an ordinary resume failure', async () => {
+      const messages = await continueWithRejection(makeSlackPlatform(), new Error('resume boom'));
+      expect(messages.some(m => m.includes('`/archon-workflow resume run-gated`'))).toBe(true);
+      expectSlackSpelling(messages);
+    });
+
+    test('a rejected terminal write', async () => {
+      const messages = await continueWithRejection(
+        makeSlackPlatform(),
+        new TerminalStatusWriteError(new Error('db is gone'))
+      );
+      expect(messages.some(m => m.includes('`/archon-workflow status run-gated`'))).toBe(true);
+      expectSlackSpelling(messages);
+    });
+
+    test('no project attached', async () => {
+      const platform = makeSlackPlatform();
+      await continueResolvedGateRun(
+        platform,
+        'conv-1',
+        makeConversation(),
+        null,
+        makeGateRun(),
+        'approve'
+      );
+      const messages = (platform.sendMessage as ReturnType<typeof mock>).mock.calls.map(
+        c => (c as unknown[])[1] as string
+      );
+      expectSlackSpelling(messages);
+    });
   });
 });
 

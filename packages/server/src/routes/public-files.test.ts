@@ -39,7 +39,9 @@ afterAll(async () => {
   await removeTempTree(base);
 });
 
-const get = async (path: string): Promise<Response> => await app.request(path);
+// `app.request` is typed `Response | Promise<Response>`; `async` narrows the
+// union to the awaited form every caller here already treats it as.
+const get = async (path: string): Promise<Response> => app.request(path);
 
 describe('registerPublicFiles', () => {
   test('serves a published file', async () => {

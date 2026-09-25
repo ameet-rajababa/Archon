@@ -171,6 +171,7 @@ mock.module('@archon/git', () => ({
   mkdirAsync: mock(async () => undefined),
 }));
 
+import { DRAIN_REFUSAL_NOTICE } from '@archon/core/utils/conversation-lock';
 import { GitHubAdapter } from './adapter';
 import type { WebhookEvent } from './types';
 // Namespace import so the dedup tests can spyOn(core, 'handleMessage') — the
@@ -376,12 +377,18 @@ describe('GitHubAdapter', () => {
       resumeAt: '2099-08-24T11:00:00.000Z',
     };
     const pullRequestRecord = {
+      schemaVersion: 1,
       repo: { host: 'github.com', path: 'Example/Repo' },
       number: 42,
       url: 'https://github.com/unrelated/project/pull/999',
       head: 'a-branch-that-is-not-used-for-matching',
       base: 'dev',
       is_draft: true,
+      state: 'open',
+      head_repo: { host: 'github.com', path: 'Example/Repo' },
+      head_revision: 'headsha',
+      base_revision: 'basesha',
+      maintainer_can_modify: null,
     };
     let originalAllowedUsers: string | undefined;
     let listCandidatesSpy: ReturnType<
@@ -453,9 +460,11 @@ describe('GitHubAdapter', () => {
     test('the adapter matcher accepts the bundled PR producer contract', () => {
       const parsed = parseWorkflow(BUNDLED_WORKFLOWS['archon-pr'], 'archon-pr.yaml');
       if (parsed.workflow === null) throw new Error(parsed.error.error);
-      const node = parsed.workflow.nodes.find(item => item.id === 'pr');
-      if (node?.kind !== 'agent' || node.output_format === undefined) {
-        throw new Error('archon-pr does not expose an agent output contract');
+      // The publishing node owns the verified record; the agent before it only
+      // prepares the intent, and an inbound event must never match on that.
+      const node = parsed.workflow.nodes.find(item => item.id === 'publish');
+      if (node?.kind !== 'exec' || node.output_format === undefined) {
+        throw new Error('archon-pr does not expose a published pull-request contract');
       }
       expect(node.output_type).toBe('pull-request');
       expect(validateStructuredOutput(pullRequestRecord, node.output_format).valid).toBe(true);
@@ -836,6 +845,75 @@ describe('GitHubAdapter', () => {
 
       // Missing user should not trigger self-filtering (proceeds to conversation creation)
       expect(mockGetOrCreateConversation).toHaveBeenCalled();
+    });
+  });
+
+  // Drain: the adapter is a caller of acquireLock, so it owns telling the
+  // commenter their comment was refused. Silence here would be the silent drop
+  // drain exists to prevent — nothing queues a refused comment.
+  describe('drain refusal', () => {
+    let originalAllowedUsers: string | undefined;
+
+    beforeEach(() => {
+      originalAllowedUsers = process.env.GITHUB_ALLOWED_USERS;
+      delete process.env.GITHUB_ALLOWED_USERS;
+      mockAcquireLock.mockClear();
+      handleMessageSpy.mockClear();
+    });
+
+    afterEach(() => {
+      mockAcquireLock.mockImplementation(async (_id: string, handler: () => Promise<void>) => {
+        await handler();
+        return { status: 'started' as const };
+      });
+      if (originalAllowedUsers !== undefined) {
+        process.env.GITHUB_ALLOWED_USERS = originalAllowedUsers;
+      }
+    });
+
+    test('posts the refusal notice and runs no turn when the lock manager is draining', async () => {
+      mockAcquireLock.mockImplementation(async () => ({
+        status: 'refused-draining' as unknown as 'started',
+      }));
+
+      const adapter = new GitHubAdapter(
+        { kind: 'pat', token: 'fake-token-for-testing' },
+        'fake-webhook-secret',
+        mockLockManager,
+        'archon'
+      );
+      // @ts-expect-error - accessing private method for testing
+      adapter.verifySignature = mock(() => true);
+      const octokit = installOctokitStubs(adapter);
+
+      await adapter.handleWebhook(
+        JSON.stringify({
+          action: 'created',
+          issue: {
+            number: 42,
+            title: 'Test Issue',
+            body: 'Description',
+            user: { login: 'user123' },
+            labels: [],
+            state: 'open',
+          },
+          comment: { id: 5150, body: '@archon help', user: { login: 'user123' } },
+          repository: {
+            owner: { login: 'testuser' },
+            name: 'testrepo',
+            full_name: 'testuser/testrepo',
+            html_url: 'https://github.com/testuser/testrepo',
+            default_branch: 'main',
+          },
+          sender: { login: 'user123' },
+        }),
+        'mock-signature',
+        'guid-drain-1'
+      );
+
+      expect(handleMessageSpy).not.toHaveBeenCalled();
+      const bodies = octokit.createComment.mock.calls.map(call => call[0]?.body ?? '');
+      expect(bodies.some(body => body.includes(DRAIN_REFUSAL_NOTICE))).toBe(true);
     });
   });
 

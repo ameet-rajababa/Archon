@@ -124,6 +124,23 @@ export function canonicalValueText(value: unknown): string {
  */
 export const OUTPUT_REF_SOURCE = String.raw`\$([a-zA-Z_][a-zA-Z0-9_-]*)\.output`;
 
+/** One name in a field path: the identifier shape, no dots. */
+const PATH_SEGMENT_SOURCE = String.raw`[a-zA-Z_][a-zA-Z0-9_]*`;
+
+/**
+ * The field part of a `$node.output.<path>` reference: one or more dot-joined
+ * segments, so a nested declared shape can be addressed.
+ *
+ * A single segment is the common case and behaves exactly as it always has. The
+ * deeper form exists because a contract that declares a nested object was
+ * previously unreadable: `$pr.output.repo.path` matched only `$pr.output.repo`
+ * and left a literal `.path` behind, so every consumer of such a field went back
+ * to re-deriving the value from the environment instead. A declared field that
+ * cannot be named is a governance gap, not an inconvenience — the engine cannot
+ * see a dependency the author had to express outside it.
+ */
+export const OUTPUT_FIELD_PATH_SOURCE = String.raw`${PATH_SEGMENT_SOURCE}(?:\.${PATH_SEGMENT_SOURCE})*`;
+
 /**
  * The prior-iteration form of the same reference, used inside loop and loop_group
  * bodies. Kept beside OUTPUT_REF_SOURCE so every ref grammar has one home. The two
@@ -176,7 +193,7 @@ export function substituteInputRefs(
 
 /** Anchored whole-value form: the ENTIRE (trimmed) string is one `$id.output[.field]` ref. */
 const WHOLE_OUTPUT_REF_PATTERN = new RegExp(
-  `^${OUTPUT_REF_SOURCE}(?:\\.([a-zA-Z_][a-zA-Z0-9_]*))?$`
+  `^${OUTPUT_REF_SOURCE}(?:\\.(${OUTPUT_FIELD_PATH_SOURCE}))?$`
 );
 
 /**
@@ -193,6 +210,48 @@ export function parseWholeOutputRef(text: string): { nodeId: string; field?: str
 }
 
 /**
+ * `$<node>.execution.checkoutStart` (#3375): the checkout observation the engine recorded
+ * when the producer's invocation started. It reads an engine-owned execution fact, never
+ * producer output, and is valid only as a whole `with:` binding value. It is the only
+ * `.execution` member; the grammar names it in full so nothing else parses as one.
+ */
+export const EXECUTION_CHECKOUT_REF_SOURCE = String.raw`\$([a-zA-Z_][a-zA-Z0-9_-]*)\.execution\.checkoutStart`;
+
+const WHOLE_EXECUTION_CHECKOUT_REF_PATTERN = new RegExp(`^${EXECUTION_CHECKOUT_REF_SOURCE}$`);
+
+/** The producer id of a string that is exactly one whole execution checkout reference. */
+export function parseWholeExecutionCheckoutRef(text: string): string | undefined {
+  return WHOLE_EXECUTION_CHECKOUT_REF_PATTERN.exec(text.trim())?.[1];
+}
+
+/**
+ * Read the producer invocation's checkout start from the producer's own execution record
+ * (live, or the persisted completion on resume). There is no fallback: a producer that
+ * did not execute against the checkout has no start to read, and the consumer fails.
+ */
+export function resolveExecutionCheckoutStart(
+  producer: NodeOutput | undefined,
+  nodeId: string
+): JsonValue {
+  const ref = `$${nodeId}.execution.checkoutStart`;
+  if (producer === undefined) {
+    throw new Error(
+      `'${ref}' references node '${nodeId}', which has not run before this reference. Add '${nodeId}' to depends_on.`
+    );
+  }
+  const start = producer.execution?.invocation.checkoutStart;
+  if (start === undefined) {
+    throw new Error(
+      producer.state === 'skipped' || producer.state === 'pending'
+        ? `'${ref}' references node '${nodeId}', which did not run, so it has no checkout start.`
+        : `'${ref}' references node '${nodeId}', whose execution record carries no checkout start. ` +
+            'Only prompt, command, bash, script, and loop nodes record one, and runs recorded before this field existed have none.'
+    );
+  }
+  return start as JsonValue;
+}
+
+/**
  * Thrown when a `$nodeId.output.field` reference cannot be honored under the
  * no-silent-drop contract. Propagates to fail the consuming node (both call
  * sites run inside the dag-executor's per-node try/catch).
@@ -203,6 +262,7 @@ export type OutputRefErrorReason =
   | 'truncated'
   | 'array-aggregate'
   | 'missing-key'
+  | 'not-an-object'
   | 'producer-not-run'
   | 'producer-failed'
   | 'unknown-node';
@@ -237,6 +297,8 @@ export class OutputRefError extends Error {
         return `'${ref}' references field '${field}', but node '${nodeId}'s persisted output was clipped at the event size cap and no longer parses as JSON. The node very likely emitted '${field}' correctly — this surfaces on a resumed run, which reads the clipped copy rather than the original. Write the payload to a file under $ARTIFACTS_DIR and read it downstream, or shrink the node's output.`;
       case 'missing-key':
         return `'${ref}' references field '${field}', but node '${nodeId}'s JSON output has no such key. Emit '${field}' in the output, or fix the reference.`;
+      case 'not-an-object':
+        return `'${ref}' walks into field '${field}', but a segment of that path is not a JSON object, so the rest of the path cannot be read. Reference the segment that does hold an object, or emit the nested shape the path describes.`;
       case 'producer-not-run':
         return `'${ref}' references field '${field}', but node '${nodeId}' did not run (skipped or pending), so it has no output to read. Guard this reference with a 'when:' condition, or fix the dependency.`;
       case 'producer-failed':
@@ -351,14 +413,22 @@ export function resolveNodeOutputField(
     throw new OutputRefError(nodeId, field, 'producer-failed');
   }
 
+  // Only the FIRST segment is a producer-contract lookup; the rest walk the value
+  // it resolved to. `declaredFields` is a flat list of top-level property names,
+  // so it has nothing to say about anything deeper.
+  const [head, ...rest] = field.split('.');
+
   const declaredFields = 'declaredFields' in nodeOutput ? nodeOutput.declaredFields : undefined;
   const structured = 'structuredOutput' in nodeOutput ? nodeOutput.structuredOutput : undefined;
   const structuredObj = asPlainObject(structured);
 
   // 1. Declared-schema producer — the declared property set IS the contract.
   if (declaredFields !== undefined) {
-    if (!declaredFields.includes(field)) {
-      throw new OutputRefError(nodeId, field, 'not-in-schema');
+    if (!declaredFields.includes(head)) {
+      // Named by SEGMENT, not by the whole path: with `$pr.output.repo.path` the
+      // actionable fact is that `repo` is missing from the schema, not that a
+      // dotted path is.
+      throw new OutputRefError(nodeId, head, 'not-in-schema');
     }
     // Prefer the parsed payload; fall back to parsing the JSON-serialized output.
     // The fallback covers older NodeOutput rows that predate `structuredOutput`,
@@ -374,11 +444,12 @@ export function resolveNodeOutputField(
     if (obj === undefined) {
       throw new OutputRefError(nodeId, field, unparseableReason(nodeOutput.output));
     }
-    const value = obj[field];
+    const value = obj[head];
     // Required fields are guaranteed present (the producer validated post-parse),
     // so a missing/explicit-null value here is a declared-optional field → empty.
-    if (value === undefined || value === null) return { kind: 'empty' };
-    return { kind: 'value', value };
+    if (value === undefined || value === null)
+      return walkFieldPath({ kind: 'empty' }, rest, nodeId, field);
+    return walkFieldPath({ kind: 'value', value }, rest, nodeId, field);
   }
 
   // 2. Structured payload without a declared schema (legacy rows / non-object
@@ -387,9 +458,9 @@ export function resolveNodeOutputField(
   //    A present null value is kept (callers stringify it to "null"), matching
   //    the historical structuredOutput-preference behavior.
   if (structuredObj !== undefined) {
-    const value = structuredObj[field];
-    if (value === undefined) return { kind: 'empty' };
-    return { kind: 'value', value };
+    const value = structuredObj[head];
+    if (value === undefined) return walkFieldPath({ kind: 'empty' }, rest, nodeId, field);
+    return walkFieldPath({ kind: 'value', value }, rest, nodeId, field);
   }
 
   // 3. Schemaless producer (bash/script/prose). The author wrote `.field`, so
@@ -398,8 +469,41 @@ export function resolveNodeOutputField(
   if (obj === undefined) {
     throw new OutputRefError(nodeId, field, unparseableReason(nodeOutput.output));
   }
-  if (!(field in obj)) throw new OutputRefError(nodeId, field, 'missing-key');
-  return { kind: 'value', value: obj[field] };
+  if (!(head in obj)) throw new OutputRefError(nodeId, head, 'missing-key');
+  return walkFieldPath({ kind: 'value', value: obj[head] }, rest, nodeId, field);
+}
+
+/**
+ * Walk the segments after the first, against the value the first one resolved to.
+ *
+ * These segments have no contract behind them: a producer's `declaredFields` is a
+ * flat set of top-level names, so nothing below the head carries a declared-optional
+ * signal. With no schema to read, an absent key here is indistinguishable from a
+ * typo, so this follows the schemaless posture and throws rather than resolving
+ * quietly to empty — the same no-silent-drop rule the module doc states for
+ * `.field` on a schemaless producer. An author who needs the absent case to be
+ * survivable references the object segment and reads it inside a node.
+ *
+ * An empty head is the exception and short-circuits: the parent was declared
+ * optional and is absent, so the whole path is absent with it. Failing there would
+ * report a missing key under a value that was never supposed to be present.
+ */
+function walkFieldPath(
+  resolution: FieldResolution,
+  rest: readonly string[],
+  nodeId: string,
+  field: string
+): FieldResolution {
+  let current = resolution;
+  for (const segment of rest) {
+    if (current.kind === 'empty') return current;
+    const obj = asPlainObject(current.value);
+    if (obj === undefined) throw new OutputRefError(nodeId, field, 'not-an-object');
+    if (!(segment in obj)) throw new OutputRefError(nodeId, field, 'missing-key');
+    const value = obj[segment];
+    current = value === undefined || value === null ? { kind: 'empty' } : { kind: 'value', value };
+  }
+  return current;
 }
 
 /**

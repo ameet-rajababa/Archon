@@ -52,6 +52,15 @@
   },
   "testGroups": [
     [
+      "src/db/resource-starts.integration.test.ts"
+    ],
+    [
+      "src/services/provider-admission.integration.test.ts"
+    ],
+    [
+      "src/db/provider-attempts.postgres.integration.test.ts"
+    ],
+    [
       "src/handlers/command-handler.test.ts"
     ],
     [
@@ -62,6 +71,9 @@
     ],
     [
       "src/handlers/register-folder-lookup.integration.test.ts"
+    ],
+    [
+      "src/handlers/register-repository-shared-db.integration.test.ts"
     ],
     [
       "src/db/adapters/postgres.test.ts"
@@ -135,13 +147,22 @@
       "src/db/isolation-environments.live-run.postgres.integration.test.ts"
     ],
     [
+      "src/db/resource-slots.postgres.integration.test.ts"
+    ],
+    [
       "src/db/workflows.adoption-timestamp.integration.test.ts"
+    ],
+    [
+      "src/db/workflows.run-id-prefix.integration.test.ts"
+    ],
+    [
+      "src/db/workflows.run-id-prefix.postgres.integration.test.ts"
     ],
     [
       "src/db/workflows.dashboard-parent-conversation.integration.test.ts"
     ],
     [
-      "src/utils/path-validation.test.ts"
+      "src/db/workflows.checkout-baseline.integration.test.ts"
     ],
     [
       "src/services/cleanup-service.test.ts"
@@ -151,6 +172,10 @@
     ],
     [
       "src/services/run-live-owner.test.ts"
+    ],
+    [
+      "src/services/run-owner-stop.test.ts",
+      "src/services/windows-process-tree.test.ts"
     ],
     [
       "src/services/run-attention-watch.test.ts"
