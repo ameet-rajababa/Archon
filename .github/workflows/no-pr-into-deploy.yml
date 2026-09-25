@@ -1,0 +1,51 @@
+name: Branch model
+
+# `deploy` is not a place work happens. It is the pointer at what archon-cloud is
+# running, and it has exactly ONE writer: `scripts/deploy-local.sh`, which pushes
+# `local/deploy` onto it as step 2 of a deploy.
+#
+# A pull request merging into `deploy` makes a second writer, and the two do not
+# see each other. The deploy pushes `local/deploy` over whatever the branch holds,
+# so a merge that landed from GitHub is silently reverted the next time anyone
+# deploys — and nothing reports it, because the push IS the step that makes the
+# remote "correct", after which the script confirms the remote matches the SHA it
+# just forced there.
+#
+# This job exists because that failure is invisible rather than loud. It is a
+# comment that runs.
+on:
+  pull_request:
+    branches: [deploy]
+
+jobs:
+  refuse:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain, then fail
+        run: |
+          cat <<'MSG'
+          This pull request targets `deploy`, and nothing should.
+
+            work  ->  a branch  ->  pull request into `dev`  ->  merge
+            ship  ->  merge `dev` into `deploy`  ->  scripts/request-deploy.sh
+
+          WHY. `deploy` has one writer: `scripts/deploy-local.sh` pushes
+          `local/deploy` onto it during a deploy. A merge arriving from GitHub is a
+          second writer, and the next deploy pushes straight over it. The revert is
+          silent -- the push is what makes the remote "correct", and the script then
+          confirms the remote matches the SHA it just forced there.
+
+          `dev` is also where CI runs, so a pull request into `deploy` is unreviewed
+          by machine as well as misplaced. That is not hypothetical: a chat status
+          shipped to `deploy` with no CSS rule and sat red on both platforms until
+          `dev` started receiving the work.
+
+          WHAT TO DO. Retarget at `dev`:
+
+              gh pr edit <number> --base dev
+
+          `deploy` contains `dev` by construction, so nothing is lost by going the
+          long way round -- and going the short way is how the long way stops
+          working.
+          MSG
+          exit 1

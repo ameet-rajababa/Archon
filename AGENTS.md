@@ -127,6 +127,8 @@ The governing rule is: **YAML coordinates. Code computes. Agents judge.** Read [
 ## Git and workspace safety
 
 - `main` is the release branch and `dev` is the working base. Never commit directly to either for feature work, and never force-push `main` or `master`.
+- **`deploy` is a pointer, not a base.** It names the commit this install is running, and it has exactly one writer: `scripts/deploy-local.sh` pushes `local/deploy` onto it as step 2 of a deploy. **Never open a pull request against it.** A merge arriving from GitHub is a second writer the deploy cannot see, so the next deploy pushes over it and the merge is silently reverted — the push is what makes the remote "correct", after which the script confirms the remote matches the SHA it just forced there. The route is: branch → pull request into `dev` → merge → merge `dev` into `deploy` → `scripts/request-deploy.sh`. `deploy` contains `dev` by construction, so nothing is lost by going the long way. Enforced by `.github/workflows/no-pr-into-deploy.yml`.
+- **Targeting `dev` is also what gets a change tested.** CI runs on pull requests into `main` and `dev` and on pushes to them. Work that lands anywhere else is unreviewed by machine, which is how a chat status once shipped with no CSS rule and sat red on both platforms until `dev` started receiving the work.
 - Preserve user changes, including untracked files. Do not use `git clean -fd`, destructive resets, or broad cleanup commands on user-owned workspaces.
 - Let git report conflicts and dirty state. Do not hide or automatically resolve a state the operator owns.
 - Hard reset is allowed only for an explicit reset mode on an Archon-owned checkout.
