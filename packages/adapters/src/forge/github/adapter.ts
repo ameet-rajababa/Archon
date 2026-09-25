@@ -13,6 +13,7 @@ import {
   ConversationNotFoundError,
   handleMessage,
   classifyAndFormatError,
+  notifyDrainRefusal,
   toError,
   getLinkedIssueNumbers,
   onConversationClosed,
@@ -1380,7 +1381,7 @@ ${userComment}`;
     );
 
     // 13. Route to orchestrator with isolation hints (with lock for concurrency control)
-    await this.lockManager.acquireLock(conversationId, async () => {
+    const acquisition = await this.lockManager.acquireLock(conversationId, async () => {
       try {
         await handleMessage(this, conversationId, finalMessage, {
           issueContext: contextToAppend,
@@ -1402,5 +1403,6 @@ ${userComment}`;
         }
       }
     });
+    await notifyDrainRefusal('github', this, conversationId, acquisition);
   }
 }

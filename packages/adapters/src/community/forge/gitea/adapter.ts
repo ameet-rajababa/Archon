@@ -13,6 +13,7 @@ import {
   ConversationNotFoundError,
   handleMessage,
   classifyAndFormatError,
+  notifyDrainRefusal,
   toError,
   onConversationClosed,
   type ConversationLockManager,
@@ -942,7 +943,7 @@ Use 'tea pr view ${String(pr.number)}' for full details if needed.`;
     );
 
     // 16. Route to orchestrator with isolation hints (with lock for concurrency control)
-    await this.lockManager.acquireLock(conversationId, async () => {
+    const acquisition = await this.lockManager.acquireLock(conversationId, async () => {
       try {
         await handleMessage(this, conversationId, finalMessage, {
           issueContext: contextToAppend,
@@ -961,5 +962,6 @@ Use 'tea pr view ${String(pr.number)}' for full details if needed.`;
         }
       }
     });
+    await notifyDrainRefusal('gitea', this, conversationId, acquisition);
   }
 }

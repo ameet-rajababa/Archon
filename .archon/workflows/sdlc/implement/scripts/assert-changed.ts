@@ -32,7 +32,10 @@
  *
  * A loop that ended with its checks unfinished (`incomplete`) fails before any of
  * that is asked, whatever it changed: its work was never verified, and the green
- * gates refuse the same cause with the same message.
+ * gates refuse the same cause with the same message. So does one that declared its
+ * red intended (`deliberate`): the work is real and the claim is taken as true, but
+ * no gate downstream carries red to a pull request, so failing here is the same
+ * answer delivered earlier and cheaper.
  *
  * Only UNCOMMITTED `.archon/` changes are excluded: Archon copies the operator's
  * workflow edits into every run worktree, so uncommitted `.archon/` files are not
@@ -54,7 +57,12 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { artifactsDir, refuse, report, trimmed } from '../../.shared/io.ts';
-import { PASSES_RED, passesRed, unfinishedValidation } from '../../.shared/verdict.ts';
+import {
+  deliberateRed,
+  PASSES_RED,
+  passesRed,
+  unfinishedValidation,
+} from '../../.shared/verdict.ts';
 
 /** A git read whose failure is a broken assumption, not a state to report on. */
 function gitBytes(...args: string[]): Buffer {
@@ -283,6 +291,9 @@ function decide(): Decision {
   const executionText = trimmed(process.env.ARCHON_NODE_EXECUTION);
   if (declaredCause === 'incomplete') {
     return { refusal: unfinishedValidation('The implementation', summary) };
+  }
+  if (declaredCause === 'deliberate') {
+    return { refusal: deliberateRed('The implementation', summary) };
   }
 
   let unknownReason: string | undefined;

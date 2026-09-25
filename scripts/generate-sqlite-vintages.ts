@@ -94,19 +94,17 @@ function extractSchemaSql(tag: string): string {
  * it, so deduplicating by content makes this the set of vintages a real install
  * can actually have, rather than a sample of recent releases.
  */
-function vintages(): Map<string, string> {
+/** Release tags, oldest first. Separate from {@link vintages} so the caller can
+ * decide what an empty set means — which differs between the two modes. */
+function tagList(): string[] {
   const tagResult = git('tag', '--sort=creatordate');
   if (!tagResult.ok) {
     throw new Error(`git tag failed: ${tagResult.stderr.trim() || '(no stderr)'}`);
   }
-  const tags = tagResult.stdout.split('\n').filter(Boolean);
-  if (tags.length === 0) {
-    // An empty tag set would make write mode delete every checked-in fixture
-    // while exiting 0; no release history means this script cannot run.
-    throw new Error(
-      'git tag listed no tags — cannot regenerate vintage fixtures (shallow or broken checkout?)'
-    );
-  }
+  return tagResult.stdout.split('\n').filter(Boolean);
+}
+
+function vintages(tags: string[]): Map<string, string> {
   const oldestTagPerSchema = new Map<string, string>();
   let withoutAdapter = 0;
 
@@ -151,8 +149,29 @@ function fixtureName(tag: string): string {
 }
 
 function main(): void {
+  const tags = tagList();
+  if (tags.length === 0) {
+    // No release history. The two modes need opposite answers here.
+    //
+    // CHECK: nothing could be compared, and "I had no baseline" is not "your
+    // fixtures are stale". Reporting it as staleness made this job fail on
+    // every pull request in a fork, which carries no tags — red for a reason
+    // that said nothing about the change. Reported plainly, and exits 0.
+    if (CHECK_ONLY) {
+      console.log('NOT VERIFIED: this repository has no release tags, so there are no');
+      console.log('vintage schemas to regenerate from. The checked-in fixtures were not');
+      console.log('compared against anything, and no staleness claim is made here.');
+      process.exit(0);
+    }
+    // WRITE: regenerating from an empty tag set would delete every checked-in
+    // fixture. Refusing is the whole point of this guard.
+    throw new Error(
+      'git tag listed no tags — cannot regenerate vintage fixtures (shallow or broken checkout?)'
+    );
+  }
+
   const expected = new Map<string, string>();
-  for (const [sql, tag] of vintages()) expected.set(fixtureName(tag), sql);
+  for (const [sql, tag] of vintages(tags)) expected.set(fixtureName(tag), sql);
 
   // No-exist is the normal first run; recursive keeps this idempotent afterwards.
   mkdirSync(FIXTURES_DIR, { recursive: true });

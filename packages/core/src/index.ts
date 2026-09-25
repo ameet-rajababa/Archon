@@ -193,7 +193,13 @@ export {
 // =============================================================================
 
 // Conversation lock
-export { ConversationLockManager, type LockAcquisitionResult } from './utils/conversation-lock';
+export {
+  ConversationLockManager,
+  DRAIN_REFUSAL_NOTICE,
+  type DrainStatus,
+  type LockAcquisitionResult,
+  notifyDrainRefusal,
+} from './utils/conversation-lock';
 
 // Webhook delivery dedup
 export { DeliveryDeduplicator } from './utils/delivery-dedup';

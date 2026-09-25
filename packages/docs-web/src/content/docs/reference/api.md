@@ -8,7 +8,7 @@ sidebar:
   order: 6
 ---
 
-Archon exposes a REST API via a [Hono](https://hono.dev/) server with OpenAPI spec generation. All endpoints are prefixed with `/api/`.
+Archon exposes a REST API via a [Hono](https://hono.dev/) server with OpenAPI spec generation. All endpoints are prefixed with `/api/`, except the host-only `/internal/*` surface -- see [Drain](#drain) -- which is unprefixed, authenticated, and must never be proxied.
 
 ## Base URL
 
@@ -32,7 +32,7 @@ You can feed this into tools like Swagger UI or use it to generate typed API cli
 
 ## Authentication
 
-None. Archon is a single-developer tool -- there is no authentication on the API by default. If you expose Archon on a network, use a reverse proxy or firewall to restrict access.
+None. Archon is a single-developer tool -- there is no authentication on the API by default. If you expose Archon on a network, use a reverse proxy or firewall to restrict access. The `/internal/*` routes are the exception: they carry their own bearer token and only exist when it is configured.
 
 ---
 
@@ -50,6 +50,64 @@ curl http://localhost:3090/health
 curl http://localhost:3090/api/health
 # {"status":"ok","adapter":"...","concurrency":{...},"runningWorkflows":0}
 ```
+
+While the server is draining (see below), `/api/health` also carries a `drain` block
+naming what is still held:
+
+```json
+{
+  "drain": {
+    "state": "draining",
+    "requestedAt": "2026-09-23T19:00:00.000Z",
+    "expiresAt": "2026-09-23T19:30:00.000Z",
+    "refusedCount": 4,
+    "holding": { "activeConversations": 1, "queuedMessages": 0, "runningWorkflows": 2 }
+  }
+}
+```
+
+`state` is `drained` only when all three `holding` counts are zero. The key is absent
+entirely when the server is not draining.
+
+---
+
+## Drain
+
+A deploy that recreates the container needs the server to be holding nothing at the
+moment of the swap. Drain makes that moment instead of waiting for one: the server
+stops admitting new conversation turns and workflow continuations, finishes what it
+already holds, and reports `drain.state: "drained"` on `/api/health` once it holds
+nothing. Work already in flight always runs to completion -- drain never cancels,
+fails, or abandons a run.
+
+A message that arrives during drain is refused with `503` and a message the sender can
+act on; it is never silently dropped. Messages already queued before drain began still
+run.
+
+These endpoints exist only when `ARCHON_DRAIN_TOKEN` is set, and require it as a bearer
+token. Like every `/internal/*` path they are host-only -- your reverse proxy must not
+forward them.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/internal/drain` | Begin draining for `budgetSeconds` (1--3600) |
+| DELETE | `/internal/drain` | Stop draining and accept work again (idempotent) |
+
+```bash
+curl -X POST http://127.0.0.1:3090/internal/drain \
+  -H "Authorization: Bearer $ARCHON_DRAIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"budgetSeconds": 1800}'
+# {"requestedAt":"...","expiresAt":"...","refusedCount":0}
+
+curl -X DELETE http://127.0.0.1:3090/internal/drain \
+  -H "Authorization: Bearer $ARCHON_DRAIN_TOKEN"
+# {"draining":false}
+```
+
+The budget is mandatory and lapses on its own, so a deploy that dies mid-drain cannot
+leave a server refusing work forever. A deploy whose budget expires before the server
+drains should deploy nothing and say so -- the box is still running what it was.
 
 ---
 

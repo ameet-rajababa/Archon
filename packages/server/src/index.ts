@@ -84,6 +84,7 @@ import { DashboardEventPoller } from './adapters/web/dashboard-event-poller';
 import { PgNotifyListener } from './adapters/web/pg-notify-listener';
 import { registerApiRoutes } from './routes/api';
 import { registerGithubWebhookRoute, registerWebhookSourceRoutes } from './routes/webhooks';
+import { registerInternalDrainRoutes } from './routes/internal-drain';
 import { loadWebhookSourcePlugins } from './services/webhook-source-plugins';
 import { createServerResourceStartHost } from './services/resource-start-hosting';
 import {
@@ -112,6 +113,7 @@ import {
   assertEncryptionKeyAtBoot,
   assertProviderKeysKeyAtBoot,
   getDecryptedAccessToken,
+  notifyDrainRefusal,
   type GitHubAuth,
   type IGitHubAppAuthProvider,
 } from '@archon/core';
@@ -604,6 +606,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<void> {
               userId,
             });
           })
+          .then(result => notifyDrainRefusal('Discord', discordAdapter, conversationId, result))
           .catch(createMessageErrorHandler('Discord', discordAdapter, conversationId));
       });
 
@@ -681,6 +684,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<void> {
               userId,
             });
           })
+          .then(result => notifyDrainRefusal('Slack', slackAdapter, conversationId, result))
           .catch(createMessageErrorHandler('Slack', slackAdapter, conversationId));
       });
 
@@ -717,8 +721,16 @@ export async function startServer(opts: ServerOptions = {}): Promise<void> {
   const resourceStartHost = resourceStartHostId
     ? createServerResourceStartHost(resourceStartHostId)
     : undefined;
+  // Unrelated to server drain despite the shared word: this one pulls queued trigger
+  // requests INTO execution. While the server is draining it must not, or the box
+  // would start fresh runs it is trying to finish holding. A webhook receipt still
+  // commits — that write is durable — so the requests stay pending for the
+  // replacement container to admit.
   const requestResourceStartDrain = resourceStartHost
-    ? (): void => void resourceStartHost.requestDrain()
+    ? (): void => {
+        if (lockManager.isDraining()) return;
+        void resourceStartHost.requestDrain();
+      }
     : undefined;
 
   // Global error handler for unhandled exceptions
@@ -816,6 +828,13 @@ export async function startServer(opts: ServerOptions = {}): Promise<void> {
       }
     });
     getLog().info('internal_git_credential_endpoint_registered');
+  }
+
+  // Internal endpoint: drain control. Registered only when a token is configured,
+  // so the default install gains no new surface. See ./routes/internal-drain.
+  const drainToken = process.env.ARCHON_DRAIN_TOKEN?.trim();
+  if (drainToken) {
+    registerInternalDrainRoutes(app, lockManager, drainToken);
   }
 
   // Gitea webhook endpoint
@@ -924,6 +943,11 @@ export async function startServer(opts: ServerOptions = {}): Promise<void> {
   // firewall externally (so loopback bind would block their reverse proxy's
   // upstream) can opt out via ARCHON_ALLOW_INTERNAL_ON_PUBLIC_BIND=1.
   //
+  // Scope is deliberate: this does not arm for /internal/drain, which carries its
+  // own bearer token (see ./routes/internal-drain). A fatal guard that fires only
+  // in App mode cannot be widened to an endpoint any operator can enable without
+  // refusing to start the default Docker bind.
+  //
   // Runs BEFORE Bun.serve so a rejected config never opens the listening
   // socket — even briefly — and `server_listening` is never logged.
   if (githubAppAuthProvider && hostname !== '127.0.0.1' && hostname !== 'localhost') {
@@ -994,6 +1018,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<void> {
               userId,
             });
           })
+          .then(result => notifyDrainRefusal('Telegram', telegramAdapter, conversationId, result))
           .catch(createMessageErrorHandler('Telegram', telegramAdapter, conversationId));
       }
     );
@@ -1018,30 +1043,34 @@ export async function startServer(opts: ServerOptions = {}): Promise<void> {
   for (const platform of [webAdapter, github, gitea, gitlab, discord, slack, telegram]) {
     if (platform !== null) workflowPlatforms.set(platform.getPlatformType(), platform);
   }
-  startWorkflowContinuationScheduler(async run => {
-    const conversation = await conversationDb.getConversationById(
-      workflowResumeConversationId(run)
-    );
-    if (!conversation) {
-      return { kind: 'unavailable', reason: 'origin conversation no longer exists' };
-    }
-    if (run.parent_conversation_id !== null) {
-      const parent = await conversationDb.getConversationById(run.parent_conversation_id);
-      if (!parent?.platform_conversation_id) {
-        return { kind: 'unavailable', reason: 'parent conversation no longer exists' };
-      }
-      if (!conversation.platform_conversation_id) {
-        return { kind: 'unavailable', reason: 'worker conversation has no platform id' };
-      }
-      return workflowResumeTargetForConversation(
-        parent,
-        workflowPlatforms,
-        conversation.platform_conversation_id,
-        parent.platform_conversation_id
+  startWorkflowContinuationScheduler(
+    async run => {
+      const conversation = await conversationDb.getConversationById(
+        workflowResumeConversationId(run)
       );
-    }
-    return workflowResumeTargetForConversation(conversation, workflowPlatforms);
-  }, requestResourceStartDrain);
+      if (!conversation) {
+        return { kind: 'unavailable', reason: 'origin conversation no longer exists' };
+      }
+      if (run.parent_conversation_id !== null) {
+        const parent = await conversationDb.getConversationById(run.parent_conversation_id);
+        if (!parent?.platform_conversation_id) {
+          return { kind: 'unavailable', reason: 'parent conversation no longer exists' };
+        }
+        if (!conversation.platform_conversation_id) {
+          return { kind: 'unavailable', reason: 'worker conversation has no platform id' };
+        }
+        return workflowResumeTargetForConversation(
+          parent,
+          workflowPlatforms,
+          conversation.platform_conversation_id,
+          parent.platform_conversation_id
+        );
+      }
+      return workflowResumeTargetForConversation(conversation, workflowPlatforms);
+    },
+    requestResourceStartDrain,
+    () => lockManager.isDraining()
+  );
   if (resourceStartHostId)
     getLog().info({ hostId: resourceStartHostId }, 'resource_start_host_enabled');
 

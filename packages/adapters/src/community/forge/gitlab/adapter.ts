@@ -12,6 +12,7 @@ import {
   ConversationNotFoundError,
   handleMessage,
   classifyAndFormatError,
+  notifyDrainRefusal,
   toError,
   onConversationClosed,
   type ConversationLockManager,
@@ -787,7 +788,7 @@ Use 'glab mr view ${String(mr.iid)}' for full details and 'glab mr diff ${String
         'gitlab.thread_context_loaded'
       );
 
-      await this.lockManager.acquireLock(conversationId, async () => {
+      const acquisition = await this.lockManager.acquireLock(conversationId, async () => {
         try {
           await handleMessage(this, conversationId, finalMessage, {
             issueContext: contextToAppend,
@@ -809,6 +810,7 @@ Use 'glab mr view ${String(mr.iid)}' for full details and 'glab mr diff ${String
           }
         }
       });
+      await notifyDrainRefusal('gitlab', this, conversationId, acquisition);
     } catch (error) {
       const err = toError(error);
       const conversationId = this.buildConversationId(projectPath, iid, isMR);

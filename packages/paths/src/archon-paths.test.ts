@@ -348,7 +348,12 @@ describe('archon-paths', () => {
     test('is under ARCHON_HOME, not under the web dist', () => {
       delete process.env.ARCHON_DOCKER;
       process.env.ARCHON_HOME = '/custom/archon';
-      expect(getArchonPublicPath().startsWith('/custom/archon')).toBe(true);
+      // Compared against a join()ed expectation rather than the raw literal:
+      // join() yields backslashes on Windows, so a '/custom/archon' prefix test
+      // is false there for a path that is perfectly correct. The assertion is
+      // about WHERE the directory sits, not which separator the platform spells
+      // it with.
+      expect(getArchonPublicPath().startsWith(join('/custom/archon'))).toBe(true);
       expect(getArchonPublicPath()).not.toContain('dist');
     });
 

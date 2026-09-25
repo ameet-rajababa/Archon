@@ -18,6 +18,7 @@
  */
 import { describe, test, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { createHmac } from 'crypto';
+import { DRAIN_REFUSAL_NOTICE, notifyDrainRefusal } from '@archon/core/utils/conversation-lock';
 
 // --- Module mocks (must be before imports that use them) ---
 
@@ -72,6 +73,8 @@ mock.module('@archon/core', () => ({
   onConversationClosed: mock(async () => {}),
   getArchonWorkspacesPath: () => '/workspace',
   getCommandFolderSearchPaths: () => [],
+  DRAIN_REFUSAL_NOTICE,
+  notifyDrainRefusal,
   ConversationLockManager: class {
     async acquireLock(_id: string, handler: () => Promise<void>): Promise<{ status: 'started' }> {
       await handler();
