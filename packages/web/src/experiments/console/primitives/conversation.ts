@@ -71,6 +71,14 @@ export interface ConversationSummary {
    * reader to any browser rather than living in one machine's localStorage.
    */
   sortOrder: number | null;
+  /**
+   * When a human last read this chat to the end, or null for never.
+   *
+   * Only meaningful beside `lastActivityAt` — unread is the pair, not either
+   * one. Carried raw so the comparison happens in one place (`unreadIds`)
+   * rather than being decided here and again wherever the rail draws.
+   */
+  lastReadAt: string | null;
   /** Short summary of the chat, or null when nothing has written one yet. */
   /** When the summary was last written — what makes staleness visible. */
   /** True when a human wrote it, so the agent leaves it alone. */
@@ -87,6 +95,7 @@ interface RawConversation {
   completed_at?: string | null;
   sort_order?: number | null;
   ask_candidate?: string | null;
+  last_read_at?: string | null;
 }
 
 /**
@@ -110,6 +119,10 @@ export function toConversationSummary(raw: RawConversation): ConversationSummary
     // `?? null` covers a server that predates the column, which reads as
     // never arranged rather than as position zero.
     sortOrder: raw.sort_order ?? null,
+    // Absent — including from a server that predates the column — reads as
+    // never read. That over-reports unread rather than hiding a message, which
+    // is the only direction this may fail in.
+    lastReadAt: raw.last_read_at ?? null,
   };
 }
 

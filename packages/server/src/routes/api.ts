@@ -768,6 +768,29 @@ const setConversationOrderRoute = createRoute({
   },
 });
 
+/**
+ * Mark a chat read, clearing the rail's unread mark.
+ *
+ * A POST rather than a PATCH on the conversation: the client is not editing a
+ * field it chose a value for, it is reporting that a human reached the bottom
+ * of the stream. The server owns the timestamp, so there is no body.
+ */
+const markConversationReadRoute = createRoute({
+  method: 'post',
+  path: '/api/conversations/{id}/read',
+  tags: ['Conversations'],
+  summary: 'Record that a human has read this chat to the end',
+  request: { params: conversationIdParamsSchema },
+  responses: {
+    200: {
+      content: { 'application/json': { schema: successResponseSchema } },
+      description: 'Marked read',
+    },
+    404: jsonError('Not found'),
+    500: jsonError('Server error'),
+  },
+});
+
 const deleteConversationRoute = createRoute({
   method: 'delete',
   path: '/api/conversations/{id}',
@@ -2849,6 +2872,7 @@ export function registerApiRoutes(
       updated_at: toISOString(row.updated_at),
       deleted_at: toISOString(row.deleted_at),
       completed_at: toISOString(row.completed_at),
+      last_read_at: toISOString(row.last_read_at),
       last_activity_at: toISOString(row.last_activity_at),
     };
   }
@@ -3113,6 +3137,25 @@ export function registerApiRoutes(
       }
       getLog().error({ err: error }, 'update_conversation_failed');
       return apiError(c, 500, 'Failed to update conversation');
+    }
+  });
+
+  // POST /api/conversations/:id/read - Clear the unread mark
+  registerOpenApiRoute(markConversationReadRoute, async c => {
+    const platformId = c.req.param('id') ?? '';
+    try {
+      const conv = await conversationDb.findConversationByPlatformId(platformId);
+      if (!conv) {
+        return apiError(c, 404, 'Conversation not found');
+      }
+      await conversationDb.markConversationRead(conv.id);
+      return c.json({ success: true });
+    } catch (error) {
+      if (error instanceof ConversationNotFoundError) {
+        return apiError(c, 404, 'Conversation not found');
+      }
+      getLog().error({ err: error, platformId }, 'mark_conversation_read_failed');
+      return apiError(c, 500, 'Failed to mark conversation read');
     }
   });
 

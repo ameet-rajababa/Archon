@@ -166,6 +166,21 @@ export async function setConversationCompleted(
   );
 }
 
+/**
+ * Record that the reader has reached the bottom of this chat.
+ *
+ * The only thing that clears the rail's unread mark. A POST with no body: the
+ * client is not choosing a value, it is reporting an event, and the server owns
+ * the timestamp — two clocks deciding what "now" means is how a mark ends up
+ * clearing itself a second before the message that set it.
+ */
+export async function markConversationRead(conversationPlatformId: string): Promise<void> {
+  await requestJson<{ success: boolean }>(
+    `/api/conversations/${encodeURIComponent(conversationPlatformId)}/read`,
+    { method: 'POST' }
+  );
+}
+
 export async function sendMessage(
   conversationPlatformId: string,
   message: string,

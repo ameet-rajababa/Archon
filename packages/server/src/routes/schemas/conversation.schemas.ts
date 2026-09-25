@@ -12,6 +12,7 @@ export const conversationSchema = conversationRowSchema
     updated_at: z.string().datetime(),
     deleted_at: z.string().datetime().nullable(),
     completed_at: z.string().datetime().nullable(),
+    last_read_at: z.string().datetime().nullable(),
     last_activity_at: z.string().datetime().nullable(),
   })
   .openapi('Conversation');

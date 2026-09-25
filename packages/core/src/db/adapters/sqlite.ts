@@ -376,6 +376,23 @@ export class SqliteAdapter implements IDatabase {
           'UPDATE remote_agent_conversations SET completed_at = deleted_at, deleted_at = NULL WHERE deleted_at IS NOT NULL'
         );
       }
+      // Nullable with no default: NULL means "never read", which is the right
+      // answer for a chat nobody has opened. An older binary never writes it,
+      // so it stays NULL and the chat reads as unread — the safe direction,
+      // since an over-reported mark is visible and an under-reported one hides
+      // a message.
+      if (!colNames.has('last_read_at')) {
+        this.db.run('ALTER TABLE remote_agent_conversations ADD COLUMN last_read_at TEXT');
+        // Migration 033, inside the column-add guard so it happens exactly
+        // once. Every row that predates this column answers "never read" for
+        // want of anywhere to record the answer, not because nobody read it.
+        // Left alone, the first boot after the upgrade paints the whole
+        // history amber — which is exactly the failure the column exists to
+        // prevent. Rows created after keep NULL until someone reads them.
+        this.db.run(
+          'UPDATE remote_agent_conversations SET last_read_at = last_activity_at WHERE last_activity_at IS NOT NULL'
+        );
+      }
       // Indexes must be created here, not in createSchema(): these columns don't
       // exist on older databases until the ALTER TABLE statements above run, and
       // CREATE INDEX on a missing column aborts the entire createSchema()
@@ -743,6 +760,7 @@ export class SqliteAdapter implements IDatabase {
         sort_order INTEGER,
         title_pinned INTEGER DEFAULT 0,
         completed_at TEXT,
+        last_read_at TEXT,
         deleted_at TEXT,
         hidden INTEGER DEFAULT 0,
         user_id TEXT REFERENCES remote_agent_users(id) ON DELETE SET NULL,
