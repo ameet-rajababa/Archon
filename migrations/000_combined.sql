@@ -394,6 +394,24 @@ BEGIN
 END
 $migration_033$;
 
+-- From migration 034: the agent's claim that this chat's work is finished,
+-- pending a human's judgement.
+--
+-- `completed_at` below is the HUMAN's answer; this is the agent's, and the two
+-- are deliberately separate columns because they are different assertions by
+-- different parties. Between them sits the state the rail could not express:
+-- nothing is running, and someone should decide.
+--
+-- No guard and no backfill, unlike 033 above, and the asymmetry is the point:
+-- there the default was wrong for history, so every old row had to be corrected
+-- before the first boot painted the rail amber. Here NULL is the OFF state and
+-- is truthful for every row that predates the column — no agent ever declared
+-- those finished, because there was no way to. A plain ADD COLUMN IF NOT EXISTS
+-- is therefore the whole migration, and re-running it on every boot changes
+-- nothing.
+ALTER TABLE remote_agent_conversations
+  ADD COLUMN IF NOT EXISTS ready_at TIMESTAMP WITH TIME ZONE;
+
 -- From migrations 031 and 032: the chat's unit of work is finished, and every
 -- chat archived before the column existed becomes a finished one.
 --
@@ -836,6 +854,8 @@ COMMENT ON COLUMN remote_agent_conversations.completed_at IS
   'When a human marked this chat''s unit of work finished. NULL means not finished. Independent of deleted_at: done says the work landed, archived says stop showing it.';
 COMMENT ON COLUMN remote_agent_conversations.last_read_at IS
   'When a human last read this chat to the end. Unread is last_activity_at > last_read_at; NULL means never read.';
+COMMENT ON COLUMN remote_agent_conversations.ready_at IS
+  'When the agent declared this chat''s work finished, pending a human''s judgement. Cleared when a human marks it done or sends another message. NULL means no claim. Distinct from completed_at, which is the human''s answer.';
 
 -- Sessions
 CREATE INDEX IF NOT EXISTS idx_remote_agent_sessions_conversation

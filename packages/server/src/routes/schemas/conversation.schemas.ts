@@ -13,6 +13,7 @@ export const conversationSchema = conversationRowSchema
     deleted_at: z.string().datetime().nullable(),
     completed_at: z.string().datetime().nullable(),
     last_read_at: z.string().datetime().nullable(),
+    ready_at: z.string().datetime().nullable(),
     last_activity_at: z.string().datetime().nullable(),
   })
   .openapi('Conversation');
@@ -103,6 +104,11 @@ export const createConversationResponseSchema = z
  * `archived` and `completed` are separate fields because they are separate
  * questions: done says the chat's unit of work landed, archived says stop
  * listing it. Either can be true without the other.
+ *
+ * `ready` is a third, and it is the agent's field rather than a human's: it says
+ * the agent believes the work is finished and is waiting to be told. It is kept
+ * out of `completed` so that an agent can never close its own work — and so a
+ * reader can always tell which of the two parties spoke.
  */
 export const updateConversationBodySchema = z
   .object({
@@ -115,6 +121,11 @@ export const updateConversationBodySchema = z
     // leaves it alone — the same rule as `archived`, and for the same reason:
     // a rename must not decide whether the work is done.
     completed: z.boolean().optional(),
+    // true records the AGENT's claim that the work is finished, false withdraws
+    // it. Separate from `completed` because they are assertions by different
+    // parties: this one asks for a judgement, that one is the judgement. Setting
+    // `completed: true` also clears this, since the claim has been answered.
+    ready: z.boolean().optional(),
   })
   .openapi('UpdateConversationBody');
 

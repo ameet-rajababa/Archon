@@ -414,6 +414,7 @@ export function ChatPage(): ReactElement {
 
   /** Finished chats, read off the same rows the rail draws. */
   const doneIds = useMemo(() => completedIds(conversations ?? []), [conversations]);
+  const readySet = useMemo(() => readyIds(conversations ?? []), [conversations]);
 
   /**
    * Chats with unseen activity, off the same rows.
@@ -425,9 +426,6 @@ export function ChatPage(): ReactElement {
    */
   const unread = useMemo(() => unreadIds(conversations ?? []), [conversations]);
 
-  /** Same flag the rail reads: finished by the agent, not yet filed by a person. */
-  const ready = useMemo(() => readyIds(conversations ?? []), [conversations]);
-
   /** The status of the chat being READ. Same six states and same ordering as
    * every row in the rail — `chatStatus` owns the precedence. */
   const status: ChatStatus =
@@ -437,8 +435,8 @@ export function ChatPage(): ReactElement {
           working: railLiveIds,
           awaiting: awaitingIds,
           unread,
-          ready,
           done: doneIds,
+          ready: readySet,
         });
 
   // Belt and braces: an echo must never outlive its turn. If the reply has
