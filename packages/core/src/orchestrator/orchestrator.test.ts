@@ -963,7 +963,7 @@ describe('orchestrator-agent handleMessage', () => {
     // that killed the two previous attempts at this signal (see the console's
     // primitives/chat-status.ts). Pinned here rather than left to the rail,
     // because nothing in the UI can withdraw it.
-    test('a human message withdraws the agent\'s ready claim', async () => {
+    test("a human message withdraws the agent's ready claim", async () => {
       mockClient.sendQuery.mockImplementation(async function* () {
         yield { type: 'result', sessionId: 'session-id' };
       });

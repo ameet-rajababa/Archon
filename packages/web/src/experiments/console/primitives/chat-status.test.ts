@@ -111,7 +111,12 @@ describe('readyIds', () => {
   // last word was the agent's produces an EMPTY set — which is what keeps
   // `idle` reachable.
   test('nothing is derived — a chat that has merely finished speaking is not ready', () => {
-    expect([...readyIds([{ id: 'a', ready: false }, { id: 'b', ready: false }])]).toEqual([]);
+    expect([
+      ...readyIds([
+        { id: 'a', ready: false },
+        { id: 'b', ready: false },
+      ]),
+    ]).toEqual([]);
   });
 });
 
@@ -204,14 +209,20 @@ describe('chatStatus when the working signal is missing', () => {
   // that matters now is a different one: membership has to be EARNED by the
   // comparison in `unreadIds`, and an empty set still falls to silence.
   test('the agent having spoken last is not a call for help', () => {
-    expect(chatStatus('a', { working: none, awaiting: none, done: none, unread: none, ready: none })).toBe(
-      'idle'
-    );
+    expect(
+      chatStatus('a', { working: none, awaiting: none, done: none, unread: none, ready: none })
+    ).toBe('idle');
   });
 
   test('an unknown answer falls to silence, never to amber', () => {
     expect(
-      chatStatus('unheard-of', { working: none, awaiting: none, done: none, unread: none, ready: none })
+      chatStatus('unheard-of', {
+        working: none,
+        awaiting: none,
+        done: none,
+        unread: none,
+        ready: none,
+      })
     ).toBe('idle');
   });
 
