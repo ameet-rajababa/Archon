@@ -42,6 +42,10 @@ DEPLOY_DIR="${DEPLOY_DIR:-/opt/archon}"
 SOURCE_BRANCH="${SOURCE_BRANCH:-local/deploy}"
 REMOTE="${REMOTE:-fork}"
 REMOTE_BRANCH="${REMOTE_BRANCH:-deploy}"
+# What `deploy` must never get ahead of. Named here so the guard in step 1 and
+# the message it fails with cannot disagree about which branch is the source of
+# truth.
+DEV_BRANCH="${DEV_BRANCH:-dev}"
 SERVICE="${SERVICE:-app}"
 HEALTH_URL="${HEALTH_URL:-http://localhost:3000/api/health}"
 # The deadline of the systemd service that runs this deploy (TimeoutStartSec),
@@ -163,6 +167,16 @@ DIRTY_COUNT=$(in_container "git -C '$SOURCE_DIR' status --porcelain --untracked-
 if [ "${DIRTY_COUNT:-0}" != "0" ]; then
   printf '\033[33mnote: %s uncommitted file(s) in the source checkout — they will NOT be deployed\033[0m\n' "$DIRTY_COUNT"
 fi
+
+# THE INVARIANT: the commit being deployed is already on `dev`. Checked HERE,
+# before step 2 pushes it to `deploy`, because after that push the mistake is
+# published. Run in the SOURCE checkout through the container: that is the only
+# place that has both this commit and a `dev` ref to compare it against — the
+# host's build context is still on the previous commit until step 3.
+#
+# See scripts/assert-deploy-on-dev.sh for why `deploy` is a pointer.
+in_container "cd '$SOURCE_DIR' && bash scripts/assert-deploy-on-dev.sh '$SHA'" \
+  || die "$SHA is not on $DEV_BRANCH — merge it to $DEV_BRANCH first; deploy only points at commits $DEV_BRANCH has"
 
 # ── 2. Ask GitHub what it has, and push only if it is behind ────────────────
 # ASKED FIRST, pushed second. The requester pushes before it writes the request

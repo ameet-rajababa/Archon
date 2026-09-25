@@ -1,0 +1,31 @@
+name: Deploy Pointer
+
+# `deploy` is a pointer at a commit `dev` already has, never a branch with work
+# of its own. This job fails when that stops being true.
+#
+# It is the SECOND line of defence. The deploy scripts refuse the same thing
+# offline and instantly (scripts/assert-deploy-on-dev.sh), which is where the
+# mistake actually gets made; this catches a push that went around them.
+on:
+  push:
+    branches: [deploy]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-is-on-dev:
+    name: deploy must already be on dev
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The check is a commit-range question, so a shallow clone cannot
+          # answer it.
+          fetch-depth: 0
+      - name: Assert every commit on deploy is already on dev
+        env:
+          # On GitHub the fork IS the origin; in a working checkout it is `fork`.
+          REMOTE: origin
+        run: bash scripts/assert-deploy-on-dev.sh HEAD

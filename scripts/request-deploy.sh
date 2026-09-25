@@ -45,6 +45,15 @@ if [ "$DIRTY" != "0" ]; then
   echo "note: $DIRTY uncommitted file(s) — they will NOT be deployed"
 fi
 
+# THE INVARIANT: this commit is already on `dev`. Checked before the push, so a
+# commit that only exists on `deploy` never reaches the remote at all — and
+# before the request is written, so the host is never asked to build it.
+#
+# See scripts/assert-deploy-on-dev.sh for why `deploy` is a pointer and why
+# there is no way to skip this.
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+"$script_dir/assert-deploy-on-dev.sh" "$SHA"
+
 # THE PUSH BELONGS HERE, not in the host's deploy. This container is the half
 # that holds GitHub credentials: the session's token is injected per call by the
 # env-var store and is NOT in the container's own environment, so a push issued
