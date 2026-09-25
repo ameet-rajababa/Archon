@@ -30,6 +30,20 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { trackTempRoots } from '@archon/paths/test-utils';
 
+/**
+ * POSIX only. These tests drive real shell scripts — they spawn `bash`, write
+ * executable stubs onto PATH with a `#!/usr/bin/env bash` shebang, and rely on
+ * `chmod` actually granting execute. Windows has none of that, and neither does
+ * the thing under test: `deploy-local.sh` and `deploy-on-request.sh` run as root
+ * on the Linux host that owns the Docker daemon, and can never run anywhere else.
+ *
+ * Skipped rather than ported, because a Windows-compatible version of these would
+ * be exercising a deployment that does not exist. The suites became visible to the
+ * Windows CI job when the deploy scripts reached `dev`; before that they lived only
+ * on `local/deploy`, which no Windows runner builds.
+ */
+const describePosix = process.platform === 'win32' ? describe.skip : describe;
+
 const trackTempRoot = trackTempRoots();
 
 const REPO_ROOT = join(import.meta.dir, '..');
@@ -211,7 +225,7 @@ async function run(box: Sandbox, env: Record<string, string> = {}): Promise<Resu
 
 const methods = (result: Result): string[] => result.drainCalls.map(([method]) => method);
 
-describe('an install with no drain token', () => {
+describePosix('an install with no drain token', () => {
   test('keeps waiting for a turn-gap, exactly as it did before drain existed', async () => {
     const result = await run(sandbox('no-token', 'SOMETHING_ELSE=1\n'));
 
@@ -238,7 +252,7 @@ describe('an install with no drain token', () => {
   });
 });
 
-describe('an install with a drain token', () => {
+describePosix('an install with a drain token', () => {
   test('arms drain, waits, swaps, and never falls back to polling', async () => {
     const result = await run(sandbox('armed', `ARCHON_DRAIN_TOKEN=${TOKEN}\n`));
 
@@ -304,7 +318,7 @@ describe('an install with a drain token', () => {
   });
 });
 
-describe('drain is cancelled on every path that does not swap', () => {
+describePosix('drain is cancelled on every path that does not swap', () => {
   const withToken = (name: string): Sandbox => sandbox(name, `ARCHON_DRAIN_TOKEN=${TOKEN}\n`);
 
   test('a box that never finishes what it holds is its own message', async () => {
@@ -421,7 +435,7 @@ exit 0
   }, 20_000);
 });
 
-describe('SKIP_TURN_GAP keeps meaning what it means', () => {
+describePosix('SKIP_TURN_GAP keeps meaning what it means', () => {
   test('it swaps immediately and does not quietly become a drain', async () => {
     // Drain finishes the work; this discards it. Conflating them would hand an
     // operator who asked to lose work a deploy that waited instead, and vice versa.
@@ -436,7 +450,7 @@ describe('SKIP_TURN_GAP keeps meaning what it means', () => {
   });
 });
 
-describe('a health url the drain endpoint cannot be derived from', () => {
+describePosix('a health url the drain endpoint cannot be derived from', () => {
   test('is refused rather than guessed at', async () => {
     const result = await run(sandbox('odd-url', `ARCHON_DRAIN_TOKEN=${TOKEN}\n`), {
       HEALTH_URL: 'http://localhost:3000/healthz',
