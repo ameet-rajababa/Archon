@@ -11,15 +11,30 @@
 # cannot be checked against what the asker actually meant.
 #
 # THIS SCRIPT DOES NOT SEE THE OUTCOME. It writes the request and returns; the
-# host builds for minutes afterwards and then waits for a moment when no chat
-# is mid-turn before it swaps. So it prints where the outcome will be instead.
-# Read /.archon/deploy-last.log afterwards.
+# host builds for minutes afterwards, then drains the server and swaps. So it
+# prints where the outcome will be instead. Read /.archon/deploy-last.log
+# afterwards, and /.archon/deploy-history for the verdict, which outlives it.
 #
 # The swap no longer ends the asking session, as long as that session is not
 # mid-turn when it happens: a conversation's provider session id is persisted,
-# so an open chat resumes with its context intact. Keep talking to it and the
-# wait keeps waiting — the deploy will not take a turn out from under you, and
-# it will not proceed until you stop.
+# so an open chat resumes with its context intact.
+#
+# THEN GO QUIET. THE CHAT THAT ASKS IS THE CHAT THAT BLOCKS.
+#
+# Drain stops the server ADMITTING work; it cannot end a turn already in flight,
+# and it waits for every one of them. This conversation holds the conversation
+# lock for the whole of each turn, so every message sent here — and every tool
+# call an agent makes in reply — is one of the things the deploy is waiting for.
+#
+# That is not a theoretical risk. On 2026-09-25 an agent requested a deploy and
+# then woke itself every twenty minutes to check on it. The drain log read
+# `draining: 1 chat mid-turn` for 3116 seconds and the deploy failed; the chat
+# holding it was the one that had asked. Requested again and left alone, the same
+# commit reached `drained` on the first poll and was live in eleven minutes.
+#
+# So the contract is: ask, then say nothing to this chat until it is done.
+# Progress cannot be reported from inside it, because reporting is a turn, and a
+# turn is what the deploy is waiting to end. Silence is the mechanism working.
 set -euo pipefail
 
 VOLUME="${VOLUME:-/.archon}"
@@ -103,6 +118,20 @@ printf '%s\n' "$SHA" >"$REQUEST"
 echo "requested $SHA"
 git log --oneline -1
 echo
-echo "The host builds now, then waits for a moment when nothing is mid-turn."
-echo "This chat is one of those — it will not swap while you are mid-turn."
-echo "Afterwards: cat /.archon/deploy-last.log"
+# Timings, not a promise. They are the shape of the thing rather than a
+# prediction: printed because "no news" is otherwise indistinguishable from a
+# deploy that died, and somebody watching had no way to tell which they had.
+echo "The host builds now, then drains the server and swaps."
+echo
+echo "  ~1-3 min   build (cached layers make a repeat commit fast)"
+echo "  then       drain: it waits for every chat mid-turn to finish"
+echo "  ~2-3 min   swap, cold start, health check, verify the running SHA"
+echo
+echo "NOW LEAVE THIS CHAT ALONE. Every message here, and every tool call made in"
+echo "reply, holds the conversation lock — and the drain is waiting for exactly"
+echo "that to stop. A chat that keeps checking on its own deploy is the reason it"
+echo "never lands."
+echo
+echo "Verdict:  tail -1 /.archon/deploy-history"
+echo "Detail:   cat /.archon/deploy-last.log"
+echo "No new deploy-history line within ~15 minutes of an idle box means it failed."

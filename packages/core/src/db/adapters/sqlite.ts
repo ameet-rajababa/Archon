@@ -412,6 +412,17 @@ export class SqliteAdapter implements IDatabase {
           'UPDATE remote_agent_conversations SET last_read_at = last_activity_at WHERE last_activity_at IS NOT NULL'
         );
       }
+      // Nullable with no default, and deliberately no backfill. NULL is the OFF
+      // state and it is truthful for every row that predates the column: no
+      // agent ever declared those finished, because there was no way to. That
+      // is the difference from `last_read_at` above, where the default answer
+      // was wrong for history and had to be corrected before the first boot.
+      // An older binary never writes it, so the mark is simply absent — which
+      // under-reports rather than over-reports, the only direction this may
+      // fail in.
+      if (!colNames.has('ready_at')) {
+        this.db.run('ALTER TABLE remote_agent_conversations ADD COLUMN ready_at TEXT');
+      }
       // Indexes must be created here, not in createSchema(): these columns don't
       // exist on older databases until the ALTER TABLE statements above run, and
       // CREATE INDEX on a missing column aborts the entire createSchema()
@@ -821,6 +832,7 @@ export class SqliteAdapter implements IDatabase {
         title_pinned INTEGER DEFAULT 0,
         completed_at TEXT,
         last_read_at TEXT,
+        ready_at TEXT,
         deleted_at TEXT,
         hidden INTEGER DEFAULT 0,
         user_id TEXT REFERENCES remote_agent_users(id) ON DELETE SET NULL,

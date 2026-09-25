@@ -167,6 +167,31 @@ export async function setConversationCompleted(
 }
 
 /**
+ * Declare, or withdraw, that this chat's work is finished.
+ *
+ * The AGENT's claim, not the human's answer — `setConversationCompleted` above
+ * is that, and the two are kept apart so an agent can never close its own work.
+ * A chat carrying this reads as "Ready to close" in the rail, which is the
+ * state between "nothing is running" and "this is finished".
+ *
+ * There is no matching call to turn it off, on purpose. The server clears it
+ * when a human marks the chat done or sends another message, so the only thing
+ * that withdraws a claim is evidence against it. The derived version of this
+ * signal — "the newest message is the agent's" — was built and removed twice
+ * for being unable to turn off at all; see `primitives/chat-status.ts`. Passing
+ * `false` is still accepted, for an agent that decides mid-turn it was wrong.
+ */
+export async function setConversationReady(
+  conversationPlatformId: string,
+  ready: boolean
+): Promise<void> {
+  await requestJson<{ success: boolean }>(
+    `/api/conversations/${encodeURIComponent(conversationPlatformId)}`,
+    { method: 'PATCH', body: JSON.stringify({ ready }) }
+  );
+}
+
+/**
  * Record that the reader has reached the bottom of this chat.
  *
  * The only thing that clears the rail's unread mark. A POST with no body: the

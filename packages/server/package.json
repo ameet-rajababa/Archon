@@ -60,6 +60,9 @@
       "src/services/webhook-source-plugins.test.ts"
     ],
     [
+      "src/services/deploy-status.test.ts"
+    ],
+    [
       "src/services/resource-start-hosting.integration.test.ts"
     ],
     [

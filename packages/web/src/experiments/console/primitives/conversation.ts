@@ -79,6 +79,18 @@ export interface ConversationSummary {
    * rather than being decided here and again wherever the rail draws.
    */
   lastReadAt: string | null;
+  /**
+   * The agent says this chat's work is finished and nobody has confirmed it.
+   *
+   * A boolean, not the timestamp, because nothing compares it to anything —
+   * unlike `lastReadAt`, which is only meaningful beside `lastActivityAt`. The
+   * claim either stands or it does not.
+   *
+   * Distinct from `completed`, which is the human's answer to the same
+   * question. A chat can be ready and not done; once it is done the server has
+   * already cleared this, so it cannot be both.
+   */
+  ready: boolean;
   /** Short summary of the chat, or null when nothing has written one yet. */
   /** When the summary was last written — what makes staleness visible. */
   /** True when a human wrote it, so the agent leaves it alone. */
@@ -96,6 +108,7 @@ interface RawConversation {
   sort_order?: number | null;
   ask_candidate?: string | null;
   last_read_at?: string | null;
+  ready_at?: string | null;
 }
 
 /**
@@ -123,6 +136,11 @@ export function toConversationSummary(raw: RawConversation): ConversationSummary
     // never read. That over-reports unread rather than hiding a message, which
     // is the only direction this may fail in.
     lastReadAt: raw.last_read_at ?? null,
+    // The timestamp IS the state here too. Absent — including from a server
+    // that predates the column — reads as no claim, which under-reports rather
+    // than over-reports: a missing mark costs a glance, a false one would say
+    // work had landed when it had not.
+    ready: raw.ready_at != null,
   };
 }
 

@@ -32,6 +32,18 @@ const mockGetSchemaVersion = mock(async () => ({
 const mockIsDocker = mock(() => false);
 const mockIsWSL = mock(() => false);
 const mockGetWSLDistroName = mock((): string | undefined => undefined);
+/**
+ * The deploy reader is stubbed rather than pointed at a temp directory, because
+ * what these tests are about is the ROUTE's contract around it: the block appears
+ * when it can be read, the endpoint stays 200 when it cannot, and neither path
+ * goes anywhere near the conversation lock. `deploy-status.test.ts` owns the
+ * parsing, against real file shapes.
+ */
+const mockGetDeployStatus = mock(
+  async (): Promise<{ phase: string; sha?: string; holding?: string }> => ({ phase: 'idle' })
+);
+mock.module('../services/deploy-status', () => ({ getDeployStatus: mockGetDeployStatus }));
+
 const mockGetDrainStatus = mock(
   (): { requestedAt: string; expiresAt: string; refusedCount: number } | undefined => undefined
 );
@@ -224,6 +236,8 @@ describe('GET /api/health', () => {
     mockCurrentActivity.mockClear(); // preserve the empty-Map base; tests opt in with mockImplementationOnce
     mockGetDrainStatus.mockReset();
     mockGetDrainStatus.mockImplementation(() => undefined);
+    mockGetDeployStatus.mockReset();
+    mockGetDeployStatus.mockImplementation(async () => ({ phase: 'idle' }));
   });
 
   test('returns status ok with adapter and concurrency info', async () => {
@@ -830,5 +844,96 @@ describe('GET /api/openapi.json', () => {
     expect(health?.properties?.['wsl_distro']).toBeDefined();
     expect(health?.required).toContain('is_wsl');
     expect(health?.required).not.toContain('wsl_distro');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: the deploy block on GET /api/health
+// ---------------------------------------------------------------------------
+
+describe('GET /api/health deploy block', () => {
+  beforeEach(() => {
+    mockGetStats.mockReset();
+    mockGetStats.mockImplementation(() => ({
+      active: 0,
+      queuedTotal: 0,
+      queuedByConversation: [],
+      maxConcurrent: 10,
+      activeConversationIds: [],
+    }));
+    mockGetRunningWorkflows.mockReset();
+    mockGetRunningWorkflows.mockImplementation(async () => []);
+    mockGetDrainStatus.mockReset();
+    mockGetDrainStatus.mockImplementation(() => undefined);
+    mockGetDeployStatus.mockReset();
+    mockGetDeployStatus.mockImplementation(async () => ({ phase: 'idle' }));
+  });
+
+  test('reports what the deploy reader says', async () => {
+    mockGetDeployStatus.mockImplementationOnce(async () => ({
+      phase: 'draining',
+      sha: 'c'.repeat(40),
+      holding: '1 chat mid-turn',
+    }));
+
+    const body = (await (await makeApp().request('/api/health')).json()) as {
+      deploy?: { phase: string; sha?: string; holding?: string };
+    };
+    expect(body.deploy).toEqual({
+      phase: 'draining',
+      sha: 'c'.repeat(40),
+      holding: '1 chat mid-turn',
+    });
+  });
+
+  test('stays answerable, without a deploy block, when the files cannot be read', async () => {
+    // Health is public and is also the container's own healthcheck. An
+    // unreadable deploy file must not turn it into a 500 — the strip says
+    // nothing instead, which is the honest answer.
+    mockGetDeployStatus.mockImplementationOnce(async () => {
+      throw new Error('EACCES');
+    });
+
+    const response = await makeApp().request('/api/health');
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { status: string; deploy?: unknown };
+    expect(body.status).toBe('ok');
+    expect(body.deploy).toBeUndefined();
+  });
+
+  test('watching a deploy takes no conversation turn', async () => {
+    // THE INVARIANT THIS WHOLE FEATURE RESTS ON. A deploy drains the box before
+    // it swaps the container, waiting for every turn already in flight to
+    // finish — so a strip that cost a turn to read could starve the deploy it
+    // is describing. On 2026-09-25 a chat polling for deploy progress held the
+    // drain for 3116 seconds and the deploy failed.
+    //
+    // Reading the strip is this request and nothing else: the lock is never
+    // acquired, and the active count the drain waits on does not move however
+    // many times it is read.
+    const app = makeApp();
+    const active: number[] = [];
+    for (let i = 0; i < 5; i += 1) {
+      const body = (await (await app.request('/api/health')).json()) as {
+        concurrency: { active: number };
+      };
+      active.push(body.concurrency.active);
+    }
+    expect(active).toEqual([0, 0, 0, 0, 0]);
+    expect(mockGetDeployStatus).toHaveBeenCalledTimes(5);
+  });
+
+  test('the generated web client can see the deploy block', async () => {
+    // The console reads this block through the generated OpenAPI types rather
+    // than a hand-written copy of the shape, so the schema has to carry it.
+    const response = await makeApp().request('/api/openapi.json');
+    const doc = (await response.json()) as {
+      components?: { schemas?: Record<string, unknown> };
+    };
+    const health = doc.components?.schemas?.['HealthResponse'] as
+      | { properties?: Record<string, unknown>; required?: string[] }
+      | undefined;
+    expect(health?.properties?.['deploy']).toBeDefined();
+    expect(health?.required).not.toContain('deploy');
   });
 });

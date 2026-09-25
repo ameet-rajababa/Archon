@@ -316,6 +316,12 @@ else
     esac
     echo "drain armed for ${drain_budget}s — the server is refusing new work and finishing what it has"
     echo "waiting up to ${gap_timeout}s, holding ${SWAP_RESERVE_SECONDS}s back for the swap"
+    # The `draining:` lines below name what is still holding this up. When one of
+    # them is a chat, read it literally — including when that chat is the one that
+    # asked for the deploy. Drain refuses NEW work and waits out what is already in
+    # flight, so a conversation that keeps taking turns to check on its own deploy
+    # is indistinguishable from any other busy chat, and waits forever. See the
+    # note in request-deploy.sh; this is how it looks from the host.
 
     # A BACKGROUND CHILD, waited on, so that a signal is handled when it arrives
     # rather than after the wait returns: bash defers a trap until the foreground

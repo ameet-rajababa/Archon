@@ -17,6 +17,12 @@
  * legitimately differ: `is-awaiting` and `is-unread` use `--warning-mark` where
  * `STATUS_COLOR` uses `--warning`, because a dot is a graphic and owes 3:1 while
  * the text owes 4.5:1. Pinning them equal would force one of those to be wrong.
+ *
+ * `is-ready` shares `--success` with `is-done` on purpose and separates itself by
+ * GEOMETRY — hollow where done is filled — so a rule that sets only a colour is
+ * exactly what these assertions should find. The fill lives on the `i`, which
+ * this test deliberately does not reach into: it is checking that no state
+ * inherits the row, not policing how a state looks.
  */
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
@@ -31,7 +37,7 @@ describe('the rail mark covers every status', () => {
   test('the statuses under test are the ones that exist, not a copied list', () => {
     // Guards the derivation itself: an empty or truncated read would make every
     // assertion below vacuously pass.
-    expect(statuses).toEqual(['working', 'awaiting', 'unread', 'ready', 'done', 'idle']);
+    expect(statuses).toEqual(['working', 'awaiting', 'unread', 'done', 'ready', 'idle']);
   });
 
   test.each(statuses)('is-%s has a rule in rail.css', status => {

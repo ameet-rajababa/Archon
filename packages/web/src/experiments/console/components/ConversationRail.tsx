@@ -18,9 +18,9 @@ import {
 import { relativeTime } from '../lib/format';
 import {
   askAwaitingIds,
-  readyIds,
   chatStatus,
   completedIds,
+  readyIds,
   unreadIds,
   STATUS_TITLE,
 } from '../primitives/chat-status';
@@ -290,8 +290,6 @@ export function ConversationRail({
 
   /** Finished chats, read off the rows the rail already has. */
   const done = useMemo(() => completedIds(conversations), [conversations]);
-
-  /** Chats the agent flagged finished, which nobody has filed yet. */
   const ready = useMemo(() => readyIds(conversations), [conversations]);
 
   /**
@@ -543,8 +541,8 @@ export function ConversationRail({
             working: liveIds ?? EMPTY_SET,
             awaiting,
             unread,
-            ready,
             done,
+            ready,
           });
           const shift =
             dragId === null ? 0 : previewShift(boxesRef.current, dragFrom, dropIndex, index);

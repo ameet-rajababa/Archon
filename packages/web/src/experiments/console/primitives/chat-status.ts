@@ -5,8 +5,8 @@
  *   awaiting  it is your move — a run it started is paused on a gate, or the
  *             agent asked a question and has not been answered
  *   unread    it has moved since you last read it to the end
- *   ready     the agent says the work is finished; nobody has filed it yet
  *   done      a human said this chat's unit of work has landed
+ *   ready     the AGENT says the work has landed, and no human has answered
  *   idle      none of those
  *
  * Exclusive and ordered: a chat that is both working and awaiting is awaiting,
@@ -26,19 +26,24 @@
  * executing", and that second thing is exactly what idle already says. So it
  * is recorded, by a person, on the row.
  *
- * `ready` is the same claim made by the other party. The agent finishes, says
- * so, and asks; the human decides. Before this state those two moments were
- * one — the only way to show a finished chat was to mark it done, which is the
- * human's call to make, so the agent either took that decision or said nothing
- * and the row stayed `idle`. Idle and finished looked identical, which is the
- * same always-on/never-on failure the header describes twice above, in its
- * other direction: a state nothing could distinguish.
+ * `ready` is the other half of that same split, and the reason it is a separate
+ * state rather than a flavour of done: `done` is the human's judgement, `ready`
+ * is the agent asking for one. Between them sits the thing the rail could not
+ * say — nothing is running, and someone should decide — which `idle` reported
+ * as "nothing pending". An agent that could write `done` would be closing its
+ * own work, and afterwards nothing could tell the two apart.
  *
- * Its signal is the row's own colour set to green, which the agent can write
- * and a person can see and clear. That overloads `color`, and the trade is
- * deliberate: a dedicated column would be a migration for a claim that is
- * already exactly what colouring a row green means here. `ready` is suppressed
- * once `completed` is set, so the two never compete.
+ * It is a STORED mark, set by an explicit act and cleared by two (a human
+ * marking the chat done, or sending another message), for exactly the reason
+ * the next paragraph gives.
+ *
+ * WHAT "FINISHED" HAS TO MEAN, because the loose reading is the obvious one and
+ * it is wrong. For a chat whose output is code, finished is LANDED: merged, and
+ * running wherever it runs. An open pull request — green, reviewed, whatever —
+ * is unfinished work, not a decision waiting on a human. An agent that sets this
+ * on "I wrote it" hands back a state that reads done and is not, which is the
+ * same lie `idle` was already telling, wearing a better colour. The only thing
+ * left when this is set should be whether the work was the RIGHT work.
  *
  * A chat whose last word was merely the agent's is NOT awaiting, and the rule
  * that said so existed twice and failed the same way both times: every
@@ -59,7 +64,7 @@
 import { splitReply } from './ask';
 import { runMessageConversationId } from './run';
 
-export type ChatStatus = 'working' | 'awaiting' | 'unread' | 'ready' | 'done' | 'idle';
+export type ChatStatus = 'working' | 'awaiting' | 'unread' | 'done' | 'ready' | 'idle';
 
 export interface ChatStatusSets {
   /** Platform conversation ids the server is executing a turn for. */
@@ -86,18 +91,16 @@ export interface ChatStatusSets {
    */
   unread: ReadonlySet<string>;
   /**
-   * Chats the agent has flagged finished and nobody has filed yet.
-   *
-   * Ranked directly above `done` and below `unread`, for `done`'s own reason:
-   * a finished chat that has since spoken is worth looking at again. A chat
-   * that is already `done` is never here — `readyIds` excludes it — so the
-   * order between the two is a formality rather than a contest.
+   * Chats where the agent has declared the work finished and no human has
+   * answered. Ranked BELOW `done` — a human's judgement settles the question
+   * the claim was asking — and ABOVE `idle`, because "someone should decide" is
+   * strictly more than "nothing is pending".
    */
   ready: ReadonlySet<string>;
 }
 
 /**
- * Exclusive and ordered: awaiting, working, unread, ready, done, idle.
+ * Exclusive and ordered: awaiting, working, unread, done, ready, idle.
  *
  * The two live states come first because they are about right now, and right
  * now outranks a claim about the work as a whole. Unread sits under both: a
@@ -114,6 +117,14 @@ export interface ChatStatusSets {
  * unanswered poll would have read as a finished turn — machinery whose only
  * job was to stop a signal lying, which is a signal worth deleting instead.
  *
+ * `ready` sits between done and idle. Under `done` because the two answer the
+ * same question and the human's answer is the one that settles it — a chat the
+ * server has been told is finished must not still be asking. Over `idle`
+ * because a claim waiting on a decision is a thing to act on and "nothing is
+ * pending" is not. It is also under `unread`, for the same reason `done` is: a
+ * chat that has spoken since you looked is worth reading before it is worth
+ * filing.
+ *
  * Every state that is left says something a person can act on, or something a
  * person has already said.
  */
@@ -121,9 +132,23 @@ export function chatStatus(conversationId: string, sets: ChatStatusSets): ChatSt
   if (sets.awaiting.has(conversationId)) return 'awaiting';
   if (sets.working.has(conversationId)) return 'working';
   if (sets.unread.has(conversationId)) return 'unread';
-  if (sets.ready.has(conversationId)) return 'ready';
   if (sets.done.has(conversationId)) return 'done';
+  if (sets.ready.has(conversationId)) return 'ready';
   return 'idle';
+}
+
+/**
+ * Chats the agent has declared finished, as the set `chatStatus` reads.
+ *
+ * Nothing is derived here, deliberately. The server clears the flag when a
+ * human marks the chat done or sends another message, so both directions are
+ * already decided by the time the rail sees a row — which is what stops this
+ * becoming the "newest message is the agent's" rule that failed twice.
+ */
+export function readyIds(conversations: readonly { id: string; ready: boolean }[]): Set<string> {
+  const out = new Set<string>();
+  for (const c of conversations) if (c.ready) out.add(c.id);
+  return out;
 }
 
 /** Chats a human has marked finished, as the set `chatStatus` reads. */
@@ -132,22 +157,6 @@ export function completedIds(
 ): Set<string> {
   const out = new Set<string>();
   for (const c of conversations) if (c.completed) out.add(c.id);
-  return out;
-}
-
-/**
- * Chats the agent has flagged finished, by colouring the row green, and that
- * nobody has filed yet.
- *
- * `completed` wins: once a person has filed the chat the flag has served its
- * purpose, and leaving both on would make the rail argue with itself about
- * which green it meant.
- */
-export function readyIds(
-  conversations: readonly { id: string; color: string | null; completed: boolean }[]
-): Set<string> {
-  const out = new Set<string>();
-  for (const c of conversations) if (c.color === 'green' && !c.completed) out.add(c.id);
   return out;
 }
 
@@ -263,8 +272,8 @@ export const STATUS_LABEL: Readonly<Record<ChatStatus, string>> = {
   working: 'Working',
   awaiting: 'Needs you',
   unread: 'Unread',
-  ready: 'Ready to close',
   done: 'Done',
+  ready: 'Ready to close',
   idle: 'Idle',
 };
 
@@ -276,13 +285,20 @@ export const STATUS_LABEL: Readonly<Record<ChatStatus, string>> = {
  * not seen — but they ask for the same thing from a reader scanning the rail,
  * and a second shade of amber would have to be decoded rather than scanned.
  * The distinction stays available in the label and the tooltip.
+ *
+ * `ready` shares `done`'s green and separates itself by GEOMETRY instead: the
+ * rail draws it hollow where done is filled (`rail.css`, `.chat-status.is-ready
+ * i`). The claim and the confirmation are one family and read better as one
+ * colour; a seventh hue would have to be learned, where "not filled in yet"
+ * reads on sight. It is the first state to differ by shape rather than by hue,
+ * so the diameter stays the one every dot shares and only the fill changes.
  */
 export const STATUS_COLOR: Readonly<Record<ChatStatus, string>> = {
   working: 'var(--running)',
   awaiting: 'var(--warning)',
   unread: 'var(--warning)',
-  ready: 'var(--ready)',
   done: 'var(--success)',
+  ready: 'var(--success)',
   idle: 'var(--text-tertiary)',
 };
 
@@ -290,7 +306,7 @@ export const STATUS_TITLE: Readonly<Record<ChatStatus, string>> = {
   working: 'The agent is working on this chat right now',
   awaiting: 'This chat is waiting for your answer',
   unread: 'This chat has replied since you last read it',
-  ready: 'The work here is finished — mark it done when you are ready',
   done: "This chat's work is finished",
+  ready: 'The work here has landed. Close this chat, or keep going',
   idle: 'Nothing is running in this chat',
 };
