@@ -292,6 +292,45 @@ export function fetchedAtOf(key: string): number | undefined {
 }
 
 /**
+ * A loader paired with the key it was rendered for. The two are never
+ * separated, because a loader is only ever a correct answer for one key:
+ * `() => getProjectCounts(projectId)` answers `projectCounts:<projectId>` and
+ * nothing else.
+ */
+export interface KeyedLoader<T> {
+  key: string;
+  loader: () => Promise<T>;
+}
+
+/**
+ * Which loader may answer for `key`.
+ *
+ * `loaders` above is one module-global map, so a loader reached through a bare
+ * ref can be invoked under a key it was never written for. `useEntity` rewrites
+ * that ref DURING render, and a render for project B lands while the committed
+ * tree is still subscribed under project A's key — React re-subscribes in a
+ * later passive effect, and discards renders outright. The next `invalidate`
+ * then runs B's loader under A's key and writes B's numbers into A's entry,
+ * where A's row reads them as its own. That is how three project rows came to
+ * show a fourth project's counts.
+ *
+ * `held` is taken only while it still names this key — that is what the ref is
+ * for, so a loader closing over props that changed WITHOUT changing the key is
+ * not stale. Otherwise `rendered`, the loader from the render that produced the
+ * subscription, which named this key by construction.
+ *
+ * A plain function rather than logic inline in the hook, so the crossing it
+ * refuses is unit-testable — the same extraction shape as `subscribeKey`.
+ */
+export function loaderForKey<T>(
+  key: string,
+  held: KeyedLoader<T>,
+  rendered: () => Promise<T>
+): () => Promise<T> {
+  return held.key === key ? held.loader : rendered;
+}
+
+/**
  * Subscribe to a keyed entity. On first subscribe (or after `refetch`),
  * invokes `loader`. Updates propagate to all subscribers via `notify`.
  *
@@ -303,12 +342,17 @@ export function fetchedAtOf(key: string): number | undefined {
  * version counter (see below) so error transitions re-render too.
  */
 export function useEntity<T>(key: string, loader: () => Promise<T>): EntityView<T> {
-  const loaderRef = useRef(loader);
-  loaderRef.current = loader;
+  // Carried as a pair so the two can never cross — see `loaderForKey`.
+  const latest = useRef<KeyedLoader<T>>({ key, loader });
+  latest.current = { key, loader };
 
   const subscribe = useCallback(
     (onStoreChange: () => void): (() => void) =>
-      subscribeKey(key, onStoreChange, () => loaderRef.current()),
+      subscribeKey(key, onStoreChange, () => loaderForKey(key, latest.current, loader)()),
+    // `loader` is a new closure every render and is deliberately not a
+    // dependency: re-subscribing on each render would re-run the load. The one
+    // captured here belongs to the render that produced this `key`, which is
+    // exactly the fallback `loaderForKey` needs.
     [key]
   );
 
