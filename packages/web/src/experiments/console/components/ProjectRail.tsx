@@ -34,6 +34,7 @@ import { EnvVarsDialog } from './EnvVarsDialog';
 // surface left to log out from. Renders null when web auth is off (the solo
 // default), so the rail is unchanged for a single-operator install.
 import { SessionMenu } from '@/components/auth/SessionMenu';
+import { DeployStrip } from './DeployStrip';
 import { useEntity, invalidate } from '../store/cache';
 import { K } from '../store/keys';
 import * as skill from '../skills';
@@ -594,6 +595,11 @@ export function ProjectRail({ onAddProject, onSearch }: ProjectRailProps): React
         </div>
 
         <SessionMenu />
+
+        {/* Install-wide, so it belongs to the rail rather than to any project's
+            screen. See components/DeployStrip for why it must not be a question
+            asked of a chat. */}
+        <DeployStrip />
 
         {/* Resize handle */}
         <div
