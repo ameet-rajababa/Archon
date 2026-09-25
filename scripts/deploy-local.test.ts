@@ -29,6 +29,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { trackTempRoots } from '@archon/paths/test-utils';
+import { DEPLOY_STEP_COUNT } from '../packages/server/src/services/deploy-status';
 
 /**
  * POSIX only. These tests drive real shell scripts — they spawn `bash`, write
@@ -452,5 +453,31 @@ describePosix('a health url the drain endpoint cannot be derived from', () => {
     expect(result.code).toBe(1);
     expect(result.output).toContain('set DRAIN_URL');
     expect(result.drainCalls).toEqual([]);
+  });
+});
+
+/**
+ * The step markers are a contract, not decoration.
+ *
+ * `packages/server/src/services/deploy-status.ts` reads them out of
+ * `deploy-last.log` to tell the console which phase a deploy is in, and it maps
+ * the NUMBERS — 1-4 building, 5 draining, 6 swapping, 7 verifying. Two
+ * declarations that must agree, kept in agreement by nobody, is the defect this
+ * closes: a renumbered step here would silently relabel the console's strip. The
+ * reader answers `unknown` rather than guessing when the layout is not the one it
+ * knows, and this is what tells whoever changed the script that it has happened.
+ */
+describe('the step markers the deploy status reader depends on', () => {
+  const script = readFileSync(SCRIPT, 'utf8');
+  const steps = [...script.matchAll(/^step "(\d+)\/(\d+) {2}/gmu)];
+
+  test(`has exactly ${String(DEPLOY_STEP_COUNT)} steps, numbered 1 upwards`, () => {
+    expect(steps.map(match => match[1])).toEqual(
+      Array.from({ length: DEPLOY_STEP_COUNT }, (_, index) => String(index + 1))
+    );
+  });
+
+  test('says the same total in every marker as the reader expects', () => {
+    expect(new Set(steps.map(match => match[2]))).toEqual(new Set([String(DEPLOY_STEP_COUNT)]));
   });
 });

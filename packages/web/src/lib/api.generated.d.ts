@@ -5353,6 +5353,32 @@ export interface components {
           runningWorkflows: number;
         };
       };
+      deploy?: {
+        /** @enum {string} */
+        phase:
+          | 'requested'
+          | 'building'
+          | 'draining'
+          | 'swapping'
+          | 'verifying'
+          | 'idle'
+          | 'unknown';
+        sha?: string;
+        startedAt?: string;
+        step?: {
+          number: number;
+          of: number;
+          name: string;
+        };
+        holding?: string;
+        last?: {
+          at: string;
+          /** @enum {string} */
+          verdict: 'OK' | 'FAILED' | 'REFUSED' | 'KILLED';
+          sha: string;
+          reason?: string;
+        };
+      };
       schema?: {
         createdAppVersion: string | null;
         appVersion: string;

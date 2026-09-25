@@ -16,6 +16,13 @@
  * workflow starting, an optimistic patch that was wrong — has no other way to
  * be corrected. One request every 30s is the price of that.
  *
+ * IT ALSO CARRIES THE DEPLOY. `/api/health` reports what the deploy replacing
+ * this server is doing, and lib/live-deploy reads it from here rather than
+ * starting a timer of its own. That read must never cost a conversation turn —
+ * a deploy waits for the turns in flight before it swaps the container, so
+ * asking a chat how it is going is one of the things it waits for. A browser
+ * GET is not a turn; see components/DeployStrip.
+ *
  * ONE poll, however many readers. Two surfaces need this — the rail's per-row
  * mark and the project chip's roll-up — and both are on screen together on the
  * Chat tab. `invalidate` starts a load every time it is called, so two
@@ -26,7 +33,7 @@
 
 import { useEffect, useMemo } from 'react';
 import * as skill from '../skills';
-import type { ActiveChats, ActiveTool } from '../skills/activeChats';
+import type { ActiveChats, ActiveTool, DeployStatus } from '../skills/activeChats';
 import { invalidate, useEntity } from '../store/cache';
 import { K } from '../store/keys';
 
@@ -53,6 +60,12 @@ export interface LiveChats {
    * ABSENCE of work must check this first.
    */
   known: boolean;
+  /**
+   * What a deploy replacing this server is doing. Undefined when the server has
+   * not answered yet, or could not say — see lib/live-deploy, which is what
+   * reads this.
+   */
+  deploy?: DeployStatus;
 }
 
 export function useLiveChats(): LiveChats {
@@ -79,6 +92,7 @@ export function useLiveChats(): LiveChats {
       ids: new Set(data?.ids ?? []),
       tools: data?.tools ?? {},
       known: data !== undefined,
+      ...(data?.deploy ? { deploy: data.deploy } : {}),
     }),
     [data]
   );
