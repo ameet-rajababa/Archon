@@ -20,10 +20,13 @@
  * `runningWorkflows` is still checked separately because a run whose
  * conversation is unknown contributes to that count and to nothing else.
  *
- * WHAT THIS CANNOT DO. A message that arrives between the last check and the
- * container stopping is still lost. Closing that would take a drain mode in
- * the server — a state where it finishes what it holds and accepts nothing
- * new. This narrows the window to about a second; it does not remove it.
+ * WHAT THIS CANNOT DO, AND WHAT DOES IT INSTEAD. This waits FOR a quiet moment,
+ * so on a box running several conversations at once it may wait forever — and a
+ * message arriving between the last check and the container stopping is lost
+ * anyway. Both of those take a drain mode in the server, which now exists: see
+ * `drain-wait.ts` and `POST /internal/drain`. `deploy-local.sh` prefers that path
+ * and falls back to this one only where no drain token is configured, so this
+ * remains the behaviour of an install that has not set one up.
  */
 
 /** Exit codes. The deploy distinguishes "still busy" from "could not tell". */

@@ -26,9 +26,15 @@
 #
 # WHAT IT WILL NOT DO. Recreating the container destroys whatever it is
 # holding: a turn in flight, a message queued behind one, a workflow run that
-# comes back as a `running` row nobody finishes. So step 5 waits for a moment
-# when none of those exist. A chat that is merely open is not one of them — its
-# provider session id is persisted, so it resumes with its context intact.
+# comes back as a `running` row nobody finishes. So step 5 gets the box to a
+# moment when none of those exist before it swaps. A chat that is merely open is
+# not one of them — its provider session id is persisted, so it resumes with its
+# context intact.
+#
+# It MAKES that moment rather than waiting for one, when it can. With a drain
+# token configured it tells the server to stop admitting work and waits for what
+# it already holds to finish; without one it falls back to polling for an instant
+# when the whole box happens to be idle, which on a busy box may never come.
 set -euo pipefail
 
 SOURCE_DIR="${SOURCE_DIR:-/home/appuser/archon-upstream}"
@@ -50,6 +56,33 @@ DEPLOY_BUDGET_SECONDS="${DEPLOY_BUDGET_SECONDS:-1800}"
 SWAP_RESERVE_SECONDS="${SWAP_RESERVE_SECONDS:-420}"
 STARTED_AT=$(date -u +%s)
 
+# Derived from HEALTH_URL rather than defaulted beside it, so an operator who
+# repoints one cannot leave the other addressing a different server. An override
+# that is not the standard path leaves this empty on purpose: step 5 then says so
+# and asks for DRAIN_URL, instead of inventing a URL out of a string it did not
+# recognise.
+case "$HEALTH_URL" in
+  */api/health) DRAIN_URL="${DRAIN_URL:-${HEALTH_URL%/api/health}/internal/drain}" ;;
+  *) DRAIN_URL="${DRAIN_URL:-}" ;;
+esac
+
+# The token comes from the HOST's own env file, not from the container's
+# environment, even though both have it. The half that ARMS drain must be the
+# half that cancels it, and the cancel has to survive this script dying — that is
+# a shell trap here, so the credential belongs here too.
+#
+# An install with no token is not an error: step 5 falls back to the turn-gap
+# poll and behaves exactly as it did before drain existed.
+DRAIN_ENV_FILE="${DRAIN_ENV_FILE:-$DEPLOY_DIR/.env}"
+drain_token="${ARCHON_DRAIN_TOKEN:-}"
+if [ -z "$drain_token" ] && [ -r "$DRAIN_ENV_FILE" ]; then
+  # Value only, quotes stripped, first match wins. Never echoed: this script's
+  # output is kept as /.archon/deploy-last.log, and a bearer token in a deploy
+  # log is a credential leak into a file several sessions read.
+  drain_token=$(sed -n 's/^[[:space:]]*ARCHON_DRAIN_TOKEN=//p' "$DRAIN_ENV_FILE" \
+    | head -1 | tr -d '\r' | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/")
+fi
+
 # Timestamped, because this log is the only post-mortem anyone gets and it
 # could not answer "how long was it in step 5" — the difference between a build
 # that dragged and a wait that never ended.
@@ -63,6 +96,45 @@ die() { printf '\n\033[31mSTOPPED: %s\033[0m\n' "$1" >&2; exit 1; }
 in_container() {
   docker compose exec -T -u root "$SERVICE" sh -lc "git config --global --add safe.directory '*' >/dev/null 2>&1; $1"
 }
+
+# One HTTP call to the drain endpoint, printing only the status code.
+#
+# The bearer is fed through `--config -` on STDIN rather than as `-H`, because
+# argv is world-readable in /proc on the box this runs on and several
+# unprivileged sessions share it. Nothing this function prints contains the
+# token.
+drain_call() {
+  local method="$1" body="${2:-}"
+  local args=(-sS --max-time 20 -o /dev/null -w '%{http_code}' --config - -X "$method")
+  [ -n "$body" ] && args+=(-H 'Content-Type: application/json' --data "$body")
+  printf 'header = "Authorization: Bearer %s"\n' "$drain_token" | curl "${args[@]}" "$DRAIN_URL"
+}
+
+# Whether this script has told the server to stop accepting work. The single most
+# important variable here: if the deploy dies while this is 1 and nothing
+# cancels, the box refuses ALL new work until the budget lapses — up to an hour.
+DRAIN_ARMED=0
+
+# Cancelled from a trap, so that every way out of this script goes through it:
+# `die`, an unexpected non-zero under `set -e`, and the SIGTERM
+# deploy-on-request.sh sends when systemd's deadline expires. DELETE
+# /internal/drain is idempotent by design, so this may run twice or run against a
+# server that was never draining.
+cancel_drain() {
+  [ "$DRAIN_ARMED" = "1" ] || return 0
+  DRAIN_ARMED=0
+  local code=""
+  code=$(drain_call DELETE 2>/dev/null) || code=""
+  case "$code" in
+    200) echo "drain cancelled — the server is accepting work again" ;;
+    *) printf '\033[31mcould not cancel drain (HTTP %s) — the box will refuse new work until the budget lapses\033[0m\n' "${code:-no answer}" ;;
+  esac
+}
+# The signal handler also stops the WAITER, by its recorded PID and never by a
+# name match. See the background-child note in step 5 for why there is a PID to
+# record at all.
+trap cancel_drain EXIT
+trap 'kill -TERM "${DRAIN_WAIT_PID:-}" 2>/dev/null; cancel_drain; exit 143' INT TERM
 
 cd "$DEPLOY_DIR" || die "no deploy directory at $DEPLOY_DIR"
 
@@ -159,24 +231,34 @@ echo "build context confirms: $DEPLOY_SHA"
 step "4/7  Build"
 docker compose build --build-arg "GIT_SHA=$SHA" "$SERVICE" || die "build failed"
 
-# ── 5. Wait for a moment when nothing is mid-flight ─────────────────────────
-# Asked of the server that is ABOUT TO BE REPLACED, because it is the only
-# thing that knows what it is holding. See scripts/turn-gap.ts for what counts
-# as busy and why an unreadable answer is treated as busy.
+# ── 5. Get the box to a moment when nothing is mid-flight ───────────────────
+# Asked of the server that is ABOUT TO BE REPLACED, because it is the only thing
+# that knows what it is holding.
 #
-# Run inside the container: bun is there, and so is the health endpoint. The
-# script rides the source checkout, which deploy-on-request.sh has already
-# confirmed is at the commit being shipped.
-step "5/7  Wait for a turn-gap"
+# TWO PATHS, and which one runs depends only on whether a drain token is
+# configured. With one, the server is told to stop admitting work and this waits
+# for what it already holds to finish — a count that only ever falls. Without
+# one, it falls back to scripts/turn-gap.ts, which polls for an instant when the
+# whole box happens to be idle; see that file for what counts as busy and why an
+# unreadable answer is treated as busy. The fallback is not a lesser mode of the
+# same thing, it is what this step did before drain existed, kept working
+# unchanged for an install that has configured no token.
+#
+# Both readers run inside the container: bun is there, and so is the health
+# endpoint. They ride the source checkout, which deploy-on-request.sh has already
+# confirmed is at the commit being shipped. The arming and cancelling stay out
+# here on the host — see cancel_drain above.
+step "5/7  Wait for the box to hold nothing"
 if [ "${SKIP_TURN_GAP:-0}" = "1" ]; then
   # The escape hatch, for a box wedged badly enough that waiting for it to go
   # quiet is waiting forever. It ends live turns. Announced rather than silent,
   # because the whole point of this step is that nobody reaches it by accident.
+  #
+  # It is NOT drain and must never quietly become it: drain finishes the work,
+  # this discards it. An operator who wants the work finished wants the drain
+  # path, which is what happens when this is left alone.
   printf '\033[33mSKIP_TURN_GAP=1 — swapping without waiting; work in flight WILL be lost\033[0m\n'
 else
-  # `|| gap_status=$?` and not a bare call: under `set -e` a non-zero exit here
-  # would end the script before the case below could say which non-zero it was,
-  # and "timed out" and "could not tell" need different words.
   # Whatever is left of the service's deadline once the build has taken what it
   # took, minus the reserve the swap needs. An explicit TURN_GAP_TIMEOUT still
   # wins: this derives a default, it does not override an operator.
@@ -185,21 +267,88 @@ else
     die "the build left no room to swap inside the ${DEPLOY_BUDGET_SECONDS}s deploy budget — NOTHING was deployed, and it is still running what it was. Re-run, or raise DEPLOY_BUDGET_SECONDS and TimeoutStartSec together."
   fi
   gap_timeout="${TURN_GAP_TIMEOUT:-$gap_budget}"
-  echo "waiting up to ${gap_timeout}s, holding ${SWAP_RESERVE_SECONDS}s back for the swap"
 
-  gap_status=0
-  in_container "cd '$SOURCE_DIR' && HEALTH_URL='$HEALTH_URL' TURN_GAP_TIMEOUT='$gap_timeout' TURN_GAP_INTERVAL='${TURN_GAP_INTERVAL:-}' TURN_GAP_CONFIRM='${TURN_GAP_CONFIRM:-}' bun scripts/turn-gap.ts" \
-    || gap_status=$?
-  case $gap_status in
-    0) ;;
-    1) die "the box never went quiet within ${gap_timeout}s — NOTHING was deployed, and it is still running what it was. Ask again later, or set SKIP_TURN_GAP=1 to swap anyway and lose the work in flight." ;;
-    *) die "could not read what the container is holding, so it was left alone — NOTHING was deployed" ;;
-  esac
+  if [ -n "$drain_token" ] && [ -z "$DRAIN_URL" ]; then
+    die "a drain token is configured but $HEALTH_URL is not the standard /api/health path, so the drain endpoint cannot be derived from it — set DRAIN_URL, or clear ARCHON_DRAIN_TOKEN to use the turn-gap poll"
+  fi
+
+  if [ -n "$drain_token" ]; then
+    # The drain must outlast the WAIT and the SWAP, or the server starts
+    # accepting work again in the seconds between this step succeeding and the
+    # container stopping. So it is armed for the whole of what is left of the
+    # deploy budget — the same arithmetic as the wait, plus the reserve the wait
+    # holds back — clamped by the endpoint's own maximum.
+    #
+    # The clamp is computed by the script that IMPORTS that maximum from the
+    # route enforcing it, rather than by a copy of the number in this shell.
+    drain_budget=$(in_container "cd '$SOURCE_DIR' && bun scripts/drain-wait.ts --budget $((gap_timeout + SWAP_RESERVE_SECONDS))" | tr -d ' \r\n')
+    case "$drain_budget" in
+      '' | *[!0-9]*) die "could not read the drain budget limit from the container, so nothing was armed — NOTHING was deployed" ;;
+    esac
+    [ "$drain_budget" -gt 0 ] || die "the drain budget came back as ${drain_budget}s — NOTHING was deployed"
+
+    # ARMED BEFORE THE CALL, deliberately. If the POST lands and its answer is
+    # lost, the server is draining and this script does not know it; setting the
+    # flag first means the trap cancels anyway. The reverse order leaves a box
+    # refusing work with nobody holding the cancel.
+    DRAIN_ARMED=1
+    drain_code=$(drain_call POST "{\"budgetSeconds\":$drain_budget}") || drain_code=""
+    case "$drain_code" in
+      200) ;;
+      401) die "the drain endpoint rejected the token in $DRAIN_ENV_FILE — NOTHING was deployed" ;;
+      400) die "the drain endpoint rejected a ${drain_budget}s budget — NOTHING was deployed" ;;
+      404) die "there is no drain endpoint at $DRAIN_URL — the running server predates drain, or was started without a token. NOTHING was deployed" ;;
+      *) die "could not reach the drain endpoint at $DRAIN_URL (HTTP ${drain_code:-no answer}) — NOTHING was deployed" ;;
+    esac
+    echo "drain armed for ${drain_budget}s — the server is refusing new work and finishing what it has"
+    echo "waiting up to ${gap_timeout}s, holding ${SWAP_RESERVE_SECONDS}s back for the swap"
+
+    # A BACKGROUND CHILD, waited on, so that a signal is handled when it arrives
+    # rather than after the wait returns: bash defers a trap until the foreground
+    # command finishes, and for this one that is up to half an hour away. Held in
+    # the foreground, the SIGTERM deploy-on-request.sh sends on systemd's deadline
+    # would never reach cancel_drain before the cgroup was killed — and a box left
+    # refusing every new message for the rest of the budget is the worst thing
+    # this whole mechanism can do.
+    #
+    # `|| drain_status=$?` and not a bare `wait`: under `set -e` a non-zero exit
+    # would end the script before the case below could say which non-zero it was,
+    # and each of these needs different words.
+    drain_status=0
+    in_container "cd '$SOURCE_DIR' && HEALTH_URL='$HEALTH_URL' DRAIN_WAIT_TIMEOUT='$gap_timeout' DRAIN_WAIT_INTERVAL='${DRAIN_WAIT_INTERVAL:-}' bun scripts/drain-wait.ts" &
+    DRAIN_WAIT_PID=$!
+    wait "$DRAIN_WAIT_PID" || drain_status=$?
+    DRAIN_WAIT_PID=""
+    case $drain_status in
+      0) ;;
+      1) die "drain was armed but the box never finished what it was holding within ${gap_timeout}s — NOTHING was deployed, and it is still running what it was. Ask again later, or set SKIP_TURN_GAP=1 to swap anyway and lose the work in flight." ;;
+      3) die "the drain stopped being in effect while the deploy waited — its budget lapsed, or something else cancelled it. NOTHING was deployed." ;;
+      *) die "could not read what the drain is holding, so the container was left alone — NOTHING was deployed" ;;
+    esac
+  else
+    echo "no drain token configured — falling back to waiting for a turn-gap"
+    echo "waiting up to ${gap_timeout}s, holding ${SWAP_RESERVE_SECONDS}s back for the swap"
+
+    gap_status=0
+    in_container "cd '$SOURCE_DIR' && HEALTH_URL='$HEALTH_URL' TURN_GAP_TIMEOUT='$gap_timeout' TURN_GAP_INTERVAL='${TURN_GAP_INTERVAL:-}' TURN_GAP_CONFIRM='${TURN_GAP_CONFIRM:-}' bun scripts/turn-gap.ts" \
+      || gap_status=$?
+    case $gap_status in
+      0) ;;
+      1) die "the box never went quiet within ${gap_timeout}s — NOTHING was deployed, and it is still running what it was. Ask again later, or set SKIP_TURN_GAP=1 to swap anyway and lose the work in flight." ;;
+      *) die "could not read what the container is holding, so it was left alone — NOTHING was deployed" ;;
+    esac
+  fi
 fi
 
 # ── 6. Up ───────────────────────────────────────────────────────────────────
 step "6/7  Restart and wait for health"
 docker compose up -d "$SERVICE" || die "up failed"
+
+# Disarmed only once the swap has happened. The process that was draining no
+# longer exists, so there is nothing left to cancel — and until this line, a
+# failing `up -d` still goes out through the trap, because a box left drained
+# with its old container still serving is the one outcome worth a blind cancel.
+DRAIN_ARMED=0
 
 # The container is already swapped by this point, so a failure here is a
 # failure with the new image LIVE. The message has to say so, or it reads as
