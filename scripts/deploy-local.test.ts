@@ -462,7 +462,7 @@ describePosix('a health url the drain endpoint cannot be derived from', () => {
   });
 });
 
-describe('the deploy-is-on-dev guard in step 1', () => {
+describePosix('the deploy-is-on-dev guard in step 1', () => {
   test('runs on every deploy', async () => {
     const result = await run(sandbox('assert-dev-ok', `ARCHON_DRAIN_TOKEN=${TOKEN}\n`));
 
