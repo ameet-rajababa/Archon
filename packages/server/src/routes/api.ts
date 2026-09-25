@@ -511,6 +511,28 @@ function fileEtag(bytes: Buffer): string {
  */
 const RAW_PATH_SEGMENTS = process.platform === 'win32' ? /[/\\]/ : /\//;
 
+/**
+ * The separator a repo-relative path wears ON THE WIRE, which is `/` everywhere.
+ *
+ * `normalize()` returns the HOST's separator, so a Windows-hosted server answered
+ * `src\index.ts` where a Linux one answered `src/index.ts` — the same file in the
+ * same repo, with two different identifiers depending on which machine happened to
+ * serve it. That value is not decoration: the files client joins it onto each
+ * listing entry to build the child's path and sends it back, so the identifier a
+ * client holds for a file was OS-dependent.
+ *
+ * Only the value that LEAVES is converted. `candidate` and `realPath` stay
+ * host-native because they touch the filesystem, and the containment proof runs
+ * on those, so nothing here participates in the escape check.
+ *
+ * Conditional on the host for the same reason `RAW_PATH_SEGMENTS` is: `\` is a
+ * separator on Windows and an ordinary filename character everywhere else, so
+ * converting unconditionally would rename a POSIX file that legitimately has one
+ * in its name.
+ */
+const toWirePath = (p: string): string =>
+  process.platform === 'win32' ? p.replaceAll('\\', '/') : p;
+
 async function resolveContainedPath(root: string, rawRelative: string): Promise<ContainedPath> {
   if (
     rawRelative.includes('\0') ||
@@ -545,7 +567,12 @@ async function resolveContainedPath(root: string, rawRelative: string): Promise<
     return { ok: false, reason: 'symlink-escape' };
   }
 
-  return { ok: true, realRoot, realPath, relative: relative === '.' ? '' : relative };
+  return {
+    ok: true,
+    realRoot,
+    realPath,
+    relative: relative === '.' ? '' : toWirePath(relative),
+  };
 }
 
 // =========================================================================

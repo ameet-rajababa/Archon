@@ -1,10 +1,11 @@
 /**
- * What a chat is, in five states.
+ * What a chat is, in six states.
  *
  *   working   the server is executing a turn for it right now
  *   awaiting  it is your move — a run it started is paused on a gate, or the
  *             agent asked a question and has not been answered
  *   unread    it has moved since you last read it to the end
+ *   ready     the agent says the work is finished; nobody has filed it yet
  *   done      a human said this chat's unit of work has landed
  *   idle      none of those
  *
@@ -25,6 +26,20 @@
  * executing", and that second thing is exactly what idle already says. So it
  * is recorded, by a person, on the row.
  *
+ * `ready` is the same claim made by the other party. The agent finishes, says
+ * so, and asks; the human decides. Before this state those two moments were
+ * one — the only way to show a finished chat was to mark it done, which is the
+ * human's call to make, so the agent either took that decision or said nothing
+ * and the row stayed `idle`. Idle and finished looked identical, which is the
+ * same always-on/never-on failure the header describes twice above, in its
+ * other direction: a state nothing could distinguish.
+ *
+ * Its signal is the row's own colour set to green, which the agent can write
+ * and a person can see and clear. That overloads `color`, and the trade is
+ * deliberate: a dedicated column would be a migration for a claim that is
+ * already exactly what colouring a row green means here. `ready` is suppressed
+ * once `completed` is set, so the two never compete.
+ *
  * A chat whose last word was merely the agent's is NOT awaiting, and the rule
  * that said so existed twice and failed the same way both times: every
  * finished chat ends with the agent, so the rail went amber end to end and
@@ -44,7 +59,7 @@
 import { splitReply } from './ask';
 import { runMessageConversationId } from './run';
 
-export type ChatStatus = 'working' | 'awaiting' | 'unread' | 'done' | 'idle';
+export type ChatStatus = 'working' | 'awaiting' | 'unread' | 'ready' | 'done' | 'idle';
 
 export interface ChatStatusSets {
   /** Platform conversation ids the server is executing a turn for. */
@@ -70,10 +85,19 @@ export interface ChatStatusSets {
    * the duration of every turn.
    */
   unread: ReadonlySet<string>;
+  /**
+   * Chats the agent has flagged finished and nobody has filed yet.
+   *
+   * Ranked directly above `done` and below `unread`, for `done`'s own reason:
+   * a finished chat that has since spoken is worth looking at again. A chat
+   * that is already `done` is never here — `readyIds` excludes it — so the
+   * order between the two is a formality rather than a contest.
+   */
+  ready: ReadonlySet<string>;
 }
 
 /**
- * Exclusive and ordered: awaiting, working, unread, done, idle.
+ * Exclusive and ordered: awaiting, working, unread, ready, done, idle.
  *
  * The two live states come first because they are about right now, and right
  * now outranks a claim about the work as a whole. Unread sits under both: a
@@ -97,6 +121,7 @@ export function chatStatus(conversationId: string, sets: ChatStatusSets): ChatSt
   if (sets.awaiting.has(conversationId)) return 'awaiting';
   if (sets.working.has(conversationId)) return 'working';
   if (sets.unread.has(conversationId)) return 'unread';
+  if (sets.ready.has(conversationId)) return 'ready';
   if (sets.done.has(conversationId)) return 'done';
   return 'idle';
 }
@@ -107,6 +132,22 @@ export function completedIds(
 ): Set<string> {
   const out = new Set<string>();
   for (const c of conversations) if (c.completed) out.add(c.id);
+  return out;
+}
+
+/**
+ * Chats the agent has flagged finished, by colouring the row green, and that
+ * nobody has filed yet.
+ *
+ * `completed` wins: once a person has filed the chat the flag has served its
+ * purpose, and leaving both on would make the rail argue with itself about
+ * which green it meant.
+ */
+export function readyIds(
+  conversations: readonly { id: string; color: string | null; completed: boolean }[]
+): Set<string> {
+  const out = new Set<string>();
+  for (const c of conversations) if (c.color === 'green' && !c.completed) out.add(c.id);
   return out;
 }
 
@@ -222,6 +263,7 @@ export const STATUS_LABEL: Readonly<Record<ChatStatus, string>> = {
   working: 'Working',
   awaiting: 'Needs you',
   unread: 'Unread',
+  ready: 'Ready to close',
   done: 'Done',
   idle: 'Idle',
 };
@@ -239,6 +281,7 @@ export const STATUS_COLOR: Readonly<Record<ChatStatus, string>> = {
   working: 'var(--running)',
   awaiting: 'var(--warning)',
   unread: 'var(--warning)',
+  ready: 'var(--ready)',
   done: 'var(--success)',
   idle: 'var(--text-tertiary)',
 };
@@ -247,6 +290,7 @@ export const STATUS_TITLE: Readonly<Record<ChatStatus, string>> = {
   working: 'The agent is working on this chat right now',
   awaiting: 'This chat is waiting for your answer',
   unread: 'This chat has replied since you last read it',
+  ready: 'The work here is finished — mark it done when you are ready',
   done: "This chat's work is finished",
   idle: 'Nothing is running in this chat',
 };

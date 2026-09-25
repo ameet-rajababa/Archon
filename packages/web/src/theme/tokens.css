@@ -23,15 +23,17 @@
 
 /* ══ LAYER 1 — PRIMITIVES ══════════════════════════════════════════════ */
 :root {
-  /* Label palette — eight hues that must stay mutually distinguishable in
-     BOTH modes, so they are defined once and never aliased to a status token.
-     (A 'green' label and a 'teal' one rendered the same pixel when --success
-     aliased --brand-teal; that must not become possible again.) */
+  /* Label palette — one hue per conversation label, and they must stay
+     mutually distinguishable in BOTH modes. Defined here and never aliased to
+     a status token: a label that borrows --success or --warning silently
+     follows a status retune to a colour that no longer means what the label
+     said. Hues are spread so no two read as the same swatch; --lbl-green sits
+     at 165, near --success at 168, but holds its own value so the two move
+     independently. `conversation.test.ts` fails if any two labels share a
+     token. */
   --lbl-rose: oklch(0.62 0.17 15);
-  --lbl-coral: oklch(0.64 0.15 40);
   --lbl-amber: oklch(0.68 0.14 75);
-  --lbl-olive: oklch(0.62 0.13 120);
-  --lbl-teal: oklch(0.66 0.13 170);
+  --lbl-green: oklch(0.66 0.15 165);
   --lbl-blue: oklch(0.64 0.15 245);
   --lbl-violet: oklch(0.58 0.17 300);
   --lbl-plum: oklch(0.56 0.16 330);
@@ -77,6 +79,11 @@
   --running-soft: oklch(0.72 0.155 245 / 0.14);
   --success: oklch(0.72 0.15 168);
   --success-soft: oklch(0.72 0.15 168 / 0.14);
+  /* Ready-to-close: finished, not yet filed. A second green on purpose — it is
+     the same family as success because the work did land, and a distinctly
+     warmer hue (145 against 168) because the row still wants an action. */
+  --ready: oklch(0.78 0.13 145);
+  --ready-soft: oklch(0.78 0.13 145 / 0.14);
   --warning: oklch(0.8 0.14 85);
   --warning-soft: oklch(0.8 0.14 85 / 0.14);
   /* Dark mode needs no second amber: the text value is already bright enough
@@ -104,6 +111,8 @@
   --running-soft: oklch(0.518 0.13 245 / 0.1);
   --success: oklch(0.495 0.13 168); /* .5 read 4.43:1 on its own soft tint */
   --success-soft: oklch(0.495 0.13 168 / 0.1);
+  --ready: oklch(0.545 0.12 145); /* darkened like its neighbours for light-mode contrast */
+  --ready-soft: oklch(0.545 0.12 145 / 0.1);
   --warning: oklch(0.525 0.11 75); /* was .58 — 3.66:1 on hover, the worst pair in the theme */
   --warning-soft: oklch(0.525 0.11 75 / 0.12);
   /* The same warning, for a MARK rather than a word — a dot, a ring, a bar.

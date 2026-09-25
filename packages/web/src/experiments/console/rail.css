@@ -761,6 +761,22 @@
 .chat-status.is-awaiting {
   color: var(--warning-mark);
 }
+/* Unread: it has moved since you last read it to the end. Shares awaiting's
+   amber deliberately — the two are different facts, but they ask a reader
+   scanning the rail for the same thing, and a second shade would have to be
+   decoded rather than scanned. The mark variant for the same reason as
+   awaiting: a dot owes 3:1, not the 4.5:1 the word has to settle for. */
+.chat-status.is-unread {
+  color: var(--warning-mark);
+}
+/* Ready to close: the agent says the work is finished; nobody has filed it
+   yet. Its own green rather than done's, because the row still wants an
+   action — the same family, a warmer hue, so the pair reads as two points on
+   one scale instead of two unrelated marks. No mark variant: like --success
+   it is already light enough for a dot's 3:1. */
+.chat-status.is-ready {
+  color: var(--ready);
+}
 /* Done: the unit of work this chat IS — an issue, a cluster of them — has
    landed. The only state a human sets by hand, and the only one that is a
    claim about the work rather than about this moment, which is why working
