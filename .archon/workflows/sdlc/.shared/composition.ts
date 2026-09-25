@@ -55,6 +55,11 @@ export interface CompositionEvidence {
  * `interaction`: the ordinary validate node's schema and implement's omit it. Only
  * ordinary validation and implement declare `incomplete`: the comparison script
  * records an unfinished or unusable comparison as red with an empty cause.
+ *
+ * Only implement declares `deliberate`, and the prose in its command file is what says
+ * so — the enum is a permissive superset everywhere, which is why the comparison node
+ * advertises `incomplete` it never uses. A cause for red the work order asked for needs
+ * the work order to be legible, and validation has only the branch.
  */
 export const VALIDATION_RED_CAUSES = [
   'introduced',
@@ -62,6 +67,7 @@ export const VALIDATION_RED_CAUSES = [
   'environment',
   'interaction',
   'incomplete',
+  'deliberate',
   '',
 ] as const;
 

@@ -54,7 +54,7 @@ nodes:
         green: { type: boolean }
         red_cause:
           type: string
-          enum: [introduced, inherited, environment, interaction, incomplete, ""]
+          enum: [introduced, inherited, environment, interaction, incomplete, deliberate, ""]
         summary: { type: string }
         evidence:
           anyOf:
@@ -84,7 +84,7 @@ nodes:
         # property, so the absent form lives in the enum.
         red_cause:
           type: string
-          enum: [introduced, inherited, environment, incomplete, ""]
+          enum: [introduced, inherited, environment, incomplete, deliberate, ""]
         summary:
           type: string
       required: [green, red_cause, summary]

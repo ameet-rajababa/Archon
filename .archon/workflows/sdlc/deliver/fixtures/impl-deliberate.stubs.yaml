@@ -1,0 +1,16 @@
+# Dry-run fixture: the implementation is red on purpose — the work item asked for a
+# failing assertion because the failure is the finding (--exec-code, so the real gate
+# script decides). assert-changed is stubbed as passing, so this pins the delivery gate
+# on its own: gate-green refuses `deliberate` before anything public happens, however
+# truthfully the cause was declared.
+impl__implement:
+  done: true
+  green: false
+  red_cause: deliberate
+  summary: "stub: the new parity assertion fails because a capability literal disagrees with its documented intent. Correcting the literal widens a security gate and is the operator's call, so the assertion stands and the suite is red."
+impl__assert-changed: "3 files changed"
+# gate-green is deliberately unstubbed: the real script must refuse.
+fixture:
+  expect: failed
+  fail-node: gate-green
+exec-code: true

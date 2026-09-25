@@ -1,0 +1,15 @@
+# Dry-run fixture: implement's red is the deliverable (run with --exec-code, so
+# assert-changed decides for real). The work item asked for a failing assertion because
+# the failure is the finding and the correction is the operator's decision. The loop
+# declares `deliberate` — the true cause — and assert-changed refuses it as intended
+# red rather than as red nobody explained, giving the same answer delivery would give
+# later and cheaper.
+implement:
+  done: true
+  green: false
+  red_cause: deliberate
+  summary: "stub: the new parity assertion fails because a capability literal disagrees with its documented intent. Correcting the literal widens a security gate, which is the operator's call."
+fixture:
+  expect: failed
+  fail-node: assert-changed
+exec-code: true

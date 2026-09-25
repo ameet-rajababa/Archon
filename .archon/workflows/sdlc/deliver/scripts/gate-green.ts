@@ -19,6 +19,15 @@
  * never ran and none that ran failed. It fails too, since an unfinished gate is no
  * verdict, but it says so and names resuming the run as the action.
  *
+ * `deliberate` is the opposite case and gets the same treatment: red the work order
+ * asked for, an assertion written to fail because the failure is the finding. It is
+ * introduced red by any mechanical reading, and it fails — a self-declared label is
+ * all that separates it from a change that simply broke something, and this tail
+ * carries red to no pull request. What it buys is a true thing to say: without the
+ * cause the implementer must call intended red `introduced` and read back a refusal
+ * asserting a defect that is not there. The refusal names the routes that keep the
+ * finding instead. Triage refuses this shape first; see `sdlc/triage/commands/triage.md`.
+ *
  * The record is this node's own result. Its node declares `output_type: green-gate`,
  * so the engine keeps the JSON below as a typed artifact under `nodes/`, one file per
  * gate, and every later reader — the pull-request body, the terminal report — finds
@@ -38,7 +47,7 @@
  */
 
 import { emit, note, refuse, trimmed } from '../../.shared/io.ts';
-import { passesRed, unfinishedValidation } from '../../.shared/verdict.ts';
+import { deliberateRed, passesRed, unfinishedValidation } from '../../.shared/verdict.ts';
 
 const green = trimmed(process.env.INPUTS_GREEN);
 const cause = trimmed(process.env.INPUTS_RED_CAUSE);
@@ -49,6 +58,10 @@ if (cause === 'incomplete') {
   // Decided before `green` is read, because a green over checks that never ran is
   // unsupported.
   refuse(unfinishedValidation(stage, summary));
+} else if (cause === 'deliberate') {
+  // Also decided before `green` is read: a run that declares its red intended and its
+  // verdict green has contradicted itself, and neither half is worth acting on.
+  refuse(deliberateRed(stage, summary));
 } else if (green === 'true') {
   emit({ gate: 'green', red_cause: '', stage, summary: '' });
 } else if (cause === '') {
