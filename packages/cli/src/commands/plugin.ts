@@ -285,7 +285,12 @@ async function installForge(
   await mkdir(dirname(receiptFile), { recursive: true });
   try {
     await writeFile(stagedBinary, bytes);
-    await chmod(stagedBinary, 0o755);
+    // POSIX only. The executable bit is a POSIX concept; on Windows `chmod`
+    // reaches only the read-only flag and 0o755 means nothing, so the call did
+    // no work there — while still being a syscall against a file Defender has
+    // just started scanning. It is where the install died with ENOENT on a
+    // staged binary it had written microseconds earlier (#74).
+    if (process.platform !== 'win32') await chmod(stagedBinary, 0o755);
     await writeFile(stagedReceipt, `${JSON.stringify(receipt, null, 2)}\n`);
     // Receipt first: if the binary rename then fails, the receipt still owns the
     // name and `update` or `remove` can recover. The other order could strand a
