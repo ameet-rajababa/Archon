@@ -38,7 +38,7 @@ These commands are handled deterministically by the orchestrator — they always
 | `/workflow abandon <id>` | Discard a run (running, paused, or failed) |
 | `/workflow approve <id> [comment]` | Approve a paused workflow run at an approval gate (interactive-loop gates: no comment on a signal-bearing gate = accept & complete; a comment runs another iteration) |
 | `/workflow reject <id> [reason]` | Reject a paused workflow run at an approval gate |
-| `/workflow run <name> [args]` | Run a workflow directly |
+| `/workflow run <name> [args]` | Run a workflow directly. Refused, without starting anything, while a run of the same workflow carrying the same message is still live in this conversation -- the reply names that run. `--force` skips the failed/paused resume prompt; it does not override this |
 | `/workflow cleanup [days]` | CLI only -- delete old run records (default: 7 days) |
 
 > **Note:** Workflows are YAML files in `.archon/workflows/`

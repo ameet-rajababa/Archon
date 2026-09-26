@@ -957,6 +957,54 @@ export async function findResumableRunByParentConversation(
   }
 }
 
+/**
+ * Find a run of `workflowName` that is still live for this conversation and codebase and
+ * whose recorded intent is byte-identical to `userMessage`.
+ *
+ * This is an IDENTITY check, not a similarity one: no normalization, no truncation, no
+ * digest, no time window. Two live runs of the same workflow in one conversation are
+ * ordinary and supported — an operator dispatching several issues from one chat does it
+ * constantly — and those runs always carry different messages. A second dispatch carrying
+ * the SAME message while the first is still live is a re-sent command, and the caller
+ * refuses it rather than spending on it twice.
+ *
+ * `paused` is deliberately excluded. A paused run is an open gate, already owned by the
+ * resume path (findResumableRunByParentConversation), which presents its own choice;
+ * matching it here would refuse the dispatch before that choice can be offered.
+ *
+ * Non-throwing: a lookup failure returns null so a DB hiccup degrades to today's
+ * behavior (dispatch proceeds) instead of blocking every run.
+ */
+export async function findLiveRunWithSameIntent(
+  workflowName: string,
+  conversationId: string,
+  codebaseId: string,
+  userMessage: string
+): Promise<WorkflowRun | null> {
+  try {
+    const result = await pool.query<WorkflowRun>(
+      `SELECT * FROM remote_agent_workflow_runs
+       WHERE workflow_name = $1
+         AND (conversation_id = $2 OR parent_conversation_id = $3)
+         AND codebase_id = $4
+         AND user_message = $5
+         AND status IN ('pending', 'running')
+       ORDER BY started_at DESC
+       LIMIT 1`,
+      [workflowName, conversationId, conversationId, codebaseId, userMessage]
+    );
+    const row = result.rows[0];
+    return row ? normalizeWorkflowRun(row) : null;
+  } catch (error) {
+    const err = error as Error;
+    getLog().error(
+      { err, workflowName, conversationId, codebaseId },
+      'db.workflow_run_find_live_same_intent_failed'
+    );
+    return null;
+  }
+}
+
 export async function resumeWorkflowRun(
   id: string,
   cursor?: WorkflowResumeCursor

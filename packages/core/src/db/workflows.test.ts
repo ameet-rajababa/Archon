@@ -31,6 +31,7 @@ import {
   updateWorkflowActivity,
   findResumableRun,
   findResumableRunByParentConversation,
+  findLiveRunWithSameIntent,
   cancelResumableRunsForConversation,
   resumeWorkflowRun,
   pauseWorkflowRun,
@@ -1455,6 +1456,42 @@ describe('workflows database', () => {
       await expect(findResumableRunByParentConversation('piv', 'conv-1', 'cb')).rejects.toThrow(
         'Failed to find resumable run by parent conversation: Connection refused'
       );
+    });
+  });
+
+  describe('findLiveRunWithSameIntent', () => {
+    test('keys on workflow, conversation lineage, codebase and the exact message', async () => {
+      mockQuery.mockResolvedValueOnce(createQueryResult([mockWorkflowRun]));
+
+      const result = await findLiveRunWithSameIntent('piv', 'conv-1', 'codebase-789', 'ship #12');
+
+      expect(result).toEqual(mockWorkflowRun);
+      const [query, params] = mockQuery.mock.calls[0] as [string, unknown[]];
+      expect(query).toContain('workflow_name = $1');
+      expect(query).toContain('conversation_id = $2 OR parent_conversation_id = $3');
+      expect(query).toContain('codebase_id = $4');
+      // Equality on the recorded intent — no digest, no LIKE, no time bound.
+      expect(query).toContain('user_message = $5');
+      expect(query).not.toMatch(/LIKE|interval|INTERVAL/);
+      expect(params).toEqual(['piv', 'conv-1', 'conv-1', 'codebase-789', 'ship #12']);
+    });
+
+    test('matches only live statuses, leaving paused to the resume path', async () => {
+      mockQuery.mockResolvedValueOnce(createQueryResult([]));
+
+      await findLiveRunWithSameIntent('piv', 'conv-1', 'cb', 'msg');
+
+      const [query] = mockQuery.mock.calls[0] as [string, unknown[]];
+      expect(query).toContain("status IN ('pending', 'running')");
+      expect(query).not.toContain("'paused'");
+    });
+
+    test('returns null on database error so a lookup failure cannot block every dispatch', async () => {
+      mockQuery.mockRejectedValueOnce(new Error('Connection refused'));
+
+      const result = await findLiveRunWithSameIntent('piv', 'conv-1', 'cb', 'msg');
+
+      expect(result).toBeNull();
     });
   });
 
