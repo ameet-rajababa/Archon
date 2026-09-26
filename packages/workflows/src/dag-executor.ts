@@ -66,6 +66,7 @@ import type {
   ExecutionContext,
   OverlayChangeSummary,
 } from '@archon/providers/types';
+import { blockSeam } from '@archon/providers/block-seam';
 import { CONTAINER_ENV_DENYLIST, mergeTokenUsage } from '@archon/providers/types';
 import type { ContainerRunContext } from './container-context';
 import { WRITEBACK_GATE_NODE_ID } from './container-context';
@@ -2503,7 +2504,10 @@ async function executeNodeInternal(
       }
 
       if (msg.type === 'assistant' && msg.content) {
-        nodeOutputText += msg.content; // ALWAYS capture for $node_id.output
+        // ALWAYS capture for $node_id.output. Seamed rather than concatenated:
+        // adjacent chunks are separate text blocks, and fusing them can close a
+        // fence onto the line that follows it.
+        nodeOutputText += blockSeam(nodeOutputText, msg.content) + msg.content;
         if (streamingMode === 'stream' || msg.flush) {
           // `flush` chunks (e.g. Pi notify() emitting a plannotator review URL)
           // must reach the user before the node blocks. Drain any queued batch
@@ -6249,9 +6253,9 @@ async function executeLoopNode(
             }
 
             if (msg.type === 'assistant') {
-              fullOutput += msg.content;
+              fullOutput += blockSeam(fullOutput, msg.content) + msg.content;
               const cleaned = stripCompletionTags(msg.content, loop.until);
-              cleanOutput += cleaned;
+              cleanOutput += blockSeam(cleanOutput, cleaned) + cleaned;
               if (platform.getStreamingMode() === 'stream' && cleaned) {
                 await safeSendMessage(platform, conversationId, cleaned, msgContext);
               }

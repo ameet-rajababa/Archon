@@ -1,4 +1,5 @@
 import { createLogger } from '@archon/paths';
+import { blockSeam } from '@archon/providers/block-seam';
 import type { MessageMetadata } from '@archon/core';
 import { toPersistedMessageMetadata } from '@archon/core/types';
 
@@ -85,7 +86,7 @@ export class MessagePersistence {
         metadata,
       });
     } else {
-      lastSeg.content += message;
+      lastSeg.content += blockSeam(lastSeg.content, message) + message;
     }
     this.assistantBuffer.set(conversationId, buf);
 
