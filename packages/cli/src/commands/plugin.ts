@@ -286,10 +286,19 @@ async function installForge(
   try {
     await writeFile(stagedBinary, bytes);
     // POSIX only. The executable bit is a POSIX concept; on Windows `chmod`
-    // reaches only the read-only flag and 0o755 means nothing, so the call did
-    // no work there — while still being a syscall against a file Defender has
-    // just started scanning. It is where the install died with ENOENT on a
-    // staged binary it had written microseconds earlier (#74).
+    // reaches only the read-only flag and 0o755 means nothing, so the call did no
+    // work there — while still being one more operation resolving the staged path
+    // by name. It is where the install died with ENOENT on a staged binary it had
+    // written microseconds earlier (#74), so removing it removes that failure; it
+    // does not explain it. What unlinked the file between `writeFile` and `chmod`
+    // is still unknown, and one hypothesis is ruled out: not Windows Defender
+    // scanning the freshly written PE, because the `windows-latest` image already
+    // excludes `C:\` and `D:\` recursively — readback evidence recorded at
+    // .github/workflows/test.yml, coleam00/Archon#2943. Do not re-run that
+    // experiment. If the ENOENT returns it will surface on the `rename` below,
+    // which is the remaining operation that resolves this path by name and the
+    // one that cannot be made to absorb a missing file, since a staged binary
+    // that has vanished must fail the install rather than be retried past.
     if (process.platform !== 'win32') await chmod(stagedBinary, 0o755);
     await writeFile(stagedReceipt, `${JSON.stringify(receipt, null, 2)}\n`);
     // Receipt first: if the binary rename then fails, the receipt still owns the
