@@ -11,18 +11,35 @@
  * over plain HTTP, on the poll the rail already makes, and takes no conversation
  * lock at any point.
  *
- * WHY IT IS IN THE HEADER. It used to sit at the foot of the rail, and on a phone
- * the rail is a drawer that is closed by default — so the one person who asked
- * for this could not see it on the device they read Archon from. A deploy
- * replaces the whole install rather than one project, so it belongs in the one
- * band that is on every route at every width. There is no rail copy any more:
- * two places rendering one fact is a pair kept in agreement by nobody.
+ * WHY IT IS IN THE PROJECT HEADER, AND NOT A BAND OF ITS OWN. It sat at the foot
+ * of the rail first, where a phone could not reach it — the rail is a drawer that
+ * is closed by default below `md`. The fix for that was a full-width band above
+ * everything, and the band was worse in a way the rail never was: it is a flex
+ * child of the app shell, so it appeared with the first health answer and pushed
+ * the entire console down a line. Every load jiggled.
+ *
+ * This slot cannot do that. `ProjectHeader`'s top row already exists on every
+ * frame and its height is set by the project name, which is `text-xl` against
+ * this strip's 11px — so the strip fills horizontal space the row was already
+ * spending on nothing, and can neither move what is beside it (the name
+ * truncates, the strip takes the slack as `flex-1`) nor change the row's height.
+ * Rendering nothing is the same shape as rendering something.
+ *
+ * WHAT IT COSTS. `ProjectHeader` mounts under `ProjectLayout`, which covers the
+ * index and every project-scoped route, but not Settings, the Builder, the
+ * preview page, or a project-less run detail. On those four the deploy is
+ * unreported. That is a real narrowing from the band, taken deliberately: a
+ * surface that shifts the page on every load gets dismissed, and a dismissed
+ * surface reports nothing anywhere. DeployOverlay is still mounted app-wide in
+ * ConsoleApp, so the two phases that actually stop you still interrupt on every
+ * route — it is the ambient half that is project-scoped, not the urgent half.
  *
  * WHAT IT DROPS ON A NARROW SCREEN. The dot, the phase word and the clock survive
- * every width; the SHA and the holding sentence go below `sm`. That ordering is
- * deliberate — the clock is what tells you the deploy is alive, and the phase
- * word is what tells you whether you can type. The overlay in DeployOverlay picks
- * up the phases where the detail actually matters.
+ * every width; the SHA goes below `sm` and the holding sentence below `md`, and
+ * the sentence is capped at 22 characters above that so a long FAILED reason
+ * cannot crowd the project name. That ordering is deliberate — the clock is what
+ * tells you the deploy is alive, and the phase word is what tells you whether you
+ * can type. DeployOverlay picks up the phases where the detail actually matters.
  *
  * It renders in the idle state too, quietly. A strip that appeared only during a
  * deploy could not be trusted to be absent for the right reason — "nothing on
@@ -67,7 +84,7 @@ export function DeployStrip(): ReactElement | null {
   return (
     <div
       data-testid="deploy-strip"
-      className="flex shrink-0 items-center gap-2 border-b border-border bg-surface px-3 py-1 text-[11px]"
+      className="flex min-w-0 flex-1 items-center justify-end gap-2 self-center text-[11px] leading-none"
       aria-live="polite"
     >
       <span
@@ -81,11 +98,10 @@ export function DeployStrip(): ReactElement | null {
         </code>
       ) : null}
       {view.detail !== null ? (
-        <span className="hidden min-w-0 flex-1 truncate text-text-tertiary sm:inline">
+        <span className="hidden min-w-0 max-w-[22ch] truncate text-text-tertiary md:inline">
           {view.detail}
         </span>
       ) : null}
-      <span className="flex-1" />
       {elapsed !== null ? (
         <span className="shrink-0 tabular-nums text-text-tertiary">{elapsed}</span>
       ) : null}
