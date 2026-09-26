@@ -6,7 +6,6 @@ import { chooseOpenChat, readLastChat, writeLastChat } from '../lib/last-chat';
 import { ConversationRail, type ChatScope } from '../components/ConversationRail';
 import { ChatStatusStrip } from '../components/ChatStatusStrip';
 import { ContextBar } from '../components/ContextBar';
-import { WorkflowDock } from '../components/WorkflowDock';
 import { ChatRunsPanel } from '../components/ChatRunsPanel';
 import { EmptyState } from '../components/EmptyState';
 import { StreamContextProvider } from '../lib/stream-context';
@@ -357,10 +356,10 @@ export function ChatPage(): ReactElement {
   /**
    * Chats whose run is paused on an approval.
    *
-   * Reads the project's runs feed — the same cache key WorkflowDock already
-   * populates, so this costs no extra request. An approval belongs to a RUN,
-   * and the run is what knows which conversation dispatched it; there is no
-   * way to ask a conversation directly.
+   * Reads the PROJECT's runs feed, not the open chat's: this marks every chat
+   * in the rail, including the ones you are not looking at. An approval belongs
+   * to a RUN, and the run is what knows which conversation dispatched it; there
+   * is no way to ask a conversation directly.
    */
   const { data: runFeed } = useEntity<{ runs: Run[] }>(
     projectId === undefined ? 'noop:no-project-runs' : K.runs(projectId),
@@ -781,8 +780,6 @@ export function ChatPage(): ReactElement {
         {activeConvDbId !== null ? (
           <ChatRunsPanel conversationDbId={activeConvDbId} projectId={projectId} />
         ) : null}
-
-        <WorkflowDock projectId={projectId} conversationDbId={activeConvDbId} />
 
         {error !== null || loadError !== undefined ? (
           <div className="shrink-0 border-t border-error/30 bg-error/[0.06] px-6 py-2 font-mono text-[11px] text-error">
