@@ -10,9 +10,26 @@ on:
 env:
   BUN_VERSION: '1.4.2'
 
+# Keyed on the ref for a pull request and on the COMMIT for everything else, because the
+# two kinds of run are worth different things.
+#
+# A pull request's older run is about a commit nobody will merge, so superseding it is
+# free and it is where the churn is: `should-run-test-suite.ts` depends on that
+# cancellation, and it stays exactly as it was.
+#
+# A push to `main` or `dev`, and a manual dispatch, are the accumulating record of whether
+# this suite is a signal at all — the question #74 is open on. Keyed on the ref they share
+# one group, so the next merge cancels the run before it: a re-run of `dev`'s own HEAD died
+# 64 s in when the next commit landed, which is why #53 had to demonstrate repeatability
+# across three commits carrying identical test code instead of one commit three times.
+# Keyed on the commit, each lands in its own group and none of them cancels another.
+#
+# `cancel-in-progress` is false off pull requests rather than true, so re-running one
+# commit while its own run is still going queues instead of killing the evidence. Two runs
+# of DIFFERENT commits never meet, since the commit is in the group.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   changes:
