@@ -7,6 +7,14 @@
  *      write only on first call).
  *   2. Register the helper on the worktree's git config:
  *      `credential.https://github.com.helper = ~/.archon/bin/git-credential-archon`
+ *      `credential.https://github.com.useHttpPath = true`
+ *
+ * Both writes are required. The helper identifies the repository from the
+ * `path=` line git sends on stdin, and git omits that line unless
+ * `useHttpPath` is set — so a helper registered without it receives an empty
+ * path, rejects the request as malformed, and exits 0. Git then falls through
+ * to the next helper and the operation fails unauthenticated, which surfaces
+ * as a permission error rather than a configuration one.
  *
  * The caller (the GitHub adapter clone path in App mode) decides whether to
  * invoke this — it's a no-op for PAT-mode operators by virtue of not being
@@ -49,10 +57,18 @@ export async function installCredentialHelper(
       chmodSync(helperPath, 0o755);
       getLog().info({ helperPath }, 'github_auth.credential_helper_copied');
     }
-    // Per-worktree git config write — idempotent on git's side.
+    // Per-worktree git config writes — idempotent on git's side.
     await execFileAsync(
       'git',
       ['-C', worktreePath, 'config', 'credential.https://github.com.helper', helperPath],
+      { timeout: 5000 }
+    );
+    // Without this the helper is registered but never usable: git sends no
+    // `path=` line, so the helper cannot tell which repository is being
+    // authenticated and declines.
+    await execFileAsync(
+      'git',
+      ['-C', worktreePath, 'config', 'credential.https://github.com.useHttpPath', 'true'],
       { timeout: 5000 }
     );
     getLog().info({ worktreePath, helperPath }, 'github_auth.credential_helper_registered');

@@ -116,6 +116,20 @@ describe('installCredentialHelper', () => {
     );
   });
 
+  test('registers useHttpPath so git sends the repository path to the helper', async () => {
+    const result = await installCredentialHelper('/tmp/some-worktree');
+
+    expect(result.kind).toBe('installed');
+    // The helper identifies the repository from the `path=` line on stdin and
+    // declines the request when it is absent. Git omits that line unless this
+    // is set, so a helper registered without it is registered but unusable.
+    expect(execSpy).toHaveBeenCalledWith(
+      'git',
+      ['-C', '/tmp/some-worktree', 'config', 'credential.https://github.com.useHttpPath', 'true'],
+      { timeout: 5000 }
+    );
+  });
+
   test('returns failed instead of throwing when the git config write fails', async () => {
     execSpy.mockImplementation(() => Promise.reject(new Error('not a git repository')));
 
@@ -169,7 +183,11 @@ describe('installCredentialHelper', () => {
       expect(result.kind).toBe('installed');
 
       const child = Bun.spawn(
-        ['git', '-C', repoPath, '-c', 'credential.useHttpPath=true', 'credential', 'fill'],
+        // No `-c credential.useHttpPath=true` here, deliberately. Supplying it
+        // on the command line is what hid the missing config write: the helper
+        // only receives a `path=` line when that setting is in the repository's
+        // own config, which installCredentialHelper is responsible for writing.
+        ['git', '-C', repoPath, 'credential', 'fill'],
         {
           env: {
             ...process.env,
