@@ -30,6 +30,9 @@ type MockCodebase = Omit<typeof MOCK_CODEBASE, 'repository_url'> & {
 };
 const mockListCodebases = mock(async () => [] as MockCodebase[]);
 const mockDeleteCodebase = mock(async (_id: string) => {});
+const mockUpdateCodebase = mock(
+  async (_id: string, _data: { repository_url?: string | null }) => {}
+);
 const mockCloneRepository = mock(async (_url: string) => ({
   codebaseId: 'clone-uuid-1',
   alreadyExisted: false,
@@ -130,10 +133,19 @@ mock.module('@archon/core/db/conversations', () => ({
   getConversationById: mock(async () => null),
 }));
 
+class MockCodebaseNotFoundError extends Error {
+  constructor(public codebaseId: string) {
+    super(`Codebase ${codebaseId} not found`);
+    this.name = 'CodebaseNotFoundError';
+  }
+}
+
 mock.module('@archon/core/db/codebases', () => ({
   listCodebases: mockListCodebases,
   getCodebase: mockGetCodebase,
   deleteCodebase: mockDeleteCodebase,
+  updateCodebase: mockUpdateCodebase,
+  CodebaseNotFoundError: MockCodebaseNotFoundError,
 }));
 
 mock.module('@archon/core/db/isolation-environments', () => ({
@@ -1084,5 +1096,121 @@ describe('Files tab - GET /api/codebases/:id/raw', () => {
 
   test('a missing image is 404', async () => {
     expect((await raw('nope.png')).status).toBe(404);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: PATCH /api/codebases/:id
+//
+// `repository_url` used to be FILL-ONLY, and only from inside the clone path.
+// The correction case is therefore the one that matters most here: a row with
+// a WRONG url, not merely a null one, must be settable.
+// ---------------------------------------------------------------------------
+
+describe('PATCH /api/codebases/:id', () => {
+  const patch = (id: string, body: unknown): Request =>
+    new Request(`http://localhost/api/codebases/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+  beforeEach(() => {
+    mockGetCodebase.mockReset();
+    mockUpdateCodebase.mockReset();
+  });
+
+  test('corrects an existing wrong repository_url', async () => {
+    const wrong = { ...MOCK_CODEBASE, repository_url: 'https://github.com/user/WRONG' };
+    const right = { ...MOCK_CODEBASE, repository_url: 'https://github.com/user/right' };
+    mockGetCodebase.mockImplementationOnce(async () => wrong);
+    mockGetCodebase.mockImplementationOnce(async () => right);
+
+    const response = await makeApp().request(
+      patch('codebase-uuid-1', { repository_url: 'https://github.com/user/right' })
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockUpdateCodebase).toHaveBeenCalledWith('codebase-uuid-1', {
+      repository_url: 'https://github.com/user/right',
+    });
+    const body = (await response.json()) as { repository_url: string };
+    expect(body.repository_url).toBe('https://github.com/user/right');
+  });
+
+  test('fills a null repository_url', async () => {
+    const empty = { ...MOCK_CODEBASE, repository_url: null };
+    const filled = { ...MOCK_CODEBASE, repository_url: 'https://github.com/user/repo' };
+    mockGetCodebase.mockImplementationOnce(async () => empty);
+    mockGetCodebase.mockImplementationOnce(async () => filled);
+
+    const response = await makeApp().request(
+      patch('codebase-uuid-1', { repository_url: 'https://github.com/user/repo' })
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockUpdateCodebase).toHaveBeenCalledWith('codebase-uuid-1', {
+      repository_url: 'https://github.com/user/repo',
+    });
+  });
+
+  test('an explicit null clears the field, and reaches the db as null', async () => {
+    mockGetCodebase.mockImplementationOnce(async () => MOCK_CODEBASE);
+    mockGetCodebase.mockImplementationOnce(async () => ({
+      ...MOCK_CODEBASE,
+      repository_url: null,
+    }));
+
+    const response = await makeApp().request(patch('codebase-uuid-1', { repository_url: null }));
+
+    expect(response.status).toBe(200);
+    expect(mockUpdateCodebase).toHaveBeenCalledWith('codebase-uuid-1', { repository_url: null });
+  });
+
+  // The scp-like form has no scheme, so `z.string().url()` would reject it —
+  // while `resolveIssueSource` reads it happily. Accepting it is the point.
+  test('accepts an scp-like git remote', async () => {
+    mockGetCodebase.mockImplementationOnce(async () => MOCK_CODEBASE);
+    mockGetCodebase.mockImplementationOnce(async () => ({
+      ...MOCK_CODEBASE,
+      repository_url: 'git@github.com:user/repo.git',
+    }));
+
+    const response = await makeApp().request(
+      patch('codebase-uuid-1', { repository_url: 'git@github.com:user/repo.git' })
+    );
+
+    expect(response.status).toBe(200);
+  });
+
+  test('rejects a non-URL string without persisting anything', async () => {
+    mockGetCodebase.mockImplementation(async () => MOCK_CODEBASE);
+
+    const response = await makeApp().request(
+      patch('codebase-uuid-1', { repository_url: 'not a url' })
+    );
+
+    expect(response.status).toBe(400);
+    expect(mockUpdateCodebase).not.toHaveBeenCalled();
+  });
+
+  test('rejects an empty body rather than writing nothing quietly', async () => {
+    mockGetCodebase.mockImplementation(async () => MOCK_CODEBASE);
+
+    const response = await makeApp().request(patch('codebase-uuid-1', {}));
+
+    expect(response.status).toBe(400);
+    expect(mockUpdateCodebase).not.toHaveBeenCalled();
+  });
+
+  test('404s for a codebase that does not exist, and writes nothing', async () => {
+    mockGetCodebase.mockImplementation(async () => null);
+
+    const response = await makeApp().request(
+      patch('missing', { repository_url: 'https://github.com/user/repo' })
+    );
+
+    expect(response.status).toBe(404);
+    expect(mockUpdateCodebase).not.toHaveBeenCalled();
   });
 });

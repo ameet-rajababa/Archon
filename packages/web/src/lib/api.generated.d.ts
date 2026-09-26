@@ -1684,7 +1684,60 @@ export interface paths {
     };
     options?: never;
     head?: never;
-    patch?: never;
+    /** Update a codebase's recorded repository URL */
+    patch: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          'application/json': components['schemas']['UpdateCodebaseBody'];
+        };
+      };
+      responses: {
+        /** @description Updated codebase */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'application/json': components['schemas']['Codebase'];
+          };
+        };
+        /** @description Bad request */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'application/json': components['schemas']['Error'];
+          };
+        };
+        /** @description Not found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'application/json': components['schemas']['Error'];
+          };
+        };
+        /** @description Server error */
+        500: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'application/json': components['schemas']['Error'];
+          };
+        };
+      };
+    };
     trace?: never;
   };
   '/api/codebases/{id}/env': {
@@ -4293,6 +4346,9 @@ export interface components {
     AddCodebaseBody: {
       url?: string;
       path?: string;
+    };
+    UpdateCodebaseBody: {
+      repository_url?: string | null;
     };
     DeleteCodebaseResponse: {
       success: boolean;
