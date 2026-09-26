@@ -431,6 +431,9 @@ const mockGetPausedWorkflowRun = mock<typeof WorkflowDb.getPausedWorkflowRun>(()
 const mockFindResumableRunByParentConversation = mock<
   typeof WorkflowDb.findResumableRunByParentConversation
 >(() => Promise.resolve(null));
+const mockFindLiveRunWithSameIntent = mock<typeof WorkflowDb.findLiveRunWithSameIntent>(() =>
+  Promise.resolve(null)
+);
 const mockUpdateWorkflowRun = mock<typeof WorkflowDb.updateWorkflowRun>(() => Promise.resolve());
 // approveWorkflow stamps the resolution atomically via this CAS (#2113), not
 // updateWorkflowRun. Defaults to "won the race".
@@ -468,6 +471,7 @@ mock.module('../db/workflows', () => ({
   getPausedWorkflowRun: mockGetPausedWorkflowRun,
   getWorkflowRun: mockGetWorkflowRunDb,
   findResumableRunByParentConversation: mockFindResumableRunByParentConversation,
+  findLiveRunWithSameIntent: mockFindLiveRunWithSameIntent,
   updateWorkflowRun: mockUpdateWorkflowRun,
   resolveApprovalGate: mockResolveApprovalGate,
   resolveAndCancelApprovalGate: mockResolveAndCancelApprovalGate,
@@ -2263,6 +2267,8 @@ describe('workflow dispatch routing — interactive flag', () => {
     mockExecuteWorkflow.mockClear();
     mockDispatchBackgroundWorkflow.mockClear();
     mockFindResumableRunByParentConversation.mockClear();
+    mockFindLiveRunWithSameIntent.mockClear();
+    mockFindLiveRunWithSameIntent.mockImplementation(() => Promise.resolve(null));
     mockHydrateResumableRun.mockClear();
     mockInspectResumableRun.mockReset();
     mockInspectResumableRun.mockImplementation(() =>
@@ -2724,11 +2730,11 @@ describe('workflow dispatch routing — interactive flag', () => {
     );
     expect(platform.sendMessage).toHaveBeenCalledWith(
       'conv-1',
-      expect.stringContaining('Discard the interrupted run')
+      expect.stringContaining('leaving the interrupted run as-is')
     );
     expect(platform.sendMessage).toHaveBeenCalledWith(
       'conv-1',
-      expect.stringContaining('leave the interrupted run as-is')
+      expect.stringContaining('want the interrupted run gone as well')
     );
     expect(platform.sendMessage).not.toHaveBeenCalledWith(
       'conv-1',
@@ -2780,10 +2786,89 @@ describe('workflow dispatch routing — interactive flag', () => {
     const prompt = (platform.sendMessage as ReturnType<typeof mock>).mock.calls.at(-1)?.[1] as
       | string
       | undefined;
-    expect(prompt).toContain('/workflow run test-workflow "fix \\\\ path \\"quoted\\" \\`tick\\`"');
     expect(prompt).toContain(
       '/workflow run test-workflow --force "fix \\\\ path \\"quoted\\" \\`tick\\`"'
     );
+    // The menu offers exactly one command that dispatches a fresh run. A second,
+    // flagless copy of it is what #92 shows operators pasting alongside this one.
+    expect(prompt).not.toContain('/workflow run test-workflow "fix');
+  });
+
+  test('duplicate intent: a live run carrying the same message refuses the second dispatch', async () => {
+    mockGetOrCreateConversation.mockReturnValueOnce(Promise.resolve(makeDispatchConversation()));
+    mockGetCodebase.mockReturnValueOnce(Promise.resolve(makeCodebase()));
+    mockHandleCommand.mockReturnValueOnce(Promise.resolve(makeWorkflowResult(true)));
+    mockFindLiveRunWithSameIntent.mockReturnValueOnce(
+      Promise.resolve(makeRun({ id: 'live-twin-1', status: 'running' }))
+    );
+
+    const platform = makePlatform();
+    await handleMessage(platform, 'conv-1', '/workflow run test-workflow');
+
+    expect(mockExecuteWorkflow).not.toHaveBeenCalled();
+    expect(mockDispatchBackgroundWorkflow).not.toHaveBeenCalled();
+    expect(platform.sendMessage).toHaveBeenCalledWith(
+      'conv-1',
+      expect.stringContaining('live-twin-1')
+    );
+    // The lookup is keyed on the recorded intent, not on a window or a digest.
+    expect(mockFindLiveRunWithSameIntent).toHaveBeenCalledWith(
+      'test-workflow',
+      'conv-1-db',
+      'codebase-1',
+      'test message'
+    );
+  });
+
+  test('duplicate intent: --force does not bypass the live-twin refusal', async () => {
+    mockGetOrCreateConversation.mockReturnValueOnce(Promise.resolve(makeDispatchConversation()));
+    mockGetCodebase.mockReturnValueOnce(Promise.resolve(makeCodebase()));
+    mockHandleCommand.mockReturnValueOnce(
+      Promise.resolve(makeWorkflowResult(true, { force: true }))
+    );
+    mockFindLiveRunWithSameIntent.mockReturnValueOnce(
+      Promise.resolve(makeRun({ id: 'live-twin-2', status: 'running' }))
+    );
+
+    const platform = makePlatform();
+    await handleMessage(platform, 'conv-1', '/workflow run test-workflow --force "test message"');
+
+    expect(mockExecuteWorkflow).not.toHaveBeenCalled();
+    expect(mockDispatchBackgroundWorkflow).not.toHaveBeenCalled();
+    expect(platform.sendMessage).toHaveBeenCalledWith(
+      'conv-1',
+      expect.stringContaining('live-twin-2')
+    );
+  });
+
+  test('duplicate intent: no live twin leaves the dispatch untouched', async () => {
+    mockGetOrCreateConversation.mockReturnValueOnce(Promise.resolve(makeDispatchConversation()));
+    mockGetCodebase.mockReturnValueOnce(Promise.resolve(makeCodebase()));
+    mockHandleCommand.mockReturnValueOnce(Promise.resolve(makeWorkflowResult(true)));
+
+    const platform = makePlatform();
+    await handleMessage(platform, 'conv-1', '/workflow run test-workflow');
+
+    expect(mockFindLiveRunWithSameIntent).toHaveBeenCalled();
+    expect(mockExecuteWorkflow).toHaveBeenCalled();
+  });
+
+  test('duplicate intent: an explicit resume is a continuation, not a duplicate', async () => {
+    const requestedRun = makeResumableRun({
+      id: 'resume-target',
+      status: 'paused',
+      user_message: 'test message',
+    });
+    mockGetOrCreateConversation.mockReturnValueOnce(Promise.resolve(makeDispatchConversation()));
+    mockGetCodebase.mockReturnValueOnce(Promise.resolve(makeCodebase()));
+    mockHandleCommand.mockReturnValueOnce(
+      Promise.resolve(makeWorkflowResult(true, { resumeRun: requestedRun }))
+    );
+
+    const platform = makePlatform();
+    await handleMessage(platform, 'conv-1', '/workflow resume resume-target');
+
+    expect(mockFindLiveRunWithSameIntent).not.toHaveBeenCalled();
   });
 
   test('--force flag: skips resume detection and dispatches a fresh run', async () => {
@@ -3887,6 +3972,8 @@ describe('paused approval gate routing', () => {
     mockListCodebases.mockImplementation(() => Promise.resolve([]));
     mockExecuteWorkflow.mockClear();
     mockFindResumableRunByParentConversation.mockReset();
+    mockFindLiveRunWithSameIntent.mockReset();
+    mockFindLiveRunWithSameIntent.mockImplementation(() => Promise.resolve(null));
     mockFindResumableRunByParentConversation.mockImplementation(() => Promise.resolve(null));
     mockHydrateResumableRun.mockClear();
     mockUpdateWorkflowRun.mockClear();
@@ -4265,6 +4352,8 @@ describe('handleWorkflowRunCommand — E2 single codebase auto-select', () => {
     mockDispatchBackgroundWorkflow.mockClear();
     mockExecuteWorkflow.mockClear();
     mockFindResumableRunByParentConversation.mockClear();
+    mockFindLiveRunWithSameIntent.mockClear();
+    mockFindLiveRunWithSameIntent.mockImplementation(() => Promise.resolve(null));
     mockLogger.error.mockClear();
 
     // Default: return empty conversation without codebase
@@ -5001,6 +5090,8 @@ describe('handleMessage — multi-chunk command accumulation (regression)', () =
     mockGetPausedWorkflowRun.mockReset();
     mockGetPausedWorkflowRun.mockImplementation(() => Promise.resolve(null));
     mockFindResumableRunByParentConversation.mockReset();
+    mockFindLiveRunWithSameIntent.mockReset();
+    mockFindLiveRunWithSameIntent.mockImplementation(() => Promise.resolve(null));
     mockFindResumableRunByParentConversation.mockImplementation(() => Promise.resolve(null));
     mockParseCommand.mockReset();
     mockCreateCodebase.mockClear();

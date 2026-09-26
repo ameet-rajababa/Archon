@@ -713,6 +713,15 @@ function formatResumableRunState(status: WorkflowRun['status']): string {
   return status === 'running' ? 'interrupted' : status;
 }
 
+/**
+ * The menu shown when a fresh dispatch finds a prior failed or interrupted run.
+ *
+ * It holds exactly ONE command that starts a fresh run. It used to hold two — a
+ * plain re-run under "discard, then start fresh", and a `--force` re-run under
+ * "start fresh, leave it alone" — which differed only by the flag. Read top to
+ * bottom and acted on block by block, as #92 shows three separate sessions doing,
+ * that menu launches the workflow twice and bills twice for one decision.
+ */
 function buildFailedRunResumePrompt(
   surface: WorkflowCommandSurface,
   workflowName: string,
@@ -738,25 +747,22 @@ function buildFailedRunResumePrompt(
     '',
     '---',
     '',
-    '**Choose how to proceed:**',
+    '**Choose ONE of these two — each starts a run, and running both starts two:**',
     '',
     '**1. Resume that run** (re-runs the prompt shown above, not your current message):',
     '```',
     spellWorkflowCommand(surface, `resume ${resumableRun.id}`),
     '```',
     '',
-    `**2. Discard the ${stateLabel} run, then start fresh with your current message:**`,
-    '```',
-    spellWorkflowCommand(surface, `abandon ${resumableRun.id}`),
-    '```',
-    'then re-run your command:',
-    '```',
-    spellWorkflowCommand(surface, `${run} "${escapedMessage}"`),
-    '```',
-    '',
-    `**3. Start fresh with your current message, leave the ${stateLabel} run as-is** (skips the resume check):`,
+    `**2. Start fresh with your current message**, leaving the ${stateLabel} run as-is:`,
     '```',
     spellWorkflowCommand(surface, `${run} --force "${escapedMessage}"`),
+    '```',
+    '',
+    `If you picked 2 and want the ${stateLabel} run gone as well, this discards it. It`,
+    'starts nothing — run it alongside the command above, never instead of it:',
+    '```',
+    spellWorkflowCommand(surface, `abandon ${resumableRun.id}`),
     '```',
   ].join('\n');
 }
@@ -908,6 +914,56 @@ async function dispatchOrchestratorWorkflowOwned(
   const willContinueExistingRun =
     Boolean(resumableRun?.working_path) &&
     (resumableRun?.status === 'paused' || explicitResumeRequested);
+
+  // Duplicate-intent gate (#92). A fresh dispatch is refused when a run of the same
+  // workflow, in this conversation and codebase, carrying a byte-identical message, is
+  // still live. One operator intent then produces one run row instead of two, and nobody
+  // has to watch the run list to cancel a twin.
+  //
+  // What this is NOT: a time window, a digest, or a similarity score. It is equality on
+  // the intent the engine itself recorded. Concurrent runs of one workflow from one chat
+  // stay supported — they carry different messages, which is what makes them different
+  // work — and a deliberate re-run of the same message after the first run reaches a
+  // terminal status is untouched, because only 'pending'/'running' match.
+  //
+  // `--force` does not bypass it. That flag means "skip the failed/paused resume menu",
+  // and the duplicate observed in #92 arrived carrying it: bypassing here would leave the
+  // reported double-spend exactly as it is.
+  //
+  // Liveness is not judged here. A run whose owner died still reads 'running', and this
+  // process cannot tell an orphan from live work (AGENTS.md: do not guess lifecycle
+  // ownership). So the refusal names the run and points at `abandon`, which already
+  // probes the recorded owner and is the operator's explicit action.
+  if (request.kind === 'start' && !willContinueExistingRun) {
+    const liveTwin = await workflowDb.findLiveRunWithSameIntent(
+      workflow.name,
+      conversation.id,
+      codebase.id,
+      userMessage
+    );
+    if (liveTwin) {
+      getLog().info(
+        { workflowName: workflow.name, conversationId, liveRunId: liveTwin.id },
+        'workflow.duplicate_intent_refused'
+      );
+      await platform.sendMessage(
+        conversationId,
+        [
+          `Not starting a second **${workflow.name}** run — this exact message is already ` +
+            `running as \`${liveTwin.id}\` (started ${liveTwin.started_at.toISOString()}).`,
+          '',
+          'Watch it, or stop it and start over:',
+          '```',
+          spellWorkflowCommand(platform, `status ${liveTwin.id}`),
+          '```',
+          '```',
+          spellWorkflowCommand(platform, `abandon ${liveTwin.id}`),
+          '```',
+        ].join('\n')
+      );
+      return;
+    }
+  }
 
   // Adoption and continuation are mutually exclusive: both decide where the run
   // executes and which estate it inherits, and every continuation path below forwards
