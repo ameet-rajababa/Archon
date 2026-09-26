@@ -188,10 +188,11 @@ export function runStreamKeys(conversationPlatformId: string, runId: string): st
  * Subscribe to the dashboard SSE stream and invalidate the affected caches on
  * any lifecycle change.
  *
- * Safe to mount from more than one place — ConsoleApp mounts it at the root
- * and ChatRunsPanel mounts it again. Each opens an independent connection and
- * the invalidations are idempotent, so the duplicate costs a socket and a
- * redundant refetch, nothing more.
+ * ConsoleApp mounts it once at the root, which is all any reader needs: the
+ * invalidations are keyed by cache prefix, not by subscriber. A second mount is
+ * SAFE but wasteful — each opens an independent connection and the
+ * invalidations are idempotent, so a duplicate costs a socket and a redundant
+ * refetch, nothing more.
  *
  * It was NOT always safe: the server held one writer per stream id, so two
  * subscribers on `__dashboard__` evicted each other in a reconnect loop.

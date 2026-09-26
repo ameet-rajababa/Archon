@@ -33,7 +33,7 @@ import './rail.css';
 export function ConsoleApp(): ReactElement {
   // Mounted at the ROOT, not per route. The rail renders on every screen and
   // carries live run counts and the chat list, so a subscription that only
-  // existed on RunsPage and inside the WorkflowDock left those numbers frozen
+  // existed on the routes that happened to show runs left those numbers frozen
   // everywhere else while still looking live. One connection, always open.
   useDashboardSSE();
 
