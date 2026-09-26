@@ -112,14 +112,19 @@ export function trackTempRoots(): (root: string) => string {
 }
 
 /**
- * Make `getArchonHome()` obey `ARCHON_HOME` for every test in the calling file.
+ * Make `isDocker()` false for every test in the calling file, so a suite behaves
+ * the same on a laptop and on a containerized dev box.
  *
- * `getArchonHome()` checks `isDocker()` FIRST and returns a hardcoded `/.archon`,
- * so a test that sets `ARCHON_HOME` to a temp directory silently resolves against
- * the real home whenever the suite runs inside a container — which the Archon dev
- * box and any docker-compose install are. The tests pass on a laptop and fail on
- * the box, which reads as flake rather than as an environment the test never
- * controlled.
+ * This no longer has anything to do with `ARCHON_HOME`. It used to: `getArchonHome()`
+ * checked `isDocker()` before reading the variable, so a test that pointed home at a
+ * temp directory was silently ignored inside a container and read the container's real
+ * `/.archon`. That ordering is fixed — an explicit `ARCHON_HOME` now wins everywhere —
+ * and no file needs this to be believed about its home any more.
+ *
+ * What is left is the rest of the container inference: anything that branches on
+ * `isDocker()` for its own reasons (telemetry install kind, the detached-run handoff)
+ * still answers differently on the box than on a laptop. A file asserting the
+ * non-container answer clears the signals with this.
  *
  * `isDocker()` reads `ARCHON_DOCKER` and `WORKSPACE_PATH` from `process.env` on
  * every call — the two that all three of its checks rest on — so
@@ -128,9 +133,8 @@ export function trackTempRoots(): (root: string) => string {
  * `await import` of the database runs before any hook, and such a file must
  * clear the two variables inline and restore them itself.
  *
- * Call this from any file that points
- * `ARCHON_HOME` somewhere and expects to be believed. Do NOT call it from a test
- * about Docker detection itself — that test owns these variables.
+ * Do NOT call it from a test about Docker detection itself — that test owns
+ * these variables.
  */
 export function honorArchonHomeEnv(): void {
   let archonDocker: string | undefined;
@@ -160,13 +164,10 @@ export function honorArchonHomeEnv(): void {
  *
  *   `DATABASE_URL`    sends the registry to PostgreSQL, where no `archon.db`
  *                     file is ever written and the scratch home stays empty.
- *   `ARCHON_DOCKER`,  make `getArchonHome()` return a hardcoded `/.archon` and
- *   `WORKSPACE_PATH`  ignore `ARCHON_HOME` altogether.
+ *   `ARCHON_DOCKER`,  make `isDocker()` true in the child, changing anything that
+ *   `WORKSPACE_PATH`  branches on it. `ARCHON_HOME` itself is honoured either way.
  *
  * Empty rather than deleted: a Bun child restores a deleted key from `.env`.
- *
- * The parent's own reads need `honorArchonHomeEnv` as well — this only covers
- * what a child inherits.
  *
  * Not for a test about detached Docker handoff, which sets these deliberately.
  */
