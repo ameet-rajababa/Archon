@@ -5,12 +5,7 @@ import { IssueTypeChip } from './IssueTypeChip';
 import { useNow } from '../lib/clock';
 import { relativeTime } from '../lib/format';
 import { issueReasonText } from '../lib/issue-reason';
-import {
-  COLUMN_REASON,
-  ISSUE_COLUMNS,
-  issueType,
-  type IssueColumn,
-} from '../primitives/issue-board';
+import { ISSUE_COLUMNS, issueType, type IssuePlacement } from '../primitives/issue-board';
 import * as skill from '../skills';
 import type { GithubIssue, GithubIssueDetail, IssueComment, IssueDetailResponse } from '../skills';
 import { useEntity } from '../store/cache';
@@ -21,7 +16,7 @@ interface IssueDialogProps {
   /** The board's copy. Renders immediately, so opening never starts blank. */
   issue: GithubIssue;
   /** Where the board put it, passed in so the dialog cannot disagree with it. */
-  column: IssueColumn;
+  placement: IssuePlacement;
   onClose: () => void;
 }
 
@@ -38,7 +33,12 @@ interface IssueDialogProps {
  * because there is no route behind them; the link to github.com is where
  * interacting starts.
  */
-export function IssueDialog({ projectId, issue, column, onClose }: IssueDialogProps): ReactElement {
+export function IssueDialog({
+  projectId,
+  issue,
+  placement,
+  onClose,
+}: IssueDialogProps): ReactElement {
   const panelRef = useRef<HTMLDivElement>(null);
   const now = useNow();
 
@@ -63,7 +63,7 @@ export function IssueDialog({ projectId, issue, column, onClose }: IssueDialogPr
     () => skill.getIssue(projectId, issue.number)
   );
 
-  const col = ISSUE_COLUMNS.find(c => c.key === column);
+  const col = ISSUE_COLUMNS.find(c => c.key === placement.column);
   const type = issueType(issue);
   const detail = data?.issue ?? null;
 
@@ -97,7 +97,7 @@ export function IssueDialog({ projectId, issue, column, onClose }: IssueDialogPr
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               {col !== undefined ? (
                 <span
-                  title={COLUMN_REASON[column]}
+                  title={placement.reason}
                   className="inline-flex h-[19px] items-center gap-1.5 rounded-full border px-[9px] text-[10.5px] text-text-secondary"
                   style={{ borderColor: col.color }}
                 >
