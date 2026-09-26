@@ -102,3 +102,46 @@ export function imagesFromClipboard(items: DataTransferItemList): File[] {
   }
   return images;
 }
+
+/** The outcome of offering files to an attachment list. */
+export interface FileAdmission {
+  /** What is attached now: the kept list plus everything admitted. */
+  files: File[];
+  /** One line naming every refusal and its reason, or null when none were refused. */
+  error: string | null;
+}
+
+/**
+ * Add files to an attachment list, refusing the ones that break a limit.
+ *
+ * Every surface that attaches files goes through here — the composer and the
+ * ask card both — so a refusal reads the same wherever it happens and the
+ * limits have exactly one definition. Accumulates every rejection reason rather
+ * than only the last, so a mixed pick surfaces all of them.
+ */
+export function admitFiles(kept: File[], incoming: File[]): FileAdmission {
+  const files = [...kept];
+  const skipped: string[] = [];
+  for (const file of incoming) {
+    if (files.length >= MAX_FILES) {
+      skipped.push(`${file.name}: over the ${String(MAX_FILES)}-file limit`);
+      continue;
+    }
+    if (file.size > MAX_FILE_BYTES) {
+      skipped.push(`${file.name}: larger than ${String(MAX_FILE_MB)} MB`);
+      continue;
+    }
+    if (!isAcceptedFileType(file)) {
+      skipped.push(`${file.name}: unsupported type`);
+      continue;
+    }
+    files.push(file);
+  }
+  return {
+    files,
+    error:
+      skipped.length > 0
+        ? `Skipped ${String(skipped.length)} file(s) — ${skipped.join('; ')}`
+        : null,
+  };
+}

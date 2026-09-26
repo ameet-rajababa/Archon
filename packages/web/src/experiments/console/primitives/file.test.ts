@@ -1,5 +1,14 @@
 import { describe, test, expect } from 'bun:test';
-import { isAcceptedFileType, formatBytes, dragHasFiles, imagesFromClipboard } from './file';
+import {
+  MAX_FILES,
+  MAX_FILE_BYTES,
+  MAX_FILE_MB,
+  admitFiles,
+  dragHasFiles,
+  formatBytes,
+  imagesFromClipboard,
+  isAcceptedFileType,
+} from './file';
 
 const file = (name: string, type = ''): File => new File(['x'], name, { type });
 
@@ -99,5 +108,63 @@ describe('imagesFromClipboard', () => {
 
   test('returns nothing for an empty clipboard', () => {
     expect(imagesFromClipboard(itemList())).toEqual([]);
+  });
+});
+
+describe('admitFiles', () => {
+  const sized = (name: string, bytes: number): File =>
+    new File([new Uint8Array(bytes)], name, { type: 'text/plain' });
+
+  test('keeps what was already attached and appends the admitted files', () => {
+    const kept = [file('a.md', 'text/markdown')];
+    const admitted = admitFiles(kept, [file('b.md', 'text/markdown')]);
+    expect(admitted.files.map(f => f.name)).toEqual(['a.md', 'b.md']);
+    expect(admitted.error).toBeNull();
+    expect(kept).toHaveLength(1); // the input list is not mutated
+  });
+
+  test('refuses past the file-count limit', () => {
+    const kept = Array.from({ length: MAX_FILES }, (_, i) =>
+      file(`k${String(i)}.md`, 'text/plain')
+    );
+    const admitted = admitFiles(kept, [file('one-too-many.md', 'text/plain')]);
+    expect(admitted.files).toHaveLength(MAX_FILES);
+    expect(admitted.error).toBe(
+      `Skipped 1 file(s) — one-too-many.md: over the ${String(MAX_FILES)}-file limit`
+    );
+  });
+
+  test('refuses an oversized file', () => {
+    const admitted = admitFiles([], [sized('huge.txt', MAX_FILE_BYTES + 1)]);
+    expect(admitted.files).toEqual([]);
+    expect(admitted.error).toBe(
+      `Skipped 1 file(s) — huge.txt: larger than ${String(MAX_FILE_MB)} MB`
+    );
+  });
+
+  test('refuses an unsupported type', () => {
+    const admitted = admitFiles(
+      [],
+      [new File(['x'], 'thing.exe', { type: 'application/x-msdownload' })]
+    );
+    expect(admitted.files).toEqual([]);
+    expect(admitted.error).toBe('Skipped 1 file(s) — thing.exe: unsupported type');
+  });
+
+  // A mixed pick that reported only the last refusal would leave the user
+  // guessing which of the others made it.
+  test('names every refusal, and still keeps the good files', () => {
+    const admitted = admitFiles(
+      [],
+      [
+        file('good.md', 'text/markdown'),
+        sized('huge.txt', MAX_FILE_BYTES + 1),
+        new File(['x'], 'thing.exe', { type: 'application/x-msdownload' }),
+      ]
+    );
+    expect(admitted.files.map(f => f.name)).toEqual(['good.md']);
+    expect(admitted.error).toContain('Skipped 2 file(s)');
+    expect(admitted.error).toContain('huge.txt: larger than');
+    expect(admitted.error).toContain('thing.exe: unsupported type');
   });
 });
