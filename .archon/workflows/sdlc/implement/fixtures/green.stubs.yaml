@@ -8,5 +8,11 @@ implement:
   red_cause: ""
   summary: "stub: work complete, checks green"
 assert-changed: "1 file changed"
+# The repository this branch's pull requests belong to. Stubbed because the
+# node is deterministic and resolves from git's push configuration, which a
+# fixture checkout does not have.
+pr-target:
+  repo: "example/repo"
+  reason: ""
 fixture:
   expect: completed

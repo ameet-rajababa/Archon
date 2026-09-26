@@ -59,6 +59,12 @@ recheck__publish:
   action: replan
   findings_summary: "stub: remaining correction requires replanning"
   report: { type: archon_artifact, run_id: "fixture-run", path: "review/report.md" }
+# The repository this branch's pull requests belong to. Stubbed because the
+# node is deterministic and resolves from git's push configuration, which a
+# fixture checkout does not have.
+impl__pr-target:
+  repo: "example/repo"
+  reason: ""
 fixture:
   expect: failed
   fail-node: gate-ready

@@ -53,6 +53,12 @@ classify:
   reasons:
     errors: "stub: the diff adds a retry and a fallback"
     docs: "stub: no doc-facing changes"
+# The repository this branch's pull requests belong to. Stubbed because the
+# node is deterministic and resolves from git's push configuration, which a
+# fixture checkout does not have.
+impl__pr-target:
+  repo: "example/repo"
+  reason: ""
 fixture:
   expect: failed
   fail-node: gate-validated

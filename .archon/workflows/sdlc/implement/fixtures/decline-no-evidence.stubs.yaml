@@ -8,6 +8,12 @@ implement:
   green: false
   red_cause: inherited
   summary: ""
+# The repository this branch's pull requests belong to. Stubbed because the
+# node is deterministic and resolves from git's push configuration, which a
+# fixture checkout does not have.
+pr-target:
+  repo: "example/repo"
+  reason: ""
 fixture:
   expect: failed
   fail-node: assert-changed

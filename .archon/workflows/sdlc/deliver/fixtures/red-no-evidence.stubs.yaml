@@ -12,6 +12,12 @@ impl__implement:
   summary: ""
 impl__assert-changed: "3 files changed"
 # gate-green is deliberately unstubbed: the real script must refuse.
+# The repository this branch's pull requests belong to. Stubbed because the
+# node is deterministic and resolves from git's push configuration, which a
+# fixture checkout does not have.
+impl__pr-target:
+  repo: "example/repo"
+  reason: ""
 fixture:
   expect: failed
   fail-node: gate-green

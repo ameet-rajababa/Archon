@@ -45,6 +45,12 @@ validate__result:
   green: false
   red_cause: interaction
   summary: "project gate passes PR A and PR B separately; their exact composition fails"
+# The repository this branch's pull requests belong to. Stubbed because the
+# node is deterministic and resolves from git's push configuration, which a
+# fixture checkout does not have.
+impl__pr-target:
+  repo: "example/repo"
+  reason: ""
 fixture:
   expect: failed
   fail-node: gate-validated

@@ -44,6 +44,12 @@ validate__validate:
   green: false
   red_cause: incomplete
   summary: "stub: a provider limit stopped validation during type-check. lint and format passed; type-check, tests and build never ran."
+# The repository this branch's pull requests belong to. Stubbed because the
+# node is deterministic and resolves from git's push configuration, which a
+# fixture checkout does not have.
+impl__pr-target:
+  repo: "example/repo"
+  reason: ""
 fixture:
   expect: failed
   fail-node: gate-validated

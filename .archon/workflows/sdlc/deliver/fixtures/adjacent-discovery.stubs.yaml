@@ -54,5 +54,11 @@ ci-verdict: '{"state":"concluded","detail":"no checks configured"}'
 ci-attention-route: '{"attention":false,"red_cause":"","reason":"","action":""}'
 flip-ready: { pr_url: "https://github.com/example/repo/pull/5" }
 outcome: { pr_url: "https://github.com/example/repo/pull/5", summary: "https://github.com/example/repo/pull/5" }
+# The repository this branch's pull requests belong to. Stubbed because the
+# node is deterministic and resolves from git's push configuration, which a
+# fixture checkout does not have.
+impl__pr-target:
+  repo: "example/repo"
+  reason: ""
 fixture:
   expect: completed
