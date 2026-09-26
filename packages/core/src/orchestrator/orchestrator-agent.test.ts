@@ -168,12 +168,15 @@ const mockSetConversationCompleted = mock<typeof ConversationDb.setConversationC
 const mockGetConversationByPlatformId = mock<typeof ConversationDb.getConversationByPlatformId>(
   () => Promise.resolve(null)
 );
+const mockSetConversationReady = mock<typeof ConversationDb.setConversationReady>(() =>
+  Promise.resolve()
+);
 mock.module('../db/conversations', () => ({
   getOrCreateConversation: mockGetOrCreateConversation,
   getConversationByPlatformId: mockGetConversationByPlatformId,
   updateConversation: mockUpdateConversation,
   touchConversation: mock(() => Promise.resolve()),
-  setConversationReady: mock(() => Promise.resolve()),
+  setConversationReady: mockSetConversationReady,
   setConversationArchived: mockSetConversationArchived,
   setConversationCompleted: mockSetConversationCompleted,
 }));
@@ -7222,5 +7225,113 @@ describe('automatic handoff attempt guard', () => {
     expect(notices[0]?.content).toContain('waiting on your approval');
     expect(notices[0]?.metadata).toBeUndefined();
     expect(mockCountAutoHandoffNotices).not.toHaveBeenCalled();
+  });
+});
+
+// ─── mark_ready_to_close: the chat's own claim that its work landed ──────────
+//
+// The point of this block is the WIRE, not the tool's own logic (that is
+// `ready-to-close-tool.test.ts`). Every other part of the `ready` state was
+// built and shipped — the status, the label, the rail colour, the `ready_at`
+// column, the PATCH route, and both acts that clear the mark — and nothing
+// called the setter, so every finished chat read as `idle`.
+describe('mark_ready_to_close', () => {
+  let capsMock: ReturnType<typeof mock>;
+
+  beforeEach(async () => {
+    mockSendQuery.mockClear();
+    mockSetConversationReady.mockClear();
+    mockGetOrCreateConversation.mockReset();
+    mockDiscoverWorkflowsWithConfig.mockReset();
+    mockDiscoverWorkflowsWithConfig.mockImplementation(() =>
+      Promise.resolve({ workflows: [], errors: [] })
+    );
+    const providers = await import('@archon/providers');
+    capsMock = providers.getProviderCapabilities as ReturnType<typeof mock>;
+    capsMock.mockReturnValue({ ...DEFAULT_PROVIDER_CAPS, nativeTools: true });
+
+    const codebase = makeCodebase();
+    mockGetCodebase.mockImplementation(() => Promise.resolve(codebase));
+    mockListCodebases.mockImplementation(() => Promise.resolve([codebase]));
+    mockGetOrCreateConversation.mockImplementation((_platform, platformId) =>
+      Promise.resolve(
+        makeConversation({
+          id: 'conv-1-db',
+          platform_conversation_id: String(platformId),
+          codebase_id: 'codebase-1',
+          cwd: '/repos/test-repo',
+        })
+      )
+    );
+  });
+
+  afterEach(() => {
+    capsMock.mockReturnValue({ ...DEFAULT_PROVIDER_CAPS });
+  });
+
+  function inFlightTool():
+    | { name: string; handler: (input: Record<string, unknown>) => Promise<string> }
+    | undefined {
+    const call = mockSendQuery.mock.calls.at(-1) as unknown[] | undefined;
+    const options = call?.[3] as
+      | {
+          nativeTools?: {
+            name: string;
+            handler: (input: Record<string, unknown>) => Promise<string>;
+          }[];
+        }
+      | undefined;
+    return options?.nativeTools?.find(t => t.name === 'mark_ready_to_close');
+  }
+
+  function agentCallsIt(input: Record<string, unknown>, sink: string[]): void {
+    mockSendQuery.mockImplementationOnce(async function* () {
+      const tool = inFlightTool();
+      if (tool) sink.push(await tool.handler(input));
+      yield { type: 'assistant', content: 'landed' };
+      yield { type: 'result', sessionId: 'session-1' };
+    });
+  }
+
+  test('the tool is injected, and calling it marks THIS conversation ready', async () => {
+    const results: string[] = [];
+    agentCallsIt({}, results);
+
+    await handleMessage(makePlatform(), 'conv-1', 'is it done?');
+
+    expect(results).toHaveLength(1);
+    // The human message at the top of the turn clears the mark; the agent's
+    // call sets it. Both land on the conversation's DB id, not its platform id.
+    expect(mockSetConversationReady.mock.calls).toEqual([
+      ['conv-1-db', false],
+      ['conv-1-db', true],
+    ]);
+  });
+
+  test('withdraw is the only way the agent can take it back', async () => {
+    const results: string[] = [];
+    agentCallsIt({ withdraw: true }, results);
+
+    await handleMessage(makePlatform(), 'conv-1', 'actually?');
+
+    expect(mockSetConversationReady.mock.calls.at(-1)).toEqual(['conv-1-db', false]);
+  });
+
+  test('no tool in the turn can mark the chat done', async () => {
+    // `done` is the human judgement `ready` exists to ask for. An agent able to
+    // write it would be closing its own work, and afterwards nothing could tell
+    // a finished chat from one that had declared itself finished.
+    mockSendQuery.mockImplementationOnce(async function* () {
+      yield { type: 'assistant', content: 'hi' };
+      yield { type: 'result', sessionId: 'session-1' };
+    });
+
+    await handleMessage(makePlatform(), 'conv-1', 'hello');
+
+    const options = mockSendQuery.mock.calls.at(-1)?.[3] as { nativeTools?: { name: string }[] };
+    const names = (options.nativeTools ?? []).map(t => t.name);
+    expect(names).toContain('mark_ready_to_close');
+    expect(names).not.toContain('mark_done');
+    expect(names).not.toContain('close_chat');
   });
 });
