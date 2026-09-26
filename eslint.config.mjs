@@ -70,6 +70,10 @@ export default tseslint.config(
       // in that package's tsconfig. Without this glob the typed rules below still
       // apply to it while `projectService` does not, and they crash rather than fail.
       'packages/*/mock/**/*.{ts,tsx}',
+      // Same reason: the browser suite is in the web package's tsconfig and sits
+      // beside `src` rather than in it, because `bun test` must never collect it.
+      'packages/*/e2e/**/*.ts',
+      'packages/*/playwright.config.ts',
       'scripts/**/*.ts',
       ...archonScriptFiles,
       ...packScriptFiles,
