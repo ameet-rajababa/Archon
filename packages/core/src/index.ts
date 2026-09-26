@@ -77,6 +77,7 @@ export {
   createWorkflowDeps,
   registerGitHubAppAuthProvider,
   isGitHubAppModeActive,
+  ensureGitHubAppAuthProviderFromEnv,
   resolveBotGitHubToken,
 } from './workflows/store-adapter';
 

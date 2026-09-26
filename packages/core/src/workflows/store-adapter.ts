@@ -19,6 +19,12 @@ import { getAgentProvider } from '../services/provider-admission';
 import { loadConfig as loadMergedConfig } from '../config/config-loader';
 import { createLogger } from '@archon/paths';
 import type { IGitHubAppAuthProvider } from '../github-auth';
+// Narrow imports, not the '../github-auth' barrel: that barrel also pulls in
+// the device-flow and connect-service modules, which this file has no use for
+// and which drag their own dependencies into every consumer of the workflow
+// store.
+import { createGitHubAppAuthProvider } from '../github-auth/auth';
+import { loadAppPrivateKey } from '../github-auth/private-key';
 import { isPerUserGitHubEnabled } from '../github-auth/config';
 import { getDecryptedAccessToken } from '../db/user-github-token-store';
 import { isPerUserProviderKeysEnabled } from '../credentials/config';
@@ -117,9 +123,12 @@ export function createWorkflowStore(): IWorkflowStore {
 /**
  * Module-singleton registration for the GitHub App auth provider. Set by the
  * server bootstrap (`registerGitHubAppAuthProvider(provider)`) when App mode
- * is active; remains null in PAT mode and during CLI execution. The
- * workflow-deps factory reads this to decide whether to expose
- * `resolveBotGitHubToken` to the engine.
+ * is active, and otherwise built on demand from the environment by
+ * `ensureGitHubAppAuthProviderFromEnv()` — which `createWorkflowDeps()` calls,
+ * so a run started from the CLI resolves credentials exactly as one started
+ * by the server does. Remains null in PAT and solo installs. The workflow-deps
+ * factory reads this to decide whether to expose `resolveBotGitHubToken` to
+ * the engine.
  *
  * Singleton because the provider is itself a process-singleton (one cache
  * shared by the GitHub adapter, the workflow executor, and the internal
@@ -135,6 +144,49 @@ export function registerGitHubAppAuthProvider(provider: IGitHubAppAuthProvider |
 /** Whether App mode is active — a provider was registered at bootstrap. */
 export function isGitHubAppModeActive(): boolean {
   return registeredGitHubAppAuthProvider !== null;
+}
+
+/**
+ * Register the App auth provider from the environment if it is not registered
+ * already, and return it.
+ *
+ * The server registers explicitly at boot. Nothing else did, so every run
+ * started outside the server — `archon workflow run`, `--detach`, anything
+ * cron-driven — executed with no GitHub credential and failed as though the
+ * App were not installed. Building it here rather than at each call site means
+ * there is one owner instead of a rule every future caller has to remember.
+ *
+ * Idempotent: a provider registered by the server bootstrap is returned
+ * untouched, so the two paths cannot disagree about which token speaks for a
+ * repository.
+ *
+ * Throws when `GITHUB_APP_ID` is set but the private key cannot be loaded.
+ * That is deliberate — the alternative is a run that proceeds unauthenticated
+ * and fails an hour later as a permission error, which is the bug this exists
+ * to remove. An install with no `GITHUB_APP_ID` is not a misconfiguration; it
+ * returns null and the engine falls back to env inheritance as before.
+ */
+export function ensureGitHubAppAuthProviderFromEnv(
+  env: NodeJS.ProcessEnv = process.env
+): IGitHubAppAuthProvider | null {
+  if (registeredGitHubAppAuthProvider !== null) return registeredGitHubAppAuthProvider;
+
+  const appId = env.GITHUB_APP_ID?.trim();
+  if (!appId) return null;
+
+  const privateKey = loadAppPrivateKey(env);
+  const defaultInstallationId = env.GITHUB_APP_INSTALLATION_ID
+    ? Number(env.GITHUB_APP_INSTALLATION_ID)
+    : undefined;
+  const provider = createGitHubAppAuthProvider({
+    appId,
+    privateKey,
+    slug: env.GITHUB_APP_SLUG ?? 'archon',
+    defaultInstallationId,
+  });
+  registerGitHubAppAuthProvider(provider);
+  getLog().info({ appId, defaultInstallationId }, 'workflow_deps.github_app_provider_registered');
+  return provider;
 }
 
 /**
@@ -170,7 +222,9 @@ export async function resolveBotGitHubToken(
  * Single construction point — avoids duplicating the wiring across callers.
  */
 export function createWorkflowDeps(): WorkflowDeps {
-  const provider = registeredGitHubAppAuthProvider;
+  // Build the provider from env when the server bootstrap has not already
+  // registered one. Without this a CLI-started run gets no bot token.
+  const provider = ensureGitHubAppAuthProviderFromEnv();
   return {
     store: createWorkflowStore(),
     getAgentProvider,
