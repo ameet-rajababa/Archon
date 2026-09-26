@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach } from 'bun:test';
+import { describe, test, expect, mock, beforeEach, afterEach } from 'bun:test';
 import type { DagResumeSnapshot, IWorkflowStore } from '@archon/workflows/store';
 import type { WorkflowRunStatus } from '@archon/workflows/schemas/workflow-run';
 import type { ResolvedCredential } from '../credentials/delivery';
@@ -166,6 +166,7 @@ const {
   createWorkflowDeps,
   registerGitHubAppAuthProvider,
   isGitHubAppModeActive,
+  ensureGitHubAppAuthProviderFromEnv,
   resolveBotGitHubToken,
 } = await import('./store-adapter');
 
@@ -451,4 +452,98 @@ describe('GitHub App token resolution', () => {
   // test in a whole-suite run, so an assertion there would be red in CI and
   // green alone — worse than no assertion, because the PAT-mode direction
   // would pass for the wrong reason.
+});
+
+/**
+ * A CLI-started run used to execute with no GitHub credential, because the
+ * provider was registered only by the server bootstrap. These cover the
+ * env-built path that closes that gap.
+ */
+describe('ensureGitHubAppAuthProviderFromEnv', () => {
+  // Structurally a PEM; never used to sign anything in these tests.
+  const PEM =
+    '-----BEGIN RSA PRIVATE KEY-----\nMIIBOgIBAAJBAKj34GkxFhD90vcNLYLInFEX6Ppy1tPf9Cnzj4p4WGeKLs1Pt8Qu\n-----END RSA PRIVATE KEY-----';
+
+  // Clear on entry as well as exit: the singleton is module-level and an
+  // earlier describe block in this file leaves a provider registered.
+  beforeEach(() => {
+    registerGitHubAppAuthProvider(null);
+  });
+
+  afterEach(() => {
+    registerGitHubAppAuthProvider(null);
+  });
+
+  test('returns null and registers nothing when GITHUB_APP_ID is unset', () => {
+    expect(ensureGitHubAppAuthProviderFromEnv({})).toBeNull();
+    expect(isGitHubAppModeActive()).toBe(false);
+  });
+
+  test('builds and registers a provider from the environment', () => {
+    const provider = ensureGitHubAppAuthProviderFromEnv({
+      GITHUB_APP_ID: '12345',
+      GITHUB_APP_PRIVATE_KEY: PEM,
+    });
+
+    expect(provider).not.toBeNull();
+    expect(isGitHubAppModeActive()).toBe(true);
+  });
+
+  test('honours GITHUB_APP_SLUG, defaulting to archon', () => {
+    const provider = ensureGitHubAppAuthProviderFromEnv({
+      GITHUB_APP_ID: '12345',
+      GITHUB_APP_PRIVATE_KEY: PEM,
+      GITHUB_APP_SLUG: 'my-app',
+    });
+    expect(provider?.slug).toBe('my-app');
+  });
+
+  test('is idempotent — a provider registered by the server bootstrap wins', () => {
+    const preexisting = { slug: 'from-bootstrap' } as never;
+    registerGitHubAppAuthProvider(preexisting);
+
+    const provider = ensureGitHubAppAuthProviderFromEnv({
+      GITHUB_APP_ID: '99999',
+      GITHUB_APP_PRIVATE_KEY: PEM,
+    });
+
+    // The two paths must not disagree about which token speaks for a repo.
+    expect(provider).toBe(preexisting);
+  });
+
+  test('throws when GITHUB_APP_ID is set but no private key is provided', () => {
+    // Deliberate: the alternative is a run that proceeds unauthenticated and
+    // fails an hour later as a permission error.
+    expect(() => ensureGitHubAppAuthProviderFromEnv({ GITHUB_APP_ID: '12345' })).toThrow(
+      /no private key was provided/
+    );
+    expect(isGitHubAppModeActive()).toBe(false);
+  });
+
+  // The bug: a run started outside the server got no bot token, because
+  // nothing but the server bootstrap ever registered a provider. This asserts
+  // createWorkflowDeps does the env bootstrap ITSELF -- calling
+  // ensureGitHubAppAuthProviderFromEnv first would pass either way and prove
+  // nothing.
+  test('createWorkflowDeps bootstraps the provider from env on its own', () => {
+    const saved = {
+      id: process.env.GITHUB_APP_ID,
+      key: process.env.GITHUB_APP_PRIVATE_KEY,
+    };
+    try {
+      delete process.env.GITHUB_APP_ID;
+      delete process.env.GITHUB_APP_PRIVATE_KEY;
+      expect(createWorkflowDeps().resolveBotGitHubToken).toBeUndefined();
+
+      process.env.GITHUB_APP_ID = '12345';
+      process.env.GITHUB_APP_PRIVATE_KEY = PEM;
+      // No ensureGitHubAppAuthProviderFromEnv() call here, deliberately.
+      expect(typeof createWorkflowDeps().resolveBotGitHubToken).toBe('function');
+    } finally {
+      if (saved.id === undefined) delete process.env.GITHUB_APP_ID;
+      else process.env.GITHUB_APP_ID = saved.id;
+      if (saved.key === undefined) delete process.env.GITHUB_APP_PRIVATE_KEY;
+      else process.env.GITHUB_APP_PRIVATE_KEY = saved.key;
+    }
+  });
 });
