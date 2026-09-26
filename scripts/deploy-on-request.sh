@@ -23,15 +23,60 @@
 # checkout has moved since, this refuses rather than shipping the difference.
 set -uo pipefail
 
-VOLUME="${VOLUME:-/var/lib/docker/volumes/archon_archon_data/_data}"
+SERVICE="${SERVICE:-app}"
+DEPLOY_DIR="${DEPLOY_DIR:-/opt/archon}"
+# The container path the data volume is mounted at. It is the protocol's own
+# location, declared once in docker-compose.yml, and every file this script
+# reads or writes lives under it.
+CONTAINER_DATA="${CONTAINER_DATA:-/.archon}"
+
+# WHERE THE VOLUME IS, asked rather than assumed.
+#
+# This used to default to /var/lib/docker/volumes/archon_archon_data/_data —
+# one install's volume, on one machine, under one compose project name. It was
+# the last box-specific value in the seam, and it meant a second install could
+# not adopt these scripts without editing them.
+#
+# Docker is asked instead, through the service rather than through a
+# reconstructed `<project>_<volume>` name. The container's own mount table is
+# the only answer that stays right when the compose project is renamed, the
+# volume is renamed, or an override turns it into a bind mount.
+#
+# `ps -aq`, not `ps -q`: a stopped container still knows where its data lives,
+# and a box whose container has died is exactly when a deploy is most wanted.
+discover_volume() {
+  local cid
+  cid=$(docker compose --project-directory "$DEPLOY_DIR" ps -aq "$SERVICE" 2>/dev/null | head -1)
+  [ -n "$cid" ] || return 1
+  docker inspect --format \
+    "{{range .Mounts}}{{if eq .Destination \"$CONTAINER_DATA\"}}{{.Source}}{{end}}{{end}}" \
+    "$cid" 2>/dev/null | head -1
+}
+
+# `VOLUME` stays overridable — the systemd unit passes it, because that unit
+# already names this machine's path in `PathExists` and host configuration is
+# where a machine-specific value belongs.
+if [ -z "${VOLUME:-}" ]; then
+  VOLUME=$(discover_volume) || true
+fi
+if [ -z "${VOLUME:-}" ] || [ ! -d "$VOLUME" ]; then
+  # Loud and nowhere near the data volume, because the log this would normally
+  # be written to lives inside the directory that could not be found. There is
+  # deliberately no fallback to a guessed path: shipping a deploy against the
+  # wrong volume is worse than not deploying.
+  echo "deploy-on-request: cannot locate the Archon data volume." >&2
+  echo "  Looked for the '$SERVICE' service's mount at $CONTAINER_DATA, via" >&2
+  echo "  'docker compose --project-directory $DEPLOY_DIR'." >&2
+  echo "  Set VOLUME= in the systemd unit if this install keeps it elsewhere." >&2
+  exit 1
+fi
+
 REQUEST="${REQUEST:-$VOLUME/deploy-request}"
 LOG="${LOG:-$VOLUME/deploy-last.log}"
 PREV_LOG="${PREV_LOG:-$VOLUME/deploy-prev.log}"
 HISTORY="${HISTORY:-$VOLUME/deploy-history}"
-DEPLOY_DIR="${DEPLOY_DIR:-/opt/archon}"
 DEPLOY="${DEPLOY:-$DEPLOY_DIR/scripts/deploy-local.sh}"
 SOURCE_DIR="${SOURCE_DIR:-/home/appuser/archon-upstream}"
-SERVICE="${SERVICE:-app}"
 # There is no grace period here any more. It was a fixed 30s sleep, guessing at
 # how long the asking session needed to finish speaking; deploy-local.sh now
 # WAITS for that to be true rather than assuming it, and will not swap while any

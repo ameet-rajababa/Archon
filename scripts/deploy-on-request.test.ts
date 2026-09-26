@@ -245,3 +245,141 @@ describePosix('a checkout that moved is still refused', () => {
     expect(log).toContain(`checkout is at ${OTHER}`);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Where the data volume is (#6)
+//
+// The path used to be a hardcoded default naming one install's docker volume,
+// under one compose project name. These cover the two halves of removing it:
+// the script can find the volume on a box whose project is called anything,
+// and it refuses loudly rather than guessing when it cannot.
+// ---------------------------------------------------------------------------
+
+/**
+ * A stub `docker` that answers as a differently-named compose project would:
+ * `compose ps -aq` yields a container id, and `inspect` reports that
+ * container's `/.archon` mount living at `mountpoint`.
+ */
+function writeDiscoveryDockerStub(bin: string, mountpoint: string | null): void {
+  const stub = join(bin, 'docker');
+  writeFileSync(
+    stub,
+    `#!/usr/bin/env bash
+case "$1 $2" in
+  'compose --project-directory')
+    for arg in "$@"; do [ "$arg" = '-aq' ] && { ${
+      mountpoint === null ? 'exit 0' : "printf 'container-abc\\\\n'; exit 0"
+    }; }; done
+    exit 0 ;;
+  'inspect --format')
+    printf '%s\\n' '${mountpoint ?? ''}'; exit 0 ;;
+esac
+for arg in "$@"; do
+  case "$arg" in
+    *"rev-parse HEAD"*) printf '%s\\n' '${WANT}'; exit 0 ;;
+    *".deployed-sha"*) printf '%s\\n' '${WANT}'; exit 0 ;;
+  esac
+done
+exit 0
+`,
+    { mode: 0o755 }
+  );
+  chmodSync(stub, 0o755);
+}
+
+/** Run with VOLUME deliberately unset, so discovery is what is under test. */
+function runDiscovering(box: Sandbox, request: string): Promise<number> {
+  writeFileSync(join(box.volume, 'deploy-request'), `${request}\n`);
+  const env: Record<string, string> = {
+    ...(process.env as Record<string, string>),
+    PATH: `${box.bin}:${process.env.PATH ?? ''}`,
+    DEPLOY: box.deploy,
+    DEPLOY_DIR: box.deployDir,
+    SOURCE_DIR: '/source',
+    SERVICE: 'app',
+  };
+  delete env.VOLUME;
+  return Bun.spawn(['bash', SCRIPT], { env, stdout: 'pipe', stderr: 'pipe' }).exited;
+}
+
+describePosix('the data volume is discovered, not assumed', () => {
+  test('finds it through the service, whatever the compose project is called', async () => {
+    const box = sandbox('discover');
+    writeDiscoveryDockerStub(box.bin, box.volume);
+    writeSucceedingDeploy(box.deploy);
+
+    await runDiscovering(box, WANT);
+
+    // Proof it found the right directory: the run's artifacts landed in it.
+    expect(existsSync(join(box.volume, 'deploy-history'))).toBe(true);
+    expect(read(join(box.volume, 'deploy-history'))).toContain(WANT);
+    // And the request it consumed was the one in that directory.
+    expect(existsSync(join(box.volume, 'deploy-request'))).toBe(false);
+  });
+
+  test('refuses loudly when it cannot find the volume, rather than guessing', async () => {
+    const box = sandbox('undiscoverable');
+    writeDiscoveryDockerStub(box.bin, null);
+    writeSucceedingDeploy(box.deploy);
+    writeFileSync(join(box.volume, 'deploy-request'), `${WANT}\n`);
+
+    const proc = Bun.spawn(['bash', SCRIPT], {
+      env: (() => {
+        const env: Record<string, string> = {
+          ...(process.env as Record<string, string>),
+          PATH: `${box.bin}:${process.env.PATH ?? ''}`,
+          DEPLOY: box.deploy,
+          DEPLOY_DIR: box.deployDir,
+          SOURCE_DIR: '/source',
+          SERVICE: 'app',
+        };
+        delete env.VOLUME;
+        return env;
+      })(),
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const code = await proc.exited;
+    const stderr = await new Response(proc.stderr).text();
+
+    expect(code).not.toBe(0);
+    expect(stderr).toContain('cannot locate the Archon data volume');
+    // Nothing was deployed, and no history was invented somewhere arbitrary.
+    expect(existsSync(join(box.volume, 'deploy-history'))).toBe(false);
+  });
+
+  test('an explicit VOLUME still wins, because the unit passes one', async () => {
+    const box = sandbox('explicit');
+    // Discovery would answer with a directory that does not exist; the
+    // explicit value must be used instead of it.
+    writeDiscoveryDockerStub(box.bin, join(box.deployDir, 'nowhere'));
+    writeSucceedingDeploy(box.deploy);
+
+    await run(box, WANT);
+
+    expect(read(join(box.volume, 'deploy-history'))).toContain(WANT);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The unit pair states one machine-specific path, and states it once.
+//
+// `PathExists` and `Environment=VOLUME=` are two declarations that must agree:
+// the unit reacts to a file, and the service is told which directory that file
+// is in. Kept in agreement by this test rather than by remembering.
+// ---------------------------------------------------------------------------
+describePosix('the systemd units agree about where the volume is', () => {
+  const unitDir = join(import.meta.dir, 'deploy-units');
+
+  test('Environment=VOLUME is the directory PathExists watches', () => {
+    const pathUnit = read(join(unitDir, 'archon-deploy.path'));
+    const serviceUnit = read(join(unitDir, 'archon-deploy.service'));
+
+    const watched = /^PathExists=(.+)$/m.exec(pathUnit)?.[1]?.trim();
+    const passed = /^Environment=VOLUME=(.+)$/m.exec(serviceUnit)?.[1]?.trim();
+
+    expect(watched).toBeDefined();
+    expect(passed).toBeDefined();
+    expect(watched).toBe(`${passed ?? ''}/deploy-request`);
+  });
+});
