@@ -110,6 +110,39 @@ function gated(): {
   };
 }
 
+/** Bound on waiting for a queued attempt to announce itself; a real hang must still fail. */
+const WAITING_DEADLINE_MS = 10_000;
+
+/**
+ * Wait until a queued attempt has announced that it is waiting, and collect its events.
+ *
+ * What every case below actually needs before its assertions is "the admission loop has
+ * run and refused this attempt" — not "some milliseconds have elapsed". A fixed
+ * `Bun.sleep(POLL_MS * n)` is a guess about scheduling, and on the 4-vCPU
+ * `windows-latest` runner a saturated second can contain no turn for that timer at all:
+ * `a cap of 1 serializes attempts and reports the wait` failed there with
+ * `events` still empty, the work simply not started yet rather than started and wrong
+ * (#74).
+ *
+ * The `waiting` event is that same fact observed instead of assumed. It is emitted once,
+ * on the first refused poll, so reaching it proves the decision to queue has been taken —
+ * which is what makes the NEGATIVE assertions that follow ("the second provider call has
+ * not happened") about a settled state rather than a race. The deadline exists so an
+ * attempt that never queues fails as a hang instead of hanging forever; it is not a
+ * budget for slowness, and nothing here asserts how long the wait took.
+ */
+async function announcedWaiting(events: ProviderAdmissionEvent[]): Promise<void> {
+  const deadline = Date.now() + WAITING_DEADLINE_MS;
+  while (events.length === 0) {
+    if (Date.now() > deadline) {
+      throw new Error(
+        `no admission event after ${WAITING_DEADLINE_MS}ms: the attempt never announced that it was waiting`
+      );
+    }
+    await Bun.sleep(POLL_MS);
+  }
+}
+
 async function drain(stream: AsyncGenerator<MessageChunk>): Promise<void> {
   for await (const _ of stream) {
     // consume
@@ -165,7 +198,7 @@ describe('provider admission wrapper', () => {
     const secondRun = drain(
       provider.sendQuery('b', '/tmp', undefined, { onAdmission: event => events.push(event) })
     );
-    await Bun.sleep(POLL_MS * 5);
+    await announcedWaiting(events);
     expect(calls).toHaveLength(1);
     expect(events.map(e => e.state)).toEqual(['waiting']);
     expect(await holderCount()).toBe(1);
@@ -191,10 +224,14 @@ describe('provider admission wrapper', () => {
     await first.started;
 
     const controller = new AbortController();
+    const events: ProviderAdmissionEvent[] = [];
     const waiter = drain(
-      provider.sendQuery('b', '/tmp', undefined, { abortSignal: controller.signal })
+      provider.sendQuery('b', '/tmp', undefined, {
+        abortSignal: controller.signal,
+        onAdmission: event => events.push(event),
+      })
     );
-    await Bun.sleep(POLL_MS * 3);
+    await announcedWaiting(events);
     controller.abort();
     await expect(waiter).rejects.toBeInstanceOf(ProviderAdmissionAbortedError);
     expect(calls).toHaveLength(1);
@@ -271,6 +308,13 @@ describe('provider admission wrapper', () => {
     const runC = drain(provider.sendQuery('c', '/tmp'));
     a.release();
     await runA;
+    // A genuine quiet period, and the one case above that cannot become
+    // `announcedWaiting`. C announced `waiting` before A was released — the event fires
+    // once, on the first refused poll — so it proves nothing about the poll AFTER the
+    // release, which is the one this asserts did not admit C. There is no observable for
+    // a decision not taken, so this waits out poll turns instead. It is the remaining
+    // instance of the shape the rest of this file just lost, and the honest place to look
+    // first if this file flakes on Windows again (#74).
     await Bun.sleep(POLL_MS * 5);
     // One live holder already meets the lowered cap.
     expect(calls).toHaveLength(2);
@@ -308,8 +352,11 @@ describe('provider admission wrapper', () => {
     const provider = getAgentProvider(PROVIDER, POLL_MS);
     const runA = drain(provider.sendQuery('a', '/tmp'));
     await a.started;
-    const runB = drain(provider.sendQuery('b', '/tmp'));
-    await Bun.sleep(POLL_MS * 3);
+    const waitingB: ProviderAdmissionEvent[] = [];
+    const runB = drain(
+      provider.sendQuery('b', '/tmp', undefined, { onAdmission: event => waitingB.push(event) })
+    );
+    await announcedWaiting(waitingB);
     expect(calls).toHaveLength(1);
 
     // Raised while B waits: B is admitted beside A.
@@ -319,8 +366,11 @@ describe('provider admission wrapper', () => {
 
     // Removed while C waits: C proceeds uncapped without a holder.
     await writeCaps({ [PROVIDER]: 2 });
-    const runC = drain(provider.sendQuery('c', '/tmp'));
-    await Bun.sleep(POLL_MS * 3);
+    const waitingC: ProviderAdmissionEvent[] = [];
+    const runC = drain(
+      provider.sendQuery('c', '/tmp', undefined, { onAdmission: event => waitingC.push(event) })
+    );
+    await announcedWaiting(waitingC);
     expect(calls).toHaveLength(2);
     await writeCaps({ claude: 1 });
     await c.started;
