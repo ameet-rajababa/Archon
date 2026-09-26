@@ -1,6 +1,8 @@
 import { Suspense, lazy, useEffect, useMemo, useState, type ReactElement } from 'react';
 import { Navigate, Routes, Route, useLocation, useNavigate } from 'react-router';
 import { ProjectRail } from './components/ProjectRail';
+import { DeployStrip } from './components/DeployStrip';
+import { DeployOverlay } from './components/DeployOverlay';
 import { AddProjectDialog } from './components/AddProjectDialog';
 import { ProjectPalette } from './components/ProjectPalette';
 import { KeymapHelp } from './components/KeymapHelp';
@@ -81,6 +83,10 @@ export function ConsoleApp(): ReactElement {
 
   return (
     <div className="console-root flex h-screen w-screen flex-col bg-surface text-text-primary">
+      {/* Above the mobile header and outside the rail on purpose: the rail is a
+          drawer below `md` and a deploy replaces the whole install, so this is
+          the only band that is on every route at every width. */}
+      <DeployStrip />
       <header className="flex items-center gap-3 border-b border-border px-3 py-2 md:hidden">
         <button
           type="button"
@@ -160,6 +166,10 @@ export function ConsoleApp(): ReactElement {
           </Routes>
         </main>
       </div>
+
+      {/* Outside the rail-shell so it covers everything, and last so it stacks
+          above the dialogs. Renders for `draining` and `swapping` only. */}
+      <DeployOverlay />
 
       <AddProjectDialog
         open={addOpen}

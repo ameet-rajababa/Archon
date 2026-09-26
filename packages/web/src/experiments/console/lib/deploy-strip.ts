@@ -122,3 +122,62 @@ export function deployStripView(status: DeployStatus): DeployStripView {
     verdictAt: last.at,
   };
 }
+
+/**
+ * How hard a phase has to interrupt, when it has to interrupt at all.
+ *
+ * The header strip is ambient and always there; this is the second surface, and
+ * it exists for the two phases where the strip is too quiet — the phases that
+ * change what the app can actually do. It is deliberately narrow:
+ *
+ * - `swapping` is `blocking`. The container is being recreated and HTTP fails,
+ *   so there is nothing underneath worth reaching. Covering it costs nothing.
+ * - `draining` is a `notice`. Drain refuses exactly one thing — taking the
+ *   conversation lock, which is sending a message. Reading is untouched, so an
+ *   overlay that stopped someone opening a chat would be taking away something
+ *   that still works.
+ * - Everything else gets nothing. `building` especially: steps 1-4 leave the app
+ *   completely usable, and blurring it then is the same lie this whole surface
+ *   was built to avoid — it would train the reader to dismiss it.
+ * - `unknown` gets nothing either, for the reason `inFlightView` names: a phase
+ *   we cannot prove must not drive a claim about what the app can do.
+ */
+export type DeployInterruptionKind =
+  /** The app cannot serve. Cover it. */
+  | 'blocking'
+  /** The app still serves reads. Explain, but stay out of the way. */
+  | 'notice';
+
+export interface DeployInterruption {
+  kind: DeployInterruptionKind;
+  /** The phase, as a heading. */
+  title: string;
+  /** What is happening, in one sentence. */
+  body: string;
+  /** What a reader can still do. Null when the answer is nothing. */
+  stillWorks: string | null;
+}
+
+export function deployInterruption(status: DeployStatus): DeployInterruption | null {
+  switch (status.phase) {
+    case 'draining':
+      return {
+        kind: 'notice',
+        title: 'Draining before the swap',
+        body:
+          status.holding === undefined
+            ? 'The deploy is waiting for the box to finish what it holds. New messages are refused until it does; turns already in flight finish normally.'
+            : `The deploy is waiting for ${status.holding}. New messages are refused until it does; turns already in flight finish normally.`,
+        stillWorks: 'Reading still works — chats, runs and files are all reachable.',
+      };
+    case 'swapping':
+      return {
+        kind: 'blocking',
+        title: 'Swapping the container',
+        body: 'The server is being replaced. This page will fail to load anything until the new container answers, which usually takes one to three minutes.',
+        stillWorks: null,
+      };
+    default:
+      return null;
+  }
+}
