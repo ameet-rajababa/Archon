@@ -58,6 +58,32 @@ export async function runOpenApiGenerator(
     }, timeoutMs);
     // Drained while waiting on exit, not after: a stdout pipe nobody reads is its
     // own deadlock once the child fills it.
+    //
+    // A pipe is also the collection shape that lost data in #47, so whether this one
+    // is exposed had to be established rather than assumed (#80). It is not, and the
+    // reason is how the child ends rather than how much it writes: under Bun a piped
+    // stdout is asynchronous and `process.exit` does not flush what is still
+    // buffered, so the shape that truncates is write-then-exit. `openapi-typescript`
+    // 7.13.0's stdin-to-stdout path is not that shape — it writes the result with
+    // `process.stdout.write` and returns from `main()`, leaving the runtime to drain
+    // the pipe before the process ends. Its only `process.exit` calls are `--help`,
+    // `--version`, and the `--check` comparison, none of which this invocation
+    // reaches, and its `errorAndExit` throws rather than exiting (`bin/cli.js`).
+    //
+    // Measured on Bun 1.4.2, 8 cores under 12 spinners: 40 piped runs each of two
+    // producers emitting an identical 417,980-byte payload, one ending with
+    // `process.exit` and one returning. The exiting producer came back short 23
+    // times, worst case losing 47%; the returning producer lost nothing in 40. This
+    // generator emits 175 KB, which is below the size the loss reproduces at on that
+    // box at all — the same exiting producer cut to 175,424 bytes lost nothing in 40
+    // runs — but that is a coincidence of the current schema, and the termination
+    // shape is what makes this safe.
+    //
+    // So this is not a shape to copy on the assumption that a pipe is always fine.
+    // It is fine for a child that ends by returning. Should a future
+    // `openapi-typescript` end the stdout path with `process.exit`, this becomes
+    // #47: collect through a file in the staging directory above, the way
+    // `scripts/test-inventory.test.ts` does (#79).
     const [output, exitCode] = await Promise.all([
       new Response(generator.stdout).text(),
       generator.exited,
