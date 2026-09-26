@@ -148,6 +148,38 @@ describe('MessagePersistence', () => {
       expect(mockAddMessage.mock.calls[0][2]).toBe('hello world');
     });
 
+    test('a seam with no whitespace gets a blank line, not a fusion', async () => {
+      // The bug this guards: a text block ending in a closing fence, followed by
+      // a block starting with a heading, concatenated into ```## Heading — which
+      // leaves the fence unclosed and the ask block inside it unparseable.
+      persistence.setConversationDbId('conv-1', 'db-uuid-1');
+      persistence.appendText('conv-1', '```ask\n{"questions":[]}\n```');
+      persistence.appendText('conv-1', '## Issue status');
+      await persistence.flush('conv-1');
+
+      expect(mockAddMessage.mock.calls[0][2]).toBe(
+        '```ask\n{"questions":[]}\n```\n\n## Issue status'
+      );
+    });
+
+    test('a seam that already has a newline is left alone', async () => {
+      persistence.setConversationDbId('conv-1', 'db-uuid-1');
+      persistence.appendText('conv-1', 'first\n');
+      persistence.appendText('conv-1', 'second');
+      await persistence.flush('conv-1');
+
+      expect(mockAddMessage.mock.calls[0][2]).toBe('first\nsecond');
+    });
+
+    test('a seam with a trailing space runs on unchanged', async () => {
+      persistence.setConversationDbId('conv-1', 'db-uuid-1');
+      persistence.appendText('conv-1', 'hello ');
+      persistence.appendText('conv-1', 'world');
+      await persistence.flush('conv-1');
+
+      expect(mockAddMessage.mock.calls[0][2]).toBe('hello world');
+    });
+
     test('skips tool_call_formatted category', () => {
       persistence.appendText('conv-1', 'skip me', { category: 'tool_call_formatted' });
       // Buffer should be empty — nothing to flush

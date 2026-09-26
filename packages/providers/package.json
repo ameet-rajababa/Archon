@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./types": "./src/types.ts",
     "./structured-output": "./src/shared/structured-output.ts",
+    "./block-seam": "./src/shared/block-seam.ts",
     "./claude/provider": "./src/claude/provider.ts",
     "./claude/config": "./src/claude/config.ts",
     "./claude/binary-resolver": "./src/claude/binary-resolver.ts",
@@ -157,6 +158,9 @@
     ],
     [
       "src/shared/resumed.test.ts"
+    ],
+    [
+      "src/shared/block-seam.test.ts"
     ],
     [
       "src/claude/container-spawn.test.ts"
