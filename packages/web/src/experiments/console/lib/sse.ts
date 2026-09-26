@@ -18,7 +18,7 @@
  */
 
 import { useEffect } from 'react';
-import { invalidate, patch } from '../store/cache';
+import { invalidate, patch, set } from '../store/cache';
 import { K } from './../store/keys';
 import { SSE_BASE_URL } from './http';
 import type { LiveEvent } from '../primitives/live-text';
@@ -79,6 +79,26 @@ export function recoverOnReconnect(es: OpenableStream, keys: readonly string[]):
 }
 
 /**
+ * Write the lock state a `conversation_lock` event just announced.
+ *
+ * The one write the conversation stream makes instead of a refetch: the event
+ * already says which way the turn went, so asking the server could only be
+ * told the same thing. It goes into the cache key the composer reads, so the
+ * live path and the reconnect refetch have a single place to land — two
+ * holders of one fact is how a composer ends up disagreeing with the server.
+ *
+ * Exported so the gap can be driven in a test: the console has no DOM under
+ * the test runner, so the hook that calls this cannot be mounted. Same
+ * extraction shape as {@link recoverOnReconnect}.
+ */
+export function applyLockEvent(conversationPlatformId: string, locked: boolean): void {
+  set(K.conversationLock(conversationPlatformId), {
+    conversationId: conversationPlatformId,
+    locked,
+  });
+}
+
+/**
  * What each stream event changes, named per stream rather than as a cache key.
  *
  * `onmessage` marks the targets of the event it just received, and the stream's
@@ -90,13 +110,21 @@ export function recoverOnReconnect(es: OpenableStream, keys: readonly string[]):
  * it a key. Restating the union by hand is how a reconnect silently
  * under-invalidates.
  */
-type ConversationTarget = 'messages';
-type RunTarget = ConversationTarget | 'run';
+type ConversationTarget = 'messages' | 'lock';
+// Stated in full rather than widening ConversationTarget: the run stream feeds
+// a run detail page, which has no composer and so has nothing the lock answers
+// for. Giving it the key anyway would put a refetch in a recovery list for a
+// value nothing on the page reads.
+type RunTarget = 'messages' | 'run';
 
 const CONVERSATION_EVENT_TARGETS = new Map<string, readonly ConversationTarget[]>([
   ['text', ['messages']],
   ['tool_call', ['messages']],
   ['tool_result', ['messages']],
+  // Listed even though the live path WRITES this key rather than refetching it
+  // — the table names what an event changes, and recovery always refetches
+  // because a lock event emitted during a gap is exactly what was lost.
+  ['conversation_lock', ['lock']],
 ]);
 
 const RUN_EVENT_TARGETS = new Map<string, readonly RunTarget[]>([
@@ -132,7 +160,10 @@ const DASHBOARD_EVENT_TARGETS = new Map<string, readonly DashboardTarget[]>([
 function conversationStreamTargetKeys(
   conversationPlatformId: string
 ): Record<ConversationTarget, string> {
-  return { messages: K.messages(conversationPlatformId) };
+  return {
+    messages: K.messages(conversationPlatformId),
+    lock: K.conversationLock(conversationPlatformId),
+  };
 }
 
 function runStreamTargetKeys(
@@ -401,12 +432,19 @@ export function useRunStreamSSE(conversationPlatformId: string | null, runId: st
 /**
  * Subscribe to a conversation stream for a pure chat view (no associated run).
  * Identical to {@link useRunStreamSSE} minus the run-detail branches: it only
- * invalidates the message cache on text/tool events, and surfaces the
- * conversation lock so the composer can disable while the agent is responding.
+ * invalidates the message cache on text/tool events, and keeps the conversation
+ * lock current so the composer can disable while the agent is responding.
  *
  *   text / tool_call / tool_result → messages changed (debounced refetch)
- *   conversation_lock              → onLockChange(locked)
+ *   conversation_lock              → the lock cache key, written from the event
  *   text / tool_call / retract     → onLive(event), for the streamed preview
+ *
+ * The lock is a cache key rather than a callback so it can survive a gap. A
+ * turn that ends while the socket is down emits its unlock to nobody, and
+ * EventSource replays nothing; component state has nothing a reconnect can
+ * ask about, which left the composer disabled until the page was reloaded.
+ * As a key it recovers through the same `recoverOnReconnect` list as the
+ * transcript — see `skills/getConversationLock` for the read it recovers with.
  *
  * `onLive` exists because the refetch alone cannot show a reply as it arrives:
  * the server buffers assistant text in memory and writes the rows late (see
@@ -416,7 +454,6 @@ export function useRunStreamSSE(conversationPlatformId: string | null, runId: st
  */
 export function useConversationSSE(
   conversationPlatformId: string | null,
-  onLockChange?: (locked: boolean) => void,
   onLive?: (event: LiveEvent) => void
 ): void {
   useEffect(() => {
@@ -443,10 +480,13 @@ export function useConversationSSE(
       const ev = parse(e.data);
       if (ev?.type === undefined || ev.type === 'heartbeat') return;
 
-      // The lock drives the composer directly and has no cache entry, so it
-      // stays out of the target table — and out of reconnect recovery with it.
+      // The lock CARRIES its answer, so it is written rather than refetched —
+      // the event says which way the turn just went and a round trip could
+      // only be told the same thing. Written into the cache key the composer
+      // reads, so the live path and the reconnect refetch land in one place
+      // instead of two that have to agree.
       if (ev.type === 'conversation_lock') {
-        if (typeof ev.locked === 'boolean') onLockChange?.(ev.locked);
+        if (typeof ev.locked === 'boolean') applyLockEvent(conversationPlatformId, ev.locked);
         return;
       }
 
@@ -490,5 +530,5 @@ export function useConversationSSE(
       if (flushTimer !== null) clearTimeout(flushTimer);
       es.close();
     };
-  }, [conversationPlatformId, onLockChange, onLive]);
+  }, [conversationPlatformId, onLive]);
 }

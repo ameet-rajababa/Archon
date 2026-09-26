@@ -1,3 +1,4 @@
+import type { components } from '@/lib/api.generated';
 import { requestJson, HttpError } from '../lib/http';
 import {
   toConversationSummary,
@@ -188,6 +189,27 @@ export async function setConversationReady(
   await requestJson<{ success: boolean }>(
     `/api/conversations/${encodeURIComponent(conversationPlatformId)}`,
     { method: 'PATCH', body: JSON.stringify({ ready }) }
+  );
+}
+
+/** Whether a conversation is executing a turn right now. */
+export type ConversationLock = components['schemas']['ConversationLockResponse'];
+
+/**
+ * Ask whether the server is executing a turn for this chat right now.
+ *
+ * The recovery half of the composer's disabled state. While the event stream
+ * is up the `conversation_lock` events carry this and no request is made; a
+ * reconnect is the only thing that asks, because the events emitted during the
+ * gap are gone and EventSource replays nothing. Deliberately not polled — the
+ * question only has a new answer when something announced one, and the
+ * announcement is what a gap loses.
+ */
+export async function getConversationLock(
+  conversationPlatformId: string
+): Promise<ConversationLock> {
+  return requestJson<ConversationLock>(
+    `/api/conversations/${encodeURIComponent(conversationPlatformId)}/lock`
   );
 }
 

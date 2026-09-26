@@ -120,6 +120,7 @@ drains should deploy nothing and say so -- the box is still running what it was.
 | POST | `/api/conversations` | Create a new conversation |
 | PATCH | `/api/conversations/{id}` | Update a conversation (rename) |
 | DELETE | `/api/conversations/{id}` | Soft-delete a conversation |
+| GET | `/api/conversations/{id}/lock` | Whether the conversation is executing a turn right now |
 | GET | `/api/conversations/{id}/messages` | List messages in a conversation |
 | POST | `/api/conversations/{id}/message` | Send a message to a conversation |
 

@@ -256,6 +256,65 @@ describe('ConversationLockManager', () => {
     expect(manager.getStats().activeConversationIds).toEqual([]);
   });
 
+  describe('isActive', () => {
+    test('tracks one conversation across its whole turn', async () => {
+      const manager = new ConversationLockManager(10);
+      const log: string[] = [];
+      const turn = gate(log, 'a');
+
+      expect(manager.isActive('conv-a')).toBe(false);
+
+      await manager.acquireLock('conv-a', turn.handler);
+      await drainUntilStarted(log, 1);
+      expect(manager.isActive('conv-a')).toBe(true);
+      // Its neighbours are unaffected — the answer is about one id, which is
+      // the only reason the route asking it is worth anything.
+      expect(manager.isActive('conv-b')).toBe(false);
+
+      turn.release();
+      await drainUntilIdle(manager);
+      expect(manager.isActive('conv-a')).toBe(false);
+    });
+
+    test('a queued message is not active until it starts', async () => {
+      // It must say what the lock EVENT would have said, and that fires when
+      // the handler starts, not when the message is accepted. A queued message
+      // reported as active would disable a composer for a turn not running.
+      const manager = new ConversationLockManager(1);
+      const log: string[] = [];
+      const first = gate(log, 'a');
+      const queued = gate(log, 'b');
+
+      await manager.acquireLock('conv-a', first.handler);
+      await drainUntilStarted(log, 1);
+      const result = await manager.acquireLock('conv-b', queued.handler);
+      expect(result.status).toBe('queued-capacity');
+      expect(manager.isActive('conv-b')).toBe(false);
+
+      first.release();
+      await drainUntilStarted(log, 2);
+      expect(manager.isActive('conv-a')).toBe(false);
+      expect(manager.isActive('conv-b')).toBe(true);
+
+      queued.release();
+      await drainUntilIdle(manager);
+    });
+
+    test('a handler that throws still releases the conversation', async () => {
+      const manager = new ConversationLockManager(10);
+      const log: string[] = [];
+      const turn = gate(log, 'a', { fail: true });
+
+      await manager.acquireLock('conv-a', turn.handler);
+      await drainUntilStarted(log, 1);
+      expect(manager.isActive('conv-a')).toBe(true);
+
+      turn.release();
+      await drainUntilIdle(manager);
+      expect(manager.isActive('conv-a')).toBe(false);
+    });
+  });
+
   describe('drain', () => {
     test('refuses a new conversation instead of queueing it', async () => {
       const manager = new ConversationLockManager(10);

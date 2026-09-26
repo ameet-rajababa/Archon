@@ -22,6 +22,17 @@ export const K = {
   chatRuns: (conversationDbId: string): string => `runs:conversation:${conversationDbId}`,
   run: (id: string): string => `run:${id}`,
   messages: (conversationId: string): string => `messages:${conversationId}`,
+  /**
+   * Whether a conversation is executing a turn right now.
+   *
+   * A cache key rather than component state because that is what makes it
+   * recoverable: the live `conversation_lock` event writes it while the stream
+   * is up, and the stream's reconnect refetches it, the same as any other key
+   * the stream keeps live. State held only in a component has nothing for a
+   * reconnect to ask about, which is how the composer stayed disabled after a
+   * gap until the page was reloaded.
+   */
+  conversationLock: (conversationId: string): string => `lock:${conversationId}`,
   conversations: (projectId: string): string => `conversations:${projectId}`,
   countsGlobal: 'counts:global' as const,
   pendingRuns: 'pendingRuns' as const,

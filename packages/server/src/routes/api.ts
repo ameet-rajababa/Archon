@@ -341,6 +341,7 @@ import {
   conversationListResponseSchema,
   listConversationsQuerySchema,
   conversationIdParamsSchema,
+  conversationLockResponseSchema,
   conversationSchema,
   createConversationBodySchema,
   createConversationResponseSchema,
@@ -736,6 +737,35 @@ const getConversationRoute = createRoute({
     200: {
       content: { 'application/json': { schema: conversationSchema } },
       description: 'Conversation',
+    },
+    404: jsonError('Not found'),
+    500: jsonError('Server error'),
+  },
+});
+
+/**
+ * Whether this conversation is executing a turn right now.
+ *
+ * Its own route rather than a field on the conversation read, because it is a
+ * different kind of fact: the conversation row is persisted state, this is a
+ * membership in a Map in this process's memory and it changes without the row
+ * changing. Folding it into the row would make every conversation read a
+ * mixture of the two, and would quietly make a cached row wrong.
+ *
+ * The console asks for it when its event stream reconnects — see
+ * `useConversationSSE` — because the lock events emitted during the gap are
+ * gone and nothing replays them.
+ */
+const getConversationLockRoute = createRoute({
+  method: 'get',
+  path: '/api/conversations/{id}/lock',
+  tags: ['Conversations'],
+  summary: 'Whether a conversation is executing a turn right now',
+  request: { params: conversationIdParamsSchema },
+  responses: {
+    200: {
+      content: { 'application/json': { schema: conversationLockResponseSchema } },
+      description: 'Current lock state',
     },
     404: jsonError('Not found'),
     500: jsonError('Server error'),
@@ -3195,6 +3225,23 @@ export function registerApiRoutes(
     } catch (error) {
       getLog().error({ err: error, platformId }, 'get_conversation_failed');
       return apiError(c, 500, 'Failed to get conversation');
+    }
+  });
+
+  // GET /api/conversations/:id/lock - Is this conversation executing a turn?
+  registerOpenApiRoute(getConversationLockRoute, async c => {
+    const platformId = c.req.param('id') ?? '';
+    try {
+      // Existence is checked so an id that names nothing gets a 404 rather than
+      // `locked: false`, which reads as a real answer about a real chat.
+      const conv = await conversationDb.findConversationByPlatformId(platformId);
+      if (!conv) {
+        return apiError(c, 404, 'Conversation not found');
+      }
+      return c.json({ conversationId: platformId, locked: lockManager.isActive(platformId) });
+    } catch (error) {
+      getLog().error({ err: error, platformId }, 'get_conversation_lock_failed');
+      return apiError(c, 500, 'Failed to read conversation lock state');
     }
   });
 

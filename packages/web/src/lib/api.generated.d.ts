@@ -1021,6 +1021,62 @@ export interface paths {
     };
     trace?: never;
   };
+  '/api/conversations/{id}/lock': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Whether a conversation is executing a turn right now */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description Current lock state */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'application/json': components['schemas']['ConversationLockResponse'];
+          };
+        };
+        /** @description Not found */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'application/json': components['schemas']['Error'];
+          };
+        };
+        /** @description Server error */
+        500: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            'application/json': components['schemas']['Error'];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/conversations/{id}/read': {
     parameters: {
       query?: never;
@@ -4257,6 +4313,10 @@ export interface components {
       created_at: string;
       /** Format: date-time */
       updated_at: string;
+    };
+    ConversationLockResponse: {
+      conversationId: string;
+      locked: boolean;
     };
     CreateConversationResponse: {
       conversationId: string;

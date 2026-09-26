@@ -235,6 +235,24 @@ export class ConversationLockManager {
   }
 
   /**
+   * Is this conversation executing a turn right now?
+   *
+   * The same membership `activeConversationIds` reports, asked about one id.
+   * It exists because a client that lost the stream has no other way to learn
+   * the current answer: the lock lives in this process's memory, the events
+   * that narrate it are not replayed, and a turn that ended during the gap
+   * ended silently. A queued message is deliberately NOT active — the lock
+   * event that brackets a turn fires when the handler starts, and this must
+   * say the same thing the event would have said.
+   *
+   * @param conversationId - Platform conversation identifier, the same id
+   *   `acquireLock` was called with
+   */
+  isActive(conversationId: string): boolean {
+    return this.activeConversations.has(conversationId);
+  }
+
+  /**
    * Get current concurrency statistics
    * @returns Current state for observability
    */
