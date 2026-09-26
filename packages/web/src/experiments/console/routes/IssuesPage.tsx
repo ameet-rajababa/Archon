@@ -2,13 +2,14 @@ import { Check, Columns3, ExternalLink, RefreshCw } from 'lucide-react';
 import { useMemo, useState, type ReactElement } from 'react';
 import { EmptyState } from '../components/EmptyState';
 import {
-  COLUMN_REASON,
+  COLUMN_EMPTY,
   ISSUE_COLUMNS,
   issueAreas,
-  issueColumn,
+  issuePlacement,
   issueType,
   runningIssues,
   type IssueColumn,
+  type IssuePlacement,
 } from '../primitives/issue-board';
 import type { Run } from '../primitives/run';
 import * as skill from '../skills';
@@ -25,11 +26,11 @@ import { RowMenu } from '../components/RowMenu';
 
 function Card({
   issue,
-  column,
+  placement,
   onOpen,
 }: {
   issue: GithubIssue;
-  column: IssueColumn;
+  placement: IssuePlacement;
   onOpen: () => void;
 }): ReactElement {
   const type = issueType(issue);
@@ -44,7 +45,7 @@ function Card({
       <button
         type="button"
         onClick={onOpen}
-        title={`${COLUMN_REASON[column]}\nOpens here`}
+        title={`${placement.reason}\nOpens here`}
         className="block w-full rounded-[9px] border border-border bg-surface px-3 py-2.5 text-left transition-colors hover:border-border-bright hover:bg-surface-hover"
       >
         <div className="text-[13px] leading-[1.4] text-text-primary">{issue.title}</div>
@@ -89,12 +90,13 @@ function Card({
 /**
  * A read-only board over the project's GitHub issues.
  *
- * GitHub alone gives you two columns — open and closed. The two in the middle
- * come from joining it to what Archon already knows: an open PR that closes an
+ * GitHub alone gives you two columns — open and closed. An issue has no status
+ * field, so the ones in between come from a `status:` label where someone set
+ * one, and otherwise from what Archon already knows: an open PR that closes an
  * issue, and a run that is executing against one. Hovering a card says which
  * source placed it.
  *
- * Nothing here writes to GitHub.
+ * Nothing here writes to GitHub. Status is changed by labelling the issue.
  */
 export function IssuesPage(): ReactElement {
   const { projectId = '' } = useParams<{ projectId: string }>();
@@ -105,7 +107,7 @@ export function IssuesPage(): ReactElement {
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
   // The card's own copy of the issue, so the dialog's header renders before
   // the detail read comes back.
-  const [open, setOpen] = useState<{ issue: GithubIssue; column: IssueColumn } | null>(null);
+  const [open, setOpen] = useState<{ issue: GithubIssue; placement: IssuePlacement } | null>(null);
 
   const { data, loading, error, fetchedAt } = useEntity<IssuesResponse>(K.issues(projectId), () =>
     skill.listIssues(projectId)
@@ -124,11 +126,14 @@ export function IssuesPage(): ReactElement {
   );
 
   const byColumn = useMemo(() => {
-    const out = new Map<IssueColumn, GithubIssue[]>(ISSUE_COLUMNS.map(c => [c.key, []]));
+    const out = new Map<IssueColumn, { issue: GithubIssue; placement: IssuePlacement }[]>(
+      ISSUE_COLUMNS.map(c => [c.key, []])
+    );
     for (const i of issues) {
       const t = issueType(i)?.name;
       if (typeFilter !== null && t !== typeFilter) continue;
-      out.get(issueColumn(i, running))?.push(i);
+      const placement = issuePlacement(i, running);
+      out.get(placement.column)?.push({ issue: i, placement });
     }
     return out;
   }, [issues, running, typeFilter]);
@@ -313,20 +318,16 @@ export function IssuesPage(): ReactElement {
               <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto pr-1">
                 {items.length === 0 ? (
                   <p className="px-1 py-1.5 text-[11px] text-text-tertiary">
-                    {col.key === 'rev'
-                      ? 'no open PR closes an issue right now'
-                      : col.key === 'prog'
-                        ? 'no run is working on an issue right now'
-                        : '—'}
+                    {COLUMN_EMPTY[col.key]}
                   </p>
                 ) : (
-                  items.map(i => (
+                  items.map(({ issue, placement }) => (
                     <Card
-                      key={i.number}
-                      issue={i}
-                      column={col.key}
+                      key={issue.number}
+                      issue={issue}
+                      placement={placement}
                       onOpen={() => {
-                        setOpen({ issue: i, column: col.key });
+                        setOpen({ issue, placement });
                       }}
                     />
                   ))
@@ -341,7 +342,7 @@ export function IssuesPage(): ReactElement {
         <IssueDialog
           projectId={projectId}
           issue={open.issue}
-          column={open.column}
+          placement={open.placement}
           onClose={() => {
             setOpen(null);
           }}

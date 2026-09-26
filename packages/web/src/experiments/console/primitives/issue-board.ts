@@ -3,42 +3,88 @@
  *
  * Read-only derivation. Nothing here writes to GitHub.
  *
- *   done  ← issue.state === CLOSED                          (GitHub)
- *   rev   ← an open PR lists it in closingIssuesReferences  (GitHub GraphQL)
- *   prog  ← an Archon run is executing against it           (Archon runs)
- *   todo  ← everything else
+ *   done    ← issue.state === CLOSED                          (GitHub)
+ *   <label> ← a `status:` label names the column              (GitHub)
+ *   rev     ← an open PR lists it in closingIssuesReferences  (GitHub GraphQL)
+ *   prog    ← an Archon run is executing against it           (Archon runs)
+ *   todo    ← everything else
  *
- * The middle two are the whole point of the board. GitHub alone gives you Open
- * and Closed; the status it does not have comes from joining it to what Archon
- * already knows.
+ * GitHub alone gives you Open and Closed; an issue has no status field, and
+ * the Projects board that would supply one does not exist for these repos.
+ * The columns in between therefore come from two places, in this order.
+ *
+ * A `status:` label is a PERSON saying where the work is, so it outranks both
+ * derivations — including `status: todo`, which is how an issue is pulled back
+ * out of a column the PR heuristic put it in. The derivations remain because
+ * they cost nobody any bookkeeping: an open PR that closes an issue really is
+ * review, whether or not anyone labelled it.
+ *
+ * Each placement carries the reason that produced it, so hovering a card says
+ * which source put it there rather than leaving the join to be guessed.
  */
 import type { GithubIssue } from '../skills';
 
-export type IssueColumn = 'todo' | 'prog' | 'rev' | 'done';
+export type IssueColumn = 'todo' | 'blocked' | 'prog' | 'rev' | 'done';
 
 export const ISSUE_COLUMNS: readonly { key: IssueColumn; label: string; color: string }[] = [
   { key: 'todo', label: 'Todo', color: 'var(--text-tertiary)' },
+  { key: 'blocked', label: 'Blocked', color: 'var(--error)' },
   { key: 'prog', label: 'In Progress', color: 'var(--running)' },
   { key: 'rev', label: 'In Review', color: 'var(--warning, var(--st-rev, oklch(0.75 0.15 85)))' },
   { key: 'done', label: 'Done', color: 'var(--success)' },
 ];
 
-/** Why a card is where it is — shown on hover, so the join is inspectable. */
-export const COLUMN_REASON: Readonly<Record<IssueColumn, string>> = {
-  todo: 'GitHub · open, nothing else known',
-  prog: 'Archon · a run is working on it',
-  rev: 'GitHub · an open PR closes it',
-  done: 'GitHub · the issue is closed',
+/** Shown when a column is empty, so "0" says why rather than only how many. */
+export const COLUMN_EMPTY: Readonly<Record<IssueColumn, string>> = {
+  todo: 'nothing is sitting untouched',
+  blocked: 'nothing is labelled `status: blocked`',
+  prog: 'nothing is labelled `status: in progress`, and no run is working on an issue',
+  rev: 'nothing is labelled `status: in review`, and no open PR closes an issue',
+  done: 'no issue is closed',
 };
 
-export function issueColumn(
+/**
+ * A STATUS is a person's claim about where the work is, and GitHub has no
+ * field for it — the convention that exists in real repos is a prefixed label,
+ * which is what `rajababa-io/wix-access` has used since it had issues.
+ */
+const STATUS_PREFIX = /^status\s*:\s*/i;
+
+const STATUS_COLUMN: Readonly<Record<string, IssueColumn>> = {
+  todo: 'todo',
+  blocked: 'blocked',
+  'in progress': 'prog',
+  'in review': 'rev',
+};
+
+/** The column a `status:` label names, or null if the issue carries none. */
+export function statusColumn(issue: GithubIssue): IssueColumn | null {
+  for (const l of issue.labels) {
+    if (!STATUS_PREFIX.test(l.name)) continue;
+    const hit = STATUS_COLUMN[l.name.replace(STATUS_PREFIX, '').trim().toLowerCase()];
+    if (hit !== undefined) return hit;
+  }
+  return null;
+}
+
+/** Where a card is, and why — the two are produced together so they agree. */
+export interface IssuePlacement {
+  column: IssueColumn;
+  /** Shown on hover, so the join is inspectable. */
+  reason: string;
+}
+
+export function issuePlacement(
   issue: GithubIssue,
   runningIssueNumbers: ReadonlySet<number>
-): IssueColumn {
-  if (issue.state === 'CLOSED') return 'done';
-  if (issue.openPr) return 'rev';
-  if (runningIssueNumbers.has(issue.number)) return 'prog';
-  return 'todo';
+): IssuePlacement {
+  if (issue.state === 'CLOSED') return { column: 'done', reason: 'GitHub · the issue is closed' };
+  const declared = statusColumn(issue);
+  if (declared !== null) return { column: declared, reason: 'GitHub · a status label says so' };
+  if (issue.openPr) return { column: 'rev', reason: 'GitHub · an open PR closes it' };
+  if (runningIssueNumbers.has(issue.number))
+    return { column: 'prog', reason: 'Archon · a run is working on it' };
+  return { column: 'todo', reason: 'GitHub · open, nothing else known' };
 }
 
 /**
