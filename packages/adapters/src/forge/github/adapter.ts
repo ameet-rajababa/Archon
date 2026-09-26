@@ -720,6 +720,11 @@ export class GitHubAdapter implements IPlatformAdapter {
     }
 
     if (directoryExists) {
+      // Before the sync, not after: syncRepository fetches, and in App mode
+      // that fetch is what needs the helper. A repository cloned before App
+      // mode — or before the helper registered useHttpPath — would otherwise
+      // fail the sync and never reach the repair.
+      await this.ensureCredentialHelper(owner, repo, repoPath);
       if (shouldSync) {
         getLog().info({ repoPath, defaultBranch }, 'github.repo_syncing');
         const syncResult = await syncRepository(toRepoPath(repoPath), toBranchName(defaultBranch));
@@ -794,23 +799,45 @@ export class GitHubAdapter implements IPlatformAdapter {
 
     // App mode requires a refreshable credential source after the
     // request-scoped clone token expires.
-    if (this.auth.kind === 'app') {
-      const result = await installCredentialHelper(repoPath);
-      if (result.kind === 'failed') {
-        getLog().error(
-          { err: result.error, repoPath, owner, repo },
-          'github_auth.credential_helper_install_failed'
-        );
-        throw new Error(
-          `GitHub App repository setup requires the credential helper: ${result.error.message}`,
-          { cause: result.error }
-        );
-      }
-      getLog().info(
-        { repoPath, owner, repo, helperPath: result.helperPath },
-        'github_auth.credential_helper_installed'
+    await this.ensureCredentialHelper(owner, repo, repoPath);
+  }
+
+  /**
+   * Register the credential helper on a worktree, in App mode only.
+   *
+   * Called from both the clone path and the already-exists path. The second
+   * matters as much as the first: a repository cloned before App mode was
+   * enabled — or before the helper registered `useHttpPath` — carries git
+   * config that cannot authenticate, and nothing else would ever repair it.
+   * The install is idempotent, so running it on every repo-ready call costs
+   * two git-config writes and removes the need for a migration step.
+   *
+   * Throws on failure rather than logging and continuing: in App mode there is
+   * no other credential source, so a worktree without a working helper fails
+   * the next fetch as an authentication error, which reads as a permissions
+   * problem and sends the operator looking in the wrong place.
+   */
+  private async ensureCredentialHelper(
+    owner: string,
+    repo: string,
+    repoPath: string
+  ): Promise<void> {
+    if (this.auth.kind !== 'app') return;
+    const result = await installCredentialHelper(repoPath);
+    if (result.kind === 'failed') {
+      getLog().error(
+        { err: result.error, repoPath, owner, repo },
+        'github_auth.credential_helper_install_failed'
+      );
+      throw new Error(
+        `GitHub App repository setup requires the credential helper: ${result.error.message}`,
+        { cause: result.error }
       );
     }
+    getLog().info(
+      { repoPath, owner, repo, helperPath: result.helperPath },
+      'github_auth.credential_helper_installed'
+    );
   }
 
   /**
