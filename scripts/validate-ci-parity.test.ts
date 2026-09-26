@@ -65,6 +65,12 @@ const NOT_IN_VALIDATE: readonly { command: string; reason: string }[] = [
       'connection module and Bun mocks outlive the file that registered them.',
   },
   {
+    command: 'bun run build:web',
+    reason:
+      'Not a check: it produces the console bundle the browser suite loads. The suite it feeds ' +
+      'needs Node and a downloaded Chromium, so the whole job stays out of validate.',
+  },
+  {
     command: 'bun run build:docs',
     reason:
       "Astro's CLI runs under Node, not Bun, so a checkout with only Bun cannot build the docs " +

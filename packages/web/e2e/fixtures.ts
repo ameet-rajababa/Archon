@@ -1,0 +1,160 @@
+/**
+ * The world the console is loaded against in the browser suite.
+ *
+ * Every shape here is the console's OWN wire shape, taken from the module that
+ * owns it — the generated OpenAPI types for routes the spec describes, and the
+ * `Raw*` parameter of the normalizer for routes it does not. Nothing is
+ * restated by hand, so a server-side rename fails `tsc` here instead of leaving
+ * a fixture that quietly stops resembling the server.
+ *
+ * The data is deliberately small and fixed: four assertions need a project, a
+ * chat, a transcript, and one ask block. A fixture that grows past what a test
+ * reads is a fixture nobody can tell is wrong.
+ */
+import type { components } from '@/lib/api.generated';
+import type { toProject } from '@/experiments/console/primitives/project';
+import type { toConversationSummary } from '@/experiments/console/primitives/conversation';
+import type { toMessage } from '@/experiments/console/primitives/message';
+
+/** The wire rows, named by the normalizer that consumes each one. */
+export type RawCodebase = Parameters<typeof toProject>[0];
+export type RawConversation = Parameters<typeof toConversationSummary>[0];
+export type RawMessage = Parameters<typeof toMessage>[0];
+
+export const AUTH_STATUS: components['schemas']['AuthStatusResponse'] = {
+  enabled: false,
+  signup: 'disabled',
+};
+
+export const PROJECT_ID = 'proj-console-e2e';
+export const PROJECT_NAME = 'rajababa-io/console-e2e';
+/** The part of `owner/repo` the rail draws as the row's label. */
+export const PROJECT_SHORT_NAME = 'console-e2e';
+
+/** The platform conversation id — the id every conversation route takes. */
+export const CHAT_ID = 'web-1758900000000-e2e';
+export const CHAT_DB_ID = '00000000-0000-4000-8000-000000000001';
+export const CHAT_TITLE = 'Ask card renders as cards';
+
+/** A second chat, so "the rail lists chats" is about a list and not one row. */
+export const OTHER_CHAT_ID = 'web-1758900000001-e2e';
+export const OTHER_CHAT_TITLE = 'Second chat in the rail';
+
+export const PROJECT: RawCodebase = {
+  id: PROJECT_ID,
+  name: PROJECT_NAME,
+  default_cwd: '/home/appuser/console-e2e',
+  default_branch: 'dev',
+  repository_url: 'https://github.com/rajababa-io/console-e2e',
+  kind: 'repo',
+  created_at: '2026-09-26T10:00:00.000Z',
+  updated_at: '2026-09-26T10:00:00.000Z',
+};
+
+function chatRow(
+  platformId: string,
+  dbId: string,
+  title: string,
+  lastActivityAt: string
+): RawConversation {
+  return {
+    id: dbId,
+    platform_conversation_id: platformId,
+    platform_type: 'web',
+    title,
+    last_activity_at: lastActivityAt,
+    color: null,
+    ai_assistant_type: 'claude',
+    completed_at: null,
+    sort_order: null,
+    ask_candidate: null,
+    last_read_at: lastActivityAt,
+    ready_at: null,
+  };
+}
+
+export const CHATS: RawConversation[] = [
+  chatRow(CHAT_ID, CHAT_DB_ID, CHAT_TITLE, '2026-09-26T11:00:00.000Z'),
+  chatRow(
+    OTHER_CHAT_ID,
+    '00000000-0000-4000-8000-000000000002',
+    OTHER_CHAT_TITLE,
+    '2026-09-26T10:30:00.000Z'
+  ),
+];
+
+/** Prose the transcript test looks for, unique enough that nothing else matches. */
+export const USER_TURN_TEXT = 'Show me the options for the rail width.';
+export const ASSISTANT_PROSE = 'Rail width — three ways to decide it.';
+
+/** The ask block's question and its first option, as the card must render them. */
+export const ASK_QUESTION = 'How should the rail decide its width?';
+export const ASK_OPTION_LABEL = 'Remember the last drag';
+export const ASK_OPTION_DETAIL = 'Persisted per browser, so two machines can disagree.';
+export const ASK_SECOND_OPTION_LABEL = 'Fixed 280px';
+
+/**
+ * The agent's reply: prose, then a fenced ```ask block.
+ *
+ * Written as the agent writes it — a fence holding JSON — because the fence is
+ * the contract the console parses. Building an `AskSpec` object here and
+ * serializing it would test the serializer, not the thing that ships.
+ */
+export const ASSISTANT_REPLY = [
+  ASSISTANT_PROSE,
+  '',
+  '```ask',
+  JSON.stringify(
+    {
+      questions: [
+        {
+          title: ASK_QUESTION,
+          options: [
+            {
+              label: ASK_OPTION_LABEL,
+              detail: ASK_OPTION_DETAIL,
+              recommended: true,
+              why: 'It is what a reader expects a dragged edge to do.',
+            },
+            { label: ASK_SECOND_OPTION_LABEL },
+          ],
+        },
+      ],
+    },
+    null,
+    2
+  ),
+  '```',
+].join('\n');
+
+export const MESSAGES: RawMessage[] = [
+  {
+    id: 'msg-1',
+    role: 'user',
+    content: USER_TURN_TEXT,
+    metadata: '{}',
+    created_at: '2026-09-26T10:58:00.000Z',
+  },
+  {
+    id: 'msg-2',
+    role: 'assistant',
+    content: ASSISTANT_REPLY,
+    metadata: '{}',
+    created_at: '2026-09-26T11:00:00.000Z',
+  },
+];
+
+/** The second chat has its own transcript, so opening a chat is observable. */
+export const OTHER_CHAT_TEXT = 'Nothing to see in this one.';
+
+export const OTHER_MESSAGES: RawMessage[] = [
+  {
+    id: 'msg-o1',
+    role: 'user',
+    content: OTHER_CHAT_TEXT,
+    metadata: '{}',
+    created_at: '2026-09-26T10:30:00.000Z',
+  },
+];
+
+export const CONVERSATION_COUNTS = { open: CHATS.length, done: 0, all: CHATS.length };

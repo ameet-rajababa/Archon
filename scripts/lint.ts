@@ -28,7 +28,16 @@ async function findTargets(): Promise<LintTarget[]> {
       .filter(entry => entry.isDirectory())
       .map(entry => ({
         cacheName: entry.name,
-        patterns: [`packages/${entry.name}/src/**/*.{ts,tsx}`],
+        patterns: [
+          `packages/${entry.name}/src/**/*.{ts,tsx}`,
+          // A browser suite is the one kind of test that cannot live under `src`:
+          // `scripts/test-inventory.test.ts` requires every tracked `*.test.ts` /
+          // `*.spec.ts` to be run by `bun run test`, and `bun test` cannot run a
+          // Playwright spec. Lint it where it is; `--no-error-on-unmatched-pattern`
+          // means the packages without one cost nothing.
+          `packages/${entry.name}/e2e/**/*.ts`,
+          `packages/${entry.name}/playwright.config.ts`,
+        ],
       }))
       .sort((left, right) => left.cacheName.localeCompare(right.cacheName)),
     { cacheName: 'scripts', patterns: ['scripts/**/*.ts'] },

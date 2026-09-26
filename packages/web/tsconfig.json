@@ -22,6 +22,12 @@
       "@archon/workflows/*": ["../workflows/src/*"]
     }
   },
-  "include": ["src/**/*", "mock/**/*", "../workflows/src/defaults/text-imports.d.ts"],
+  "include": [
+    "src/**/*",
+    "mock/**/*",
+    "e2e/**/*",
+    "playwright.config.ts",
+    "../workflows/src/defaults/text-imports.d.ts"
+  ],
   "exclude": ["node_modules", "dist"]
 }

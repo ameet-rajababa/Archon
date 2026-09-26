@@ -296,6 +296,80 @@ jobs:
 
 
 
+  # The only job that loads the console in a browser. Every other check here is
+  # static — types, lint, jsdom unit tests — so all of them stay green while the
+  # bundle renders a blank page, which is what this one exists to catch.
+  #
+  # It lives in test.yml rather than beside e2e-smoke.yml for one reason: the
+  # brief is "runs on pull requests into dev", and e2e-smoke.yml triggers only on
+  # pushes to main and dev. A suite that first reports after the merge is not a
+  # gate. It also needs no credentials, which is the other half of e2e-smoke's
+  # design — its AI tiers are opt-in because a permanently-red job trains people
+  # to ignore the workflow.
+  console-browser:
+    needs: changes
+    if: needs.changes.outputs.run-tests == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      # Playwright's runner is a Node program and does not run under Bun (its
+      # TypeScript transform resolves a preflight module Bun cannot load). The
+      # suite itself is the only thing in this repository that needs Node.
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Read rather than written here: the version is pinned in
+      # packages/web/package.json, and a second copy of it in a cache key is a
+      # pair kept in agreement by nobody — it would go on restoring the previous
+      # browser after a bump, and the run would silently reinstall every time.
+      - name: Read the pinned Playwright version
+        id: playwright
+        run: |
+          version="$(node -p "require('./packages/web/package.json').devDependencies['@playwright/test']")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # Keyed on that version rather than on the lockfile hash: the browser a
+      # build needs changes only when the version does, so an unrelated
+      # dependency bump must not evict a ~170MB download.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+
+      - name: Install Chromium
+        working-directory: packages/web
+        run: npx playwright install --with-deps chromium
+
+      # The suite loads the production bundle, so there has to be one. This is
+      # the same build the Docker image runs.
+      - name: Build the console
+        run: bun run build:web
+
+      - name: Run the console browser suite
+        working-directory: packages/web
+        run: npx playwright test
+
+      - name: Upload failure traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: console-browser-traces
+          path: packages/web/test-results/
+          retention-days: 7
+
   docker-build:
     needs: changes
     if: needs.changes.outputs.run-tests == 'true'
@@ -363,6 +437,7 @@ jobs:
         workflow-fixtures-windows,
         schema-upgrade,
         postgres-parity,
+        console-browser,
         docker-build,
       ]
     if: always()
