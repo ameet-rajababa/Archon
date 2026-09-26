@@ -10,12 +10,13 @@ import { K } from '../store/keys';
  * Fixed-width cells so the columns line up down the whole rail — that is what
  * makes them readable as a table rather than as a row of tokens on each line.
  * Zero renders BLANK. An empty cell says "none" faster than a `0` does, and it
- * keeps the quiet projects quiet.
+ * keeps the quiet projects quiet. Unknown renders blank too — the issues
+ * column has no number when the repo cannot be asked — so the tooltip is what
+ * carries the difference between "none" and "could not say".
  *
- * Two columns, not the three the design draws. The issues endpoint does not
- * exist yet, and a permanently empty third column costs ~30px of the name —
- * enough to truncate `claude-skills` to `claud…`. It comes back with the data,
- * and the one-time reflow is cheaper than the characters.
+ * Each row reads its OWN `projectCounts:<id>` entry. If a row ever draws
+ * another project's figures, those figures were written under the wrong key
+ * rather than fetched wrongly; see `loaderForKey` in store/cache.
  */
 function Cell({
   value,

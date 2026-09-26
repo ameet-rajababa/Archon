@@ -111,6 +111,24 @@ const RUN_EVENT_TARGETS = new Map<string, readonly RunTarget[]>([
   ['workflow_dispatch', ['run']],
 ]);
 
+type DashboardTarget = 'runs' | 'runCounts' | 'conversations' | 'projectCounts' | 'activeChats';
+
+/**
+ * What the dashboard stream's events change.
+ *
+ * `conversation_activity` is listed even though the live path PATCHES rather
+ * than refetching it: the table names what an event changes, and recovery
+ * always refetches because the payloads that would have been patched in are
+ * exactly what a reconnect lost.
+ */
+const DASHBOARD_EVENT_TARGETS = new Map<string, readonly DashboardTarget[]>([
+  ['conversation_activity', ['activeChats']],
+  ['conversation_lock', ['activeChats', 'conversations', 'projectCounts']],
+  ['workflow_status', ['runs', 'runCounts', 'activeChats', 'projectCounts']],
+  ['dag_node', ['runs', 'runCounts', 'activeChats', 'projectCounts']],
+  ['conversation_changed', ['conversations', 'projectCounts']],
+]);
+
 function conversationStreamTargetKeys(
   conversationPlatformId: string
 ): Record<ConversationTarget, string> {
@@ -129,6 +147,31 @@ function liveKeys<T extends string>(
   targetKeys: Readonly<Record<T, string>>
 ): string[] {
   return [...new Set([...eventTargets.values()].flat())].map(target => targetKeys[target]);
+}
+
+/**
+ * Prefixes, not concrete keys, for the three families: this stream is
+ * multiplexed across every project, so it has no single id to name. `runs`
+ * fans out to `runs:all` and every `runs:project:<id>`; `projectCounts` to
+ * every row's numbers; `conversations` to every project's list.
+ *
+ * `run:<id>` is deliberately absent. A reconnect cannot know which runs moved
+ * while the socket was down, and an open run detail page recovers its own key
+ * through {@link useRunStreamSSE}, which does know.
+ */
+function dashboardStreamTargetKeys(): Record<DashboardTarget, string> {
+  return {
+    runs: 'runs',
+    runCounts: K.countsGlobal,
+    conversations: 'conversations',
+    projectCounts: 'projectCounts',
+    activeChats: K.activeChats,
+  };
+}
+
+/** The cache keys {@link useDashboardSSE} keeps live. */
+export function dashboardStreamKeys(): string[] {
+  return liveKeys(DASHBOARD_EVENT_TARGETS, dashboardStreamTargetKeys());
 }
 
 /** The cache keys {@link useConversationSSE} keeps live. */
@@ -171,24 +214,45 @@ export function useDashboardSSE(): void {
     // Use SSE_BASE_URL so dev bypasses the Vite proxy (which buffers SSE).
     const es = new EventSource(`${SSE_BASE_URL}/api/stream/__dashboard__`);
 
+    const targetKeys = dashboardStreamTargetKeys();
+
+    /**
+     * Invalidate what this event type changes, read from the same table the
+     * reconnect key list is derived from. An override substitutes a narrower
+     * key for a family — the conversation events know which project moved.
+     */
+    const invalidateTargets = (
+      type: string,
+      override?: Partial<Record<DashboardTarget, string>>
+    ): void => {
+      for (const target of DASHBOARD_EVENT_TARGETS.get(type) ?? []) {
+        invalidate(override?.[target] ?? targetKeys[target]);
+      }
+    };
+
     // Activity on a busy chat fires one notification per message, so the
     // refetch is coalesced the same way the per-conversation stream coalesces
     // streamed text. 120ms is below noticing and well above a burst.
     let convDirty: string | null | undefined;
+    // Which event types are waiting on the flush. A union rather than a
+    // "widest wins" rule: a lock and a change inside one window each mean
+    // their own targets, and the union is simply both.
+    const convPending = new Set<string>();
     let convTimer: ReturnType<typeof setTimeout> | null = null;
     const flushConversations = (): void => {
       if (convTimer !== null) return;
       convTimer = setTimeout(() => {
         convTimer = null;
         // A known codebase invalidates just that project's lists; an unknown one
-        // (a chat with no codebase) falls back to the prefix, which fans out to
-        // every `conversations:*` key including the `:archived-count` variants.
-        if (typeof convDirty === 'string' && convDirty !== '') {
-          invalidate(K.conversations(convDirty));
-        } else {
-          invalidate('conversations');
-        }
-        invalidate('projectCounts');
+        // (a chat with no codebase) falls back to the family prefix, which fans
+        // out to every `conversations:*` key including the `:archived-count`
+        // variants.
+        const narrowed =
+          typeof convDirty === 'string' && convDirty !== ''
+            ? { conversations: K.conversations(convDirty) }
+            : undefined;
+        for (const type of convPending) invalidateTargets(type, narrowed);
+        convPending.clear();
         convDirty = undefined;
       }, 120);
     };
@@ -223,20 +287,21 @@ export function useDashboardSSE(): void {
         // only push the list gets. The event carries no codebase, so the
         // debounced flush widens to the prefix.
         convDirty = null;
+        convPending.add('conversation_lock');
         flushConversations();
         return;
       }
       if (ev.type === 'workflow_status' || ev.type === 'dag_node') {
-        // Refetch every runs:* key (runs:all, runs:project:<id>).
-        invalidate('runs');
-        // A background workflow holds no conversation lock, so the active-chat
-        // list changes with the RUN rather than with a lock event.
-        invalidate(K.activeChats);
-        // The rail's own numbers live under a separate key, so they need
-        // naming here or they would freeze while the runs feed stayed live.
-        invalidate('projectCounts');
+        // Every runs:* key, the global running pill, the active-chat list (a
+        // background workflow holds no conversation lock, so that list changes
+        // with the RUN rather than with a lock event) and the rail's own
+        // numbers, which live under their own key and would otherwise freeze
+        // while the runs feed stayed live.
+        invalidateTargets(ev.type);
         // Also refresh any open run-detail cache so the detail page picks
         // up status / node-transition changes without its own SSE round-trip.
+        // Per-event rather than a stream target: the id comes from the payload,
+        // so a reconnect cannot name it (see dashboardStreamTargetKeys).
         if (typeof ev.runId === 'string') {
           invalidate(K.run(ev.runId));
         }
@@ -246,30 +311,12 @@ export function useDashboardSSE(): void {
         // Two notifications for different projects inside one debounce window
         // must not let the second one narrow the first. Widen to the prefix.
         convDirty = convDirty === undefined || convDirty === ev.codebaseId ? ev.codebaseId : null;
+        convPending.add('conversation_changed');
         flushConversations();
       }
     };
 
-    // A RECONNECT is a hole in the record. Everything the server emitted while
-    // the socket was down is gone — there is no replay — and nothing in the
-    // cache knows it missed anything, so the rail would keep showing whatever
-    // it last heard about, indefinitely and confidently. Refetching the keys
-    // this stream keeps live is the only honest response to a gap.
-    //
-    // The FIRST open is skipped: mount already fetched, and invalidating there
-    // would double every request on every page load.
-    let reconnect = false;
-    es.onopen = (): void => {
-      if (!reconnect) {
-        reconnect = true;
-        return;
-      }
-      invalidate('runs');
-      invalidate('counts');
-      invalidate('conversations');
-      invalidate('projectCounts');
-      invalidate(K.activeChats);
-    };
+    recoverOnReconnect(es, dashboardStreamKeys());
 
     // EventSource auto-reconnects on transient errors; we only surface a
     // warn when the connection has permanently closed so dropped streams

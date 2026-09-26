@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach, setSystemTime } from 'bun:test';
-import { subscribeKey, versionOf, get, patch, set, invalidate } from './cache';
+import { subscribeKey, versionOf, get, patch, set, invalidate, loaderForKey } from './cache';
 
 // The store's Maps are module-level, so every test uses its own unique key —
 // no cross-test state to reset.
@@ -481,5 +481,67 @@ describe('subscribeKey — staleness window on resubscribe', () => {
     expect(loads).toBe(1);
     expect(get(key)).toBe('loaded');
     unsubscribe2();
+  });
+});
+
+/**
+ * A project row showed another project's numbers: `Archon`, `Wix Access` and
+ * `Vault` all read the same pair, which was archon's. The cause was not the
+ * fetch (correctly scoped), nor the key (`projectCounts:<id>`, per project),
+ * but the loader reached BETWEEN them — `useEntity` rewrites its loader ref
+ * during render, and `loaders` is one module-global map, so a loader rendered
+ * for one project could be invoked under another project's key.
+ */
+describe('loaderForKey — a loader answers only for the key it was rendered for', () => {
+  const rendered = (): Promise<string> => Promise.resolve('rendered-for-this-key');
+
+  test('a ref still naming this key is used, so changed props are not stale', async () => {
+    const held = { key: 'projectCounts:archon', loader: () => Promise.resolve('fresher') };
+    await expect(loaderForKey('projectCounts:archon', held, rendered)()).resolves.toBe('fresher');
+  });
+
+  test('a ref repointed at another project is refused, not invoked', async () => {
+    // What a render for vault leaves behind while the committed tree is still
+    // subscribed under archon's key.
+    const held = { key: 'projectCounts:vault', loader: () => Promise.resolve('vault-counts') };
+    await expect(loaderForKey('projectCounts:archon', held, rendered)()).resolves.toBe(
+      'rendered-for-this-key'
+    );
+  });
+});
+
+describe("invalidate cannot write one project's counts under another's key", () => {
+  /**
+   * The whole chain, against the real store: subscribe under archon's key,
+   * repoint the component's ref at vault (a render), then let the dashboard
+   * stream fire `invalidate('projectCounts')` before React has re-subscribed.
+   * Before the fix this left vault's numbers in archon's entry, permanently.
+   */
+  test('a repointed ref cannot contaminate the key it is still subscribed under', async () => {
+    const archon = 'projectCounts:test-contamination-archon';
+    const vault = 'projectCounts:test-contamination-vault';
+    const archonLoader = (): Promise<unknown> => Promise.resolve({ chats: 15 });
+    const vaultLoader = (): Promise<unknown> => Promise.resolve({ chats: 2 });
+
+    // One component instance, rendered for archon.
+    const ref = { current: { key: archon, loader: archonLoader } };
+    const unsubscribe = subscribeKey(
+      archon,
+      () => {},
+      () => loaderForKey(archon, ref.current, archonLoader)()
+    );
+    await flush();
+    expect(get(archon)).toEqual({ chats: 15 });
+
+    // It re-renders for vault. The ref moves during render; the re-subscribe
+    // to vault's key happens later, in a passive effect.
+    ref.current = { key: vault, loader: vaultLoader };
+
+    // A dashboard event lands inside that window.
+    invalidate('projectCounts');
+    await flush();
+
+    expect(get(archon)).toEqual({ chats: 15 });
+    unsubscribe();
   });
 });
