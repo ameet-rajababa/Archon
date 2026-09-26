@@ -3762,13 +3762,55 @@ nodes:
     const store = new InMemoryStore();
     // Concurrency-tracking provider: the in-flight window during the awaited "AI turn"
     // reflects how many children run at once.
-    const tracker = { inFlight: 0, max: 0 };
+    //
+    // Each turn is held open until the window is FULL rather than for a fixed 15 ms. The
+    // sleep was standing in for an event: it assumed the engine would have started the
+    // sibling within 15 ms, and on the 4-vCPU windows-latest runner starting a child run
+    // takes longer than that, so the first child finished alone, `tracker.max` was 1, and
+    // the window was never observed rather than observed and wrong (#74).
+    //
+    // The bound is a diagnosis, not a budget. A genuinely serial engine never fills the
+    // window, so the FIRST hold expires and records it; every later child then passes
+    // straight through, so the whole failure costs one bound rather than five and lands
+    // as "the window never filled" instead of as an opaque test timeout. Sized to sit
+    // well inside this case's own budget on both platforms — it runs in well under a
+    // second when the window does fill, and nothing here asserts how long that took.
+    //
+    // The settle AFTER the window fills is what keeps the other half of this case honest.
+    // Releasing the moment the count reaches WINDOW would let an engine that admitted
+    // THREE go unnoticed, because the first two can leave before the third arrives. The
+    // settle holds everyone in flight long enough for an over-admission to be counted.
+    // Its failure direction is the safe one: too short only ever MISSES a cap violation,
+    // it can never invent one, so a loaded runner costs sensitivity and not a red run.
+    const WINDOW = 2;
+    const WINDOW_BOUND_MS = 2_500;
+    const SETTLE_MS = 50;
+    const tracker = { inFlight: 0, max: 0, window: 'filled' as 'filled' | 'never filled' };
+    let windowFilled!: () => void;
+    const windowIsFull = new Promise<void>(resolve => {
+      windowFilled = resolve;
+    });
+    const holdUntilWindowFull = (): Promise<void> =>
+      new Promise<void>(resolve => {
+        if (tracker.window === 'never filled') return resolve();
+        const timer = setTimeout(() => {
+          tracker.window = 'never filled';
+          resolve();
+        }, WINDOW_BOUND_MS);
+        void windowIsFull.then(() => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
     const slowProvider = {
       ...makeProvider(),
       sendQuery: async function* () {
         tracker.inFlight++;
         tracker.max = Math.max(tracker.max, tracker.inFlight);
-        await new Promise(r => setTimeout(r, 15));
+        if (tracker.inFlight >= WINDOW) windowFilled();
+        await holdUntilWindowFull();
+        await new Promise(resolve => setTimeout(resolve, SETTLE_MS));
+        tracker.max = Math.max(tracker.max, tracker.inFlight);
         tracker.inFlight--;
         yield { type: 'assistant', content: 'ai-output' };
         yield { type: 'result', sessionId: 'sess', cost: 0.01 };
@@ -3794,8 +3836,10 @@ nodes:
       5
     );
     // Never more than max_parallel children in flight at once, and the window IS used
-    // (two ran concurrently — proving it isn't accidentally serial).
-    expect(tracker.max).toBe(2);
+    // (two ran concurrently — proving it isn't accidentally serial). The first assertion
+    // names the failure; the second is the property.
+    expect(tracker.window).toBe('filled');
+    expect(tracker.max).toBe(WINDOW);
   });
 
   function makeAccountingDeps(store: IWorkflowStore): WorkflowDeps {
