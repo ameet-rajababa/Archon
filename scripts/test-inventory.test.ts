@@ -18,8 +18,10 @@
  * plan tests `./scripts/` directly.
  */
 import { describe, test } from 'bun:test';
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
+import { trackTempRoots } from '@archon/paths/test-utils';
 import { ROOT_TEST_PLAN } from './repo-tests';
 
 interface InventoryMismatch {
@@ -381,23 +383,46 @@ describe('repository test inventory', () => {
 });
 
 describe('compiler test inventory', () => {
+  const trackTempRoot = trackTempRoots();
+
+  /**
+   * Collect a spawned `tsc --listFilesOnly` listing through files rather than pipes.
+   *
+   * `tsc` prints the whole program with `process.stdout.write` and then ends the process
+   * with `process.exit`. Under Bun a piped stdout is asynchronous, and `process.exit`
+   * does not flush what is still buffered, so an arbitrary tail of a listing this size is
+   * discarded while the exit status stays `0` and stderr stays empty. Measured on Bun
+   * 1.4.2 against a producer with the same write-then-exit shape, 19 of 40 piped runs
+   * lost part of a 416 KB payload and the worst lost 47% of it; the same 40 runs
+   * redirected to a file lost nothing. A regular file is written synchronously, so the
+   * listing this guard reads is the whole program or the spawn failed.
+   *
+   * This mattered because the loss is silent and reads as a real finding. Each project
+   * lists `src/**` first and `../<other>/src/**` after, so the referenced packages' test
+   * files sit in the last few percent of the listing and are the first thing a dropped
+   * tail removes — which is why the failure always named a referenced package's tests,
+   * never the project's own, and why which of the four cases failed varied per run
+   * (#47).
+   */
   async function expectProgramToInclude(
     packageName: string,
     expectedFiles: string[]
   ): Promise<void> {
     const projectPath = join(REPO_ROOT, 'packages', packageName, 'tsconfig.json');
+    const outputDirectory = trackTempRoot(mkdtempSync(join(tmpdir(), 'archon-tsc-listing-')));
+    const stdoutPath = join(outputDirectory, 'stdout.txt');
+    const stderrPath = join(outputDirectory, 'stderr.txt');
     const process = Bun.spawn(
       ['bun', 'x', 'tsc', '--noEmit', '--listFilesOnly', '--project', projectPath],
-      { cwd: REPO_ROOT, stdout: 'pipe', stderr: 'pipe' }
+      { cwd: REPO_ROOT, stdout: Bun.file(stdoutPath), stderr: Bun.file(stderrPath) }
     );
-    const [exitCode, stdout, stderr] = await Promise.all([
-      process.exited,
-      new Response(process.stdout).text(),
-      new Response(process.stderr).text(),
-    ]);
+    const exitCode = await process.exited;
+    const stdout = readFileSync(stdoutPath, 'utf8');
 
     if (exitCode !== 0) {
-      throw new Error(`Could not list the ${packageName} TypeScript program:\n${stderr}`);
+      throw new Error(
+        `Could not list the ${packageName} TypeScript program:\n${readFileSync(stderrPath, 'utf8')}`
+      );
     }
 
     const programFiles = new Set(stdout.split(/\r?\n/).map(normalizePath));
