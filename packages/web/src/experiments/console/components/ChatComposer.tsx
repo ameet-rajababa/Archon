@@ -12,13 +12,11 @@ import {
 import {
   ACCEPTED_EXTENSIONS,
   MAX_FILES,
-  MAX_FILE_BYTES,
-  MAX_FILE_MB,
+  admitFiles,
   dragHasFiles,
-  formatBytes,
   imagesFromClipboard,
-  isAcceptedFileType,
 } from '../primitives/file';
+import { AttachedFiles } from './AttachedFiles';
 
 /** What the user has typed and attached but not yet sent, for one conversation. */
 export interface ChatDraft {
@@ -122,31 +120,9 @@ export function ChatComposer({
   };
 
   const addFiles = (incoming: File[]): void => {
-    const next: File[] = [...files];
-    // Accumulate every rejection reason (not just the last) so a mixed pick
-    // surfaces all of them.
-    const skipped: string[] = [];
-    for (const file of incoming) {
-      if (next.length >= MAX_FILES) {
-        skipped.push(`${file.name}: over the ${String(MAX_FILES)}-file limit`);
-        continue;
-      }
-      if (file.size > MAX_FILE_BYTES) {
-        skipped.push(`${file.name}: larger than ${String(MAX_FILE_MB)} MB`);
-        continue;
-      }
-      if (!isAcceptedFileType(file)) {
-        skipped.push(`${file.name}: unsupported type`);
-        continue;
-      }
-      next.push(file);
-    }
-    setFiles(next);
-    setFileError(
-      skipped.length > 0
-        ? `Skipped ${String(skipped.length)} file(s) — ${skipped.join('; ')}`
-        : null
-    );
+    const admitted = admitFiles(files, incoming);
+    setFiles(admitted.files);
+    setFileError(admitted.error);
   };
 
   const removeFile = (index: number): void => {
@@ -235,39 +211,12 @@ export function ChatComposer({
       onDrop={onDrop}
     >
       <div className="mx-auto max-w-[940px]">
-        {files.length > 0 ? (
-          <div className="mb-[10px] flex flex-wrap gap-[0.375rem]">
-            {files.map((f, i) => (
-              <span
-                key={`${f.name}-${String(i)}`}
-                className="flex items-center gap-[0.375rem] rounded-[var(--radius-card)] border bg-[color:var(--surface-elevated)] py-[0.25rem] pl-[9px] pr-[5px] text-[length:var(--text-small)]"
-                style={{ borderColor: 'var(--border-bright)' }}
-              >
-                <span className="max-w-[180px] truncate text-text-primary">{f.name}</span>
-                <span className="font-mono text-[length:var(--text-micro)] text-text-tertiary">
-                  {formatBytes(f.size)}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    removeFile(i);
-                  }}
-                  aria-label={`Remove ${f.name}`}
-                  className="rounded p-[0.0625rem] text-text-tertiary transition-colors hover:bg-[color:var(--surface-hover)] hover:text-text-primary"
-                >
-                  <span aria-hidden className="text-[length:var(--text-micro)] leading-none">
-                    ✕
-                  </span>
-                </button>
-              </span>
-            ))}
-          </div>
-        ) : null}
-        {fileError !== null ? (
-          <div className="mb-[8px] font-mono text-[length:var(--text-micro)] text-error">
-            {fileError}
-          </div>
-        ) : null}
+        <AttachedFiles
+          files={files}
+          error={fileError}
+          onRemove={removeFile}
+          className="mb-[10px]"
+        />
         <div
           className={`flex items-end gap-[0.625rem] rounded-[var(--radius-panel)] border bg-[color:var(--surface-elevated)] py-[0.5rem] pl-[14px] pr-[8px] transition-[border-color,box-shadow] focus-within:border-[color:color-mix(in_oklch,var(--accent),transparent_40%)] focus-within:shadow-[0_0_0_4px_color-mix(in_oklch,var(--accent),transparent_92%)]${
             dragging ? ' shadow-[0_0_0_4px_color-mix(in_oklch,var(--accent),transparent_92%)]' : ''

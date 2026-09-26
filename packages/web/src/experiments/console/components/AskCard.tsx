@@ -6,10 +6,11 @@ import {
   type CSSProperties,
   type ReactElement,
 } from 'react';
+import { Paperclip } from 'lucide-react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
-  composeAnswer,
+  composeSubmission,
   isComplete,
   setCustomAnswer,
   toggleChoice,
@@ -17,6 +18,13 @@ import {
   type AskQuestion,
   type AskSpec,
 } from '../primitives/ask';
+import {
+  ACCEPTED_EXTENSIONS,
+  MAX_FILES,
+  admitFiles,
+  imagesFromClipboard,
+} from '../primitives/file';
+import { AttachedFiles } from './AttachedFiles';
 
 interface AskCardProps {
   spec: AskSpec;
@@ -25,7 +33,7 @@ interface AskCardProps {
    * read rather than answered (history, or a stream with no composer), in which
    * case the card renders as a read-only record of what was asked.
    */
-  onAnswer?: (text: string) => void;
+  onAnswer?: (text: string, files?: File[]) => void;
 }
 
 /**
@@ -136,7 +144,15 @@ export function AskCard({ spec, onAnswer }: AskCardProps): ReactElement {
   const [ownOpen, setOwnOpen] = useState(false);
   const [ownDraft, setOwnDraft] = useState('');
   const [sent, setSent] = useState(false);
+  /**
+   * Attachments are per CARD, not per question: the card composes one message
+   * for the whole set, so a file attached while answering question three rides
+   * the same send as every other answer.
+   */
+  const [files, setFiles] = useState<File[]>([]);
+  const [fileError, setFileError] = useState<string | null>(null);
   const ownRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const answered = answers.filter(a => a?.some(v => v.trim().length > 0) === true).length;
   const complete = isComplete(questions, answers);
@@ -146,6 +162,17 @@ export function AskCard({ spec, onAnswer }: AskCardProps): ReactElement {
     setOwnOpen(false);
     setOwnDraft('');
   }, []);
+
+  const addFiles = (incoming: File[]): void => {
+    const admitted = admitFiles(files, incoming);
+    setFiles(admitted.files);
+    setFileError(admitted.error);
+  };
+
+  const removeFile = (index: number): void => {
+    setFiles(files.filter((_, i) => i !== index));
+    setFileError(null);
+  };
 
   const goTo = useCallback(
     (next: number): void => {
@@ -179,8 +206,9 @@ export function AskCard({ spec, onAnswer }: AskCardProps): ReactElement {
   const submit = useCallback((): void => {
     if (onAnswer === undefined || !complete) return;
     setSent(true);
-    onAnswer(composeAnswer(questions, answers));
-  }, [onAnswer, complete, questions, answers]);
+    const { text, files: attached } = composeSubmission(questions, answers, files);
+    onAnswer(text, attached);
+  }, [onAnswer, complete, questions, answers, files]);
 
   // Keyboard: letters pick, arrows page, ⌘/Ctrl+Enter sends. Bound to the card
   // rather than the document so typing in the composer is never intercepted.
@@ -329,7 +357,22 @@ export function AskCard({ spec, onAnswer }: AskCardProps): ReactElement {
         }}
         onCancelOwn={closeOwn}
         onChoose={choose}
+        attachCount={files.length}
+        onAddFiles={addFiles}
+        fileInputRef={fileInputRef}
       />
+
+      {/* Below the question rather than inside the free-text panel: the files
+          belong to the whole submission, and closing the panel after saving an
+          answer must not hide what is still going to be sent. */}
+      {readOnly ? null : (
+        <AttachedFiles
+          files={files}
+          error={fileError}
+          onRemove={removeFile}
+          className="px-4 pb-3"
+        />
+      )}
 
       <footer
         className="flex flex-wrap items-center gap-x-3.5 gap-y-2 border-t bg-surface-inset px-3.5 py-2.5"
@@ -380,6 +423,9 @@ function QuestionBlock({
   onOpenOwn,
   onCancelOwn,
   onChoose,
+  attachCount,
+  onAddFiles,
+  fileInputRef,
 }: {
   question: AskQuestion;
   /** The option labels chosen so far. More than one only when the question is `multi`. */
@@ -392,6 +438,10 @@ function QuestionBlock({
   onOpenOwn: () => void;
   onCancelOwn: () => void;
   onChoose: (value: string, custom?: boolean) => void;
+  /** How many files the card already holds — what closes the attach button. */
+  attachCount: number;
+  onAddFiles: (files: File[]) => void;
+  fileInputRef: React.RefObject<HTMLInputElement | null>;
 }): ReactElement {
   const ownSlot = KEYS[question.options.length] ?? '?';
   const custom = chosen.find(c => !question.options.some(o => o.label === c));
@@ -448,6 +498,15 @@ function QuestionBlock({
                 onChange={e => {
                   onOwnDraft(e.target.value);
                 }}
+                onPaste={e => {
+                  const images = imagesFromClipboard(e.clipboardData.items);
+                  if (images.length === 0) return;
+                  onAddFiles(images);
+                  // Cancel an image-only payload only. A web-page selection
+                  // carries both an image and its text, and preventDefault
+                  // would attach the image while silently eating the text.
+                  if (e.clipboardData.getData('text/plain').length === 0) e.preventDefault();
+                }}
                 placeholder="Type your answer…"
                 className="min-h-[62px] w-full resize-y rounded-md border bg-surface-inset px-3 py-2 text-[13.5px] leading-[1.5] text-text-primary outline-none placeholder:text-text-tertiary focus:border-accent-bright"
                 style={{ borderColor: 'var(--border-bright)' }}
@@ -472,6 +531,32 @@ function QuestionBlock({
                 >
                   Cancel
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    fileInputRef.current?.click();
+                  }}
+                  aria-label="Attach files"
+                  title="Attach files"
+                  disabled={attachCount >= MAX_FILES}
+                  className="flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 font-mono text-[11.5px] text-text-secondary transition-colors enabled:hover:bg-surface-hover enabled:hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{ borderColor: 'var(--border-bright)' }}
+                >
+                  <Paperclip className="h-4 w-4" />
+                  Attach
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept={ACCEPTED_EXTENSIONS}
+                  className="hidden"
+                  onChange={e => {
+                    if (e.target.files !== null) onAddFiles(Array.from(e.target.files));
+                    // Clear the input so re-picking the same file fires onChange again.
+                    e.target.value = '';
+                  }}
+                />
                 <span className="font-mono text-[11px] text-text-tertiary">⌘↵ to save</span>
               </div>
             </div>

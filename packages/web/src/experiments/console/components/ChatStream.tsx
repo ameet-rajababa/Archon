@@ -7,7 +7,7 @@ import { isSystemCategory, type Message } from '../primitives/message';
 interface ChatStreamProps {
   messages: Message[];
   /** Send an answer to an ask block. Omitted where the stream is read-only. */
-  onAnswer?: (text: string) => void;
+  onAnswer?: (text: string, files?: File[]) => void;
 }
 
 /**

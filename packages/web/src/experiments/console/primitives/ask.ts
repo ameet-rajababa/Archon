@@ -308,6 +308,35 @@ export function composeAnswer(questions: AskQuestion[], answers: Answer[]): stri
     .join('\n');
 }
 
+/** The message a card sends: the composed text, and the files that ride it. */
+export interface AnswerSubmission {
+  text: string;
+  /**
+   * Absent rather than empty when nothing is attached, so an unattached answer
+   * is byte-for-byte the send an answer without the attach affordance would
+   * have made.
+   */
+  files?: File[];
+}
+
+/**
+ * The whole payload of one submission.
+ *
+ * Attachments belong to the ANSWER, never to the ask block — nothing here is
+ * readable from the fence, and the question spec is unchanged by the fact that
+ * a reply carried a screenshot. They ride the single message the card composes
+ * for the whole set, which is why they are held once per card rather than once
+ * per question.
+ */
+export function composeSubmission(
+  questions: AskQuestion[],
+  answers: Answer[],
+  files: File[]
+): AnswerSubmission {
+  const text = composeAnswer(questions, answers);
+  return files.length > 0 ? { text, files: [...files] } : { text };
+}
+
 /** Whether every question has an answer — what gates submission. */
 export function isComplete(questions: AskQuestion[], answers: Answer[]): boolean {
   return questions.every((_, i) => {

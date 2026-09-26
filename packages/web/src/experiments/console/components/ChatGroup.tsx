@@ -17,7 +17,7 @@ interface ChatGroupProps {
    * surfaces, where the card renders as a record of what was asked rather than
    * something to fill in.
    */
-  onAnswer?: (text: string) => void;
+  onAnswer?: (text: string, files?: File[]) => void;
 }
 
 /**

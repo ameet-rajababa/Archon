@@ -665,8 +665,8 @@ export function ChatPage(): ReactElement {
   onSendRef.current = onSend;
 
   /** Stable across renders; flips only between itself and `undefined`. */
-  const answerAsk = useCallback((text: string): void => {
-    onSendRef.current(text);
+  const answerAsk = useCallback((text: string, files?: File[]): void => {
+    onSendRef.current(text, files);
   }, []);
 
   /**
