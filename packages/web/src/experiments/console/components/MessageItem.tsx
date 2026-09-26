@@ -3,6 +3,7 @@ import { AskCard } from './AskCard';
 import { Markdown } from './Markdown';
 import { useClock } from '../lib/clock';
 import { splitReply } from '../primitives/ask';
+import { AskErrorCard } from './AskErrorCard';
 import type { Message } from '../primitives/message';
 
 interface MessageItemProps {
@@ -57,13 +58,18 @@ function MessageItemImpl({ message }: MessageItemProps): ReactElement {
       >
         {content.length > 0 ? (
           <div className="max-w-none font-mono text-[12px] leading-[1.7] text-text-secondary">
-            {splitReply(content).map((part, i) =>
-              part.kind === 'ask' ? (
-                <AskCard key={`ask-${String(i)}`} spec={part.spec} />
-              ) : (
-                <Markdown key={`md-${String(i)}`}>{part.text}</Markdown>
-              )
-            )}
+            {splitReply(content).map((part, i) => {
+              if (part.kind === 'ask') return <AskCard key={`ask-${String(i)}`} spec={part.spec} />;
+              if (part.kind === 'ask-error')
+                return (
+                  <AskErrorCard
+                    key={`ask-err-${String(i)}`}
+                    reason={part.reason}
+                    text={part.text}
+                  />
+                );
+              return <Markdown key={`md-${String(i)}`}>{part.text}</Markdown>;
+            })}
           </div>
         ) : null}
         {message.error !== null ? ERROR_BLOCK(message.error.message) : null}
