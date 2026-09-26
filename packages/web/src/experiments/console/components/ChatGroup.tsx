@@ -5,6 +5,7 @@ import { Markdown } from './Markdown';
 import { copyLabel, useCopy } from '../lib/clipboard';
 import { useClock } from '../lib/clock';
 import { splitReply } from '../primitives/ask';
+import { AskErrorCard } from './AskErrorCard';
 import { formatBytes } from '../primitives/file';
 import type { MessageGroup } from '../primitives/message-groups';
 import type { Message } from '../primitives/message';
@@ -168,13 +169,21 @@ function ChatGroupImpl({ group, onAnswer }: ChatGroupProps): ReactElement {
                   isSystem ? 'text-text-secondary' : 'text-text-primary'
                 }`}
               >
-                {splitReply(content).map((part, i) =>
-                  part.kind === 'ask' ? (
-                    <AskCard key={`ask-${String(i)}`} spec={part.spec} onAnswer={onAnswer} />
-                  ) : (
-                    <Markdown key={`md-${String(i)}`}>{part.text}</Markdown>
-                  )
-                )}
+                {splitReply(content).map((part, i) => {
+                  if (part.kind === 'ask')
+                    return (
+                      <AskCard key={`ask-${String(i)}`} spec={part.spec} onAnswer={onAnswer} />
+                    );
+                  if (part.kind === 'ask-error')
+                    return (
+                      <AskErrorCard
+                        key={`ask-err-${String(i)}`}
+                        reason={part.reason}
+                        text={part.text}
+                      />
+                    );
+                  return <Markdown key={`md-${String(i)}`}>{part.text}</Markdown>;
+                })}
               </div>
             ) : null}
             {message.error !== null ? <ErrorBlock message={message.error.message} /> : null}

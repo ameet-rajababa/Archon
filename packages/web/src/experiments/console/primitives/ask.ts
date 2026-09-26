@@ -11,6 +11,14 @@
  * export — renders the JSON as a code block, which is ugly but complete: every
  * question and option is still legible. Nothing is hidden behind the renderer.
  *
+ * In the console, though, that same rendering means the opposite: a block that
+ * should have been a card and came out as JSON is a bug, not a fallback. The
+ * two were indistinguishable until a malformed block shipped unnoticed, so the
+ * parser now returns why it refused and the console shows it. This is the only
+ * place that sees a finished reply with certainty — a Stop hook reading the
+ * transcript races the flush and passes everything — which is why the check
+ * lives here rather than outside the app.
+ *
  * Answering is just sending a message. The chat is a conversation, so a click
  * composes the same text a person would have typed and sends it; the agent
  * needs no new channel and no new state. That is also why a whole set of
@@ -58,41 +66,98 @@ export interface AskSpec {
  */
 export type Answer = string[] | null;
 
-/** A reply is a sequence of prose runs and ask cards. */
-export type ReplyPart = { kind: 'markdown'; text: string } | { kind: 'ask'; spec: AskSpec };
+/**
+ * A reply is a sequence of prose runs, ask cards, and — when a block claimed to
+ * be an ask block but was not one — the wreckage, reported rather than hidden.
+ */
+export type ReplyPart =
+  | { kind: 'markdown'; text: string }
+  | { kind: 'ask'; spec: AskSpec }
+  | { kind: 'ask-error'; reason: string; text: string };
+
+/**
+ * The outcome of reading one ask block: the spec, or the reason it is not one.
+ *
+ * A bare `null` was the earlier shape, and it is what let a malformed block sit
+ * in the console indistinguishable from an intentional plain-text fallback. The
+ * reason is the whole point — the renderer shows it, so the author of the block
+ * sees the field they got wrong instead of a wall of their own JSON.
+ */
+export type AskParse = { ok: true; spec: AskSpec } | { ok: false; reason: string };
+
+const fail = (reason: string): AskParse => ({ ok: false, reason });
+
+/**
+ * Field names that are wrong but plausible, mapped to the real one.
+ *
+ * Every entry here has actually been written by an agent composing a block from
+ * memory instead of reading the schema. Naming the correct field turns a
+ * rejection into an instruction; without it the author re-reads the same docs
+ * that did not stop the mistake the first time.
+ */
+const MISTAKEN_KEYS: Record<string, string> = {
+  question: 'title',
+  value: 'label',
+  description: 'detail',
+};
+
+/** `saw \`question\`, the field is \`title\`` — or empty when nothing is recognisable. */
+function hint(present: Record<string, unknown>, correct: string): string {
+  for (const [wrong, real] of Object.entries(MISTAKEN_KEYS)) {
+    if (real === correct && wrong in present)
+      return ` — saw \`${wrong}\`, the field is \`${correct}\``;
+  }
+  return '';
+}
 
 /**
  * Validate parsed JSON as an {@link AskSpec}.
  *
- * Returns null rather than throwing, and the caller falls back to rendering the
- * block as code. A malformed block must never blank a reply — the text is the
- * thing the user came for, and a question they can read but not click still
- * works.
+ * Every rejection carries a located reason ("question 2, option 1: ..."), and
+ * never throws. A malformed block must never blank a reply — the text is the
+ * thing the reader came for — but it must not pass silently either, so the
+ * caller renders the reason alongside the original block.
  */
-export function parseAskSpec(raw: string): AskSpec | null {
+export function parseAskSpec(raw: string): AskParse {
   let value: unknown;
   try {
     value = JSON.parse(raw);
-  } catch {
-    return null;
+  } catch (err) {
+    return fail(`not valid JSON: ${err instanceof Error ? err.message : String(err)}`);
   }
-  if (typeof value !== 'object' || value === null) return null;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return fail('the block must be a JSON object with a `questions` array');
+  }
 
   const questions = (value as { questions?: unknown }).questions;
-  if (!Array.isArray(questions) || questions.length === 0) return null;
+  if (!Array.isArray(questions)) return fail('missing `questions` — it must be an array');
+  if (questions.length === 0) return fail('`questions` is empty — ask at least one');
 
   const parsed: AskQuestion[] = [];
-  for (const q of questions) {
-    if (typeof q !== 'object' || q === null) return null;
-    const { title, evidence, chip, options, allowOwn, multi } = q as Record<string, unknown>;
-    if (typeof title !== 'string' || title.trim().length === 0) return null;
-    if (!Array.isArray(options) || options.length === 0) return null;
+  for (const [qi, q] of questions.entries()) {
+    const at = `question ${String(qi + 1)}`;
+    if (typeof q !== 'object' || q === null || Array.isArray(q)) {
+      return fail(`${at}: must be an object`);
+    }
+    const fields = q as Record<string, unknown>;
+    const { title, evidence, chip, options, allowOwn, multi } = fields;
+    if (typeof title !== 'string' || title.trim().length === 0) {
+      return fail(`${at}: needs a non-empty \`title\`${hint(fields, 'title')}`);
+    }
+    if (!Array.isArray(options)) return fail(`${at}: needs an \`options\` array`);
+    if (options.length === 0) return fail(`${at}: \`options\` is empty — offer at least one`);
 
     const parsedOptions: AskOption[] = [];
-    for (const o of options) {
-      if (typeof o !== 'object' || o === null) return null;
-      const { label, detail, recommended, why } = o as Record<string, unknown>;
-      if (typeof label !== 'string' || label.trim().length === 0) return null;
+    for (const [oi, o] of options.entries()) {
+      const oat = `${at}, option ${String(oi + 1)}`;
+      if (typeof o !== 'object' || o === null || Array.isArray(o)) {
+        return fail(`${oat}: must be an object`);
+      }
+      const optionFields = o as Record<string, unknown>;
+      const { label, detail, recommended, why } = optionFields;
+      if (typeof label !== 'string' || label.trim().length === 0) {
+        return fail(`${oat}: needs a non-empty \`label\`${hint(optionFields, 'label')}`);
+      }
       parsedOptions.push({
         label,
         ...(typeof detail === 'string' ? { detail } : {}),
@@ -111,7 +176,7 @@ export function parseAskSpec(raw: string): AskSpec | null {
     });
   }
 
-  return { questions: parsed };
+  return { ok: true, spec: { questions: parsed } };
 }
 
 /**
@@ -131,8 +196,9 @@ const FENCE = /^([ \t]*)(`{3,}|~{3,})[ \t]*(\S*)[ \t]*$/;
  *
  * Line-based rather than a single regex so an unterminated fence — a block
  * still streaming in, or one the agent truncated — degrades to prose instead of
- * swallowing the rest of the message. A block that does not parse is left as
- * the original text, fences and all, so markdown renders it as code.
+ * swallowing the rest of the message. That is also why a block only becomes an
+ * `ask-error` once its closing fence has arrived: until then it is not yet a
+ * block, and reporting it would make every streaming question flash red.
  */
 export function splitReply(content: string): ReplyPart[] {
   const lines = content.split('\n');
@@ -202,13 +268,19 @@ export function splitReply(content: string): ReplyPart[] {
       continue;
     }
 
-    const spec = parseAskSpec(body.join('\n'));
-    if (spec === null) {
-      // Keep it readable as code rather than dropping the question entirely.
-      prose.push(line, ...body, lines[closeAt] ?? '```');
+    const close = lines[closeAt] ?? '```';
+    const result = parseAskSpec(body.join('\n'));
+    flushProse();
+    if (result.ok) {
+      parts.push({ kind: 'ask', spec: result.spec });
     } else {
-      flushProse();
-      parts.push({ kind: 'ask', spec });
+      // The original block travels with the reason: the question is still
+      // legible even when it is not clickable, and the reason says what to fix.
+      parts.push({
+        kind: 'ask-error',
+        reason: result.reason,
+        text: [line, ...body, close].join('\n'),
+      });
     }
     i = closeAt;
   }

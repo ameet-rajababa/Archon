@@ -176,6 +176,10 @@ export function completedIds(
  * `splitReply` is the authority on what an ask block is, deliberately: the
  * server's test for what to send is broader on purpose (see `ask_candidate`),
  * so the decision has to be made here, with the parser that renders the card.
+ *
+ * A malformed block counts too. The agent stopped to ask something either way,
+ * and a chat whose question failed to render is the one most in need of a human
+ * looking at it — dropping it from the rail would hide the breakage twice.
  */
 export function askAwaitingIds(
   conversations: readonly { id: string; askCandidate: string | null }[]
@@ -183,7 +187,8 @@ export function askAwaitingIds(
   const out = new Set<string>();
   for (const c of conversations) {
     if (c.askCandidate === null || c.askCandidate === '') continue;
-    if (splitReply(c.askCandidate).some(part => part.kind === 'ask')) out.add(c.id);
+    if (splitReply(c.askCandidate).some(p => p.kind === 'ask' || p.kind === 'ask-error'))
+      out.add(c.id);
   }
   return out;
 }

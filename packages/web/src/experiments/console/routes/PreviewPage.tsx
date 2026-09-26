@@ -7,7 +7,8 @@ import { FIXTURES } from '../builder/fixtures';
 import { importWorkflowDefinition } from '../builder/model';
 import type { Run } from '../primitives/run';
 import { AskCard } from '../components/AskCard';
-import { parseAskSpec } from '../primitives/ask';
+import { AskErrorCard } from '../components/AskErrorCard';
+import { parseAskSpec, splitReply, type AskParse, type ReplyPart } from '../primitives/ask';
 import { FilesMock } from '../preview/FilesMock';
 
 /**
@@ -257,6 +258,50 @@ const ASK_MULTI_SAMPLE = parseAskSpec(
   })
 );
 
+/**
+ * A preview sample, rendered through the same parse result a real reply gets.
+ *
+ * The samples used to fall back to `{ questions: [] }`, which drew an empty
+ * card if one of these literals was ever broken — the preview quietly failing
+ * to preview the thing it exists to show. Now a broken sample reports itself.
+ */
+function AskSample({ parse }: { parse: AskParse }): ReactElement {
+  return parse.ok ? (
+    <AskCard spec={parse.spec} onAnswer={() => undefined} />
+  ) : (
+    <AskErrorCard reason={parse.reason} text={'(preview sample)'} />
+  );
+}
+
+/**
+ * The exact mistake this card was built for: an agent writing the schema from
+ * memory as `question`/`value`/`description` instead of `title`/`label`/`detail`.
+ */
+const ASK_BROKEN = [
+  '```ask',
+  JSON.stringify(
+    {
+      questions: [
+        {
+          question: 'Which fix?',
+          options: [{ value: 'renderer', description: 'Check in the parser.' }],
+        },
+      ],
+    },
+    null,
+    2
+  ),
+  '```',
+].join('\n');
+
+/** The malformed block driven through the real `splitReply` path. */
+function AskBrokenSample(): ReactElement | null {
+  const part = splitReply(ASK_BROKEN).find(
+    (p): p is Extract<ReplyPart, { kind: 'ask-error' }> => p.kind === 'ask-error'
+  );
+  return part === undefined ? null : <AskErrorCard reason={part.reason} text={part.text} />;
+}
+
 export function PreviewPage(): ReactElement {
   return (
     <div className="flex h-full flex-col overflow-y-auto">
@@ -406,11 +451,15 @@ export function PreviewPage(): ReactElement {
         </Section>
 
         <Section title="Ask card">
-          <AskCard spec={ASK_SAMPLE ?? { questions: [] }} onAnswer={() => undefined} />
+          <AskSample parse={ASK_SAMPLE} />
         </Section>
 
         <Section title="Ask card — multi-answer">
-          <AskCard spec={ASK_MULTI_SAMPLE ?? { questions: [] }} onAnswer={() => undefined} />
+          <AskSample parse={ASK_MULTI_SAMPLE} />
+        </Section>
+
+        <Section title="Ask card — malformed">
+          <AskBrokenSample />
         </Section>
 
         <Section title="Borders">

@@ -184,10 +184,17 @@ describe('askAwaitingIds', () => {
     expect([...askAwaitingIds([{ id: 'a', askCandidate: null }])]).toEqual([]);
   });
 
-  test('the parser decides, not the fence — an unparseable block is prose', () => {
+  test('a question that failed to render is still a question', () => {
+    // The agent stopped to ask either way, and a chat whose card is broken is
+    // the one most in need of a human opening it. Dropping it from the rail
+    // would hide the breakage a second time.
+    expect([...askAwaitingIds([{ id: 'a', askCandidate: ask('{ not json') }])]).toEqual(['a']);
+  });
+
+  test('the parser decides, not the fence — an unterminated block is prose', () => {
     // The server sends anything containing the fence, deliberately. What counts
-    // as a question is settled here.
-    expect([...askAwaitingIds([{ id: 'a', askCandidate: ask('{ not json') }])]).toEqual([]);
+    // as a question is settled here, and half a block is not one yet.
+    expect([...askAwaitingIds([{ id: 'a', askCandidate: '```ask\n{ not json' }])]).toEqual([]);
   });
 
   test('an ask block shown as an EXAMPLE inside a longer fence is not a question', () => {

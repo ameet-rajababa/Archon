@@ -7,6 +7,7 @@ import {
   toggleChoice,
   setCustomAnswer,
   type AskQuestion,
+  type AskSpec,
 } from './ask';
 
 const SPEC = {
@@ -30,11 +31,25 @@ const SPEC = {
 
 const fenced = (json: unknown): string => '```ask\n' + JSON.stringify(json, null, 2) + '\n```';
 
+/** Unwrap a parse expected to succeed, failing loudly rather than silently. */
+const ok = (raw: string): AskSpec => {
+  const result = parseAskSpec(raw);
+  if (!result.ok) throw new Error(`expected a valid spec, got: ${result.reason}`);
+  return result.spec;
+};
+
+/** The reason a parse expected to fail gave. */
+const why = (raw: string): string => {
+  const result = parseAskSpec(raw);
+  if (result.ok) throw new Error('expected the spec to be rejected');
+  return result.reason;
+};
+
 describe('parseAskSpec', () => {
   test('reads a well-formed spec', () => {
-    const spec = parseAskSpec(JSON.stringify(SPEC));
-    expect(spec?.questions).toHaveLength(1);
-    const q = spec?.questions[0];
+    const spec = ok(JSON.stringify(SPEC));
+    expect(spec.questions).toHaveLength(1);
+    const q = spec.questions[0];
     expect(q?.title).toBe('What is framework now?');
     expect(q?.chip).toBe('rajababa-io/framework');
     expect(q?.options[0]?.recommended).toBe(true);
@@ -42,33 +57,68 @@ describe('parseAskSpec', () => {
   });
 
   test('omits absent optional keys rather than setting them undefined', () => {
-    const spec = parseAskSpec(JSON.stringify(SPEC));
-    const plain = spec?.questions[0]?.options[1];
-    expect(plain).toEqual({ label: 'Parked, not dead.' });
+    expect(ok(JSON.stringify(SPEC)).questions[0]?.options[1]).toEqual({
+      label: 'Parked, not dead.',
+    });
   });
 
   test('allowOwn defaults to present-and-true by omission, and false is preserved', () => {
-    const withOwn = parseAskSpec(JSON.stringify(SPEC));
-    expect('allowOwn' in (withOwn?.questions[0] ?? {})).toBe(false);
+    expect('allowOwn' in (ok(JSON.stringify(SPEC)).questions[0] ?? {})).toBe(false);
 
-    const noOwn = parseAskSpec(
-      JSON.stringify({ questions: [{ ...SPEC.questions[0], allowOwn: false }] })
-    );
-    expect(noOwn?.questions[0]?.allowOwn).toBe(false);
+    const noOwn = ok(JSON.stringify({ questions: [{ ...SPEC.questions[0], allowOwn: false }] }));
+    expect(noOwn.questions[0]?.allowOwn).toBe(false);
   });
 
-  // Every rejection path returns null so the caller can fall back to code.
+  // Every rejection names what is wrong and where. The reason is the product
+  // here, not a by-product: it is what the console shows the block's author.
   test.each([
-    ['not json', 'this is not json'],
-    ['not an object', '"a string"'],
-    ['no questions key', '{}'],
-    ['empty questions', '{"questions":[]}'],
-    ['question with no title', '{"questions":[{"options":[{"label":"a"}]}]}'],
-    ['question with a blank title', '{"questions":[{"title":"  ","options":[{"label":"a"}]}]}'],
-    ['question with no options', '{"questions":[{"title":"t","options":[]}]}'],
-    ['option with no label', '{"questions":[{"title":"t","options":[{"detail":"d"}]}]}'],
-  ])('rejects %s', (_name, raw) => {
-    expect(parseAskSpec(raw)).toBeNull();
+    ['not json', 'this is not json', /not valid JSON/],
+    ['not an object', '"a string"', /must be a JSON object/],
+    ['an array at the top level', '[]', /must be a JSON object/],
+    ['no questions key', '{}', /missing `questions`/],
+    ['empty questions', '{"questions":[]}', /`questions` is empty/],
+    [
+      'question with no title',
+      '{"questions":[{"options":[{"label":"a"}]}]}',
+      /question 1.*`title`/,
+    ],
+    [
+      'question with a blank title',
+      '{"questions":[{"title":"  ","options":[{"label":"a"}]}]}',
+      /question 1.*`title`/,
+    ],
+    [
+      'question with no options',
+      '{"questions":[{"title":"t","options":[]}]}',
+      /`options` is empty/,
+    ],
+    [
+      'option with no label',
+      '{"questions":[{"title":"t","options":[{"detail":"d"}]}]}',
+      /question 1, option 1.*`label`/,
+    ],
+  ])('rejects %s with a located reason', (_name, raw, expected) => {
+    expect(why(raw)).toMatch(expected);
+  });
+
+  test('locates the failure in the question that has it, not the first', () => {
+    const raw = JSON.stringify({
+      questions: [SPEC.questions[0], { title: 't', options: [{ label: 'a' }, { detail: 'd' }] }],
+    });
+    expect(why(raw)).toMatch(/question 2, option 2/);
+  });
+
+  // The failure this whole path was built for: an agent writing the schema from
+  // memory. A bare "needs a title" sends it back to the docs that already
+  // failed to prevent the mistake; naming the wrong key it actually wrote does
+  // not.
+  test('names the mistaken key when a plausible wrong one was used', () => {
+    expect(why('{"questions":[{"question":"q?","options":[{"label":"a"}]}]}')).toContain(
+      'saw `question`, the field is `title`'
+    );
+    expect(why('{"questions":[{"title":"t","options":[{"value":"a"}]}]}')).toContain(
+      'saw `value`, the field is `label`'
+    );
   });
 });
 
@@ -98,11 +148,28 @@ describe('splitReply', () => {
     expect(parts[0]).toMatchObject({ text: expect.stringContaining('and then more text') });
   });
 
-  test('a malformed block is kept verbatim so it renders as readable code', () => {
+  // A malformed block used to arrive as markdown, which is indistinguishable
+  // from the intentional plain-text fallback on clients that cannot draw a
+  // card. In the console that silence is the bug, so it gets its own part kind.
+  test('a malformed block becomes an ask-error carrying the original text', () => {
     const content = '```ask\n{ broken json\n```';
     const parts = splitReply(content);
     expect(parts).toHaveLength(1);
-    expect(parts[0]).toMatchObject({ kind: 'markdown', text: content });
+    expect(parts[0]).toMatchObject({ kind: 'ask-error', text: content });
+    expect(parts[0]).toMatchObject({ reason: expect.stringContaining('not valid JSON') });
+  });
+
+  test('prose around a malformed block is preserved and stays in order', () => {
+    const parts = splitReply('Before.\n\n```ask\n{}\n```\n\nAfter.');
+    expect(parts.map(p => p.kind)).toEqual(['markdown', 'ask-error', 'markdown']);
+    expect(parts[2]).toMatchObject({ text: expect.stringContaining('After.') });
+  });
+
+  // Until the closing fence lands the block is not a block. Reporting it early
+  // would make every question flash an error while it streams in.
+  test('an unterminated malformed block is prose, not an error', () => {
+    const parts = splitReply('```ask\n{ broken json');
+    expect(parts.map(p => p.kind)).toEqual(['markdown']);
   });
 
   test('an ordinary code block is not mistaken for an ask block', () => {
@@ -251,9 +318,9 @@ describe('setCustomAnswer', () => {
 
 describe('parseAskSpec — multi', () => {
   test('multi is preserved when set, and absent otherwise', () => {
-    const on = parseAskSpec('{"questions":[{"title":"t","multi":true,"options":[{"label":"a"}]}]}');
-    expect(on?.questions[0]?.multi).toBe(true);
-    const off = parseAskSpec('{"questions":[{"title":"t","options":[{"label":"a"}]}]}');
-    expect('multi' in (off?.questions[0] ?? {})).toBe(false);
+    const on = ok('{"questions":[{"title":"t","multi":true,"options":[{"label":"a"}]}]}');
+    expect(on.questions[0]?.multi).toBe(true);
+    const off = ok('{"questions":[{"title":"t","options":[{"label":"a"}]}]}');
+    expect('multi' in (off.questions[0] ?? {})).toBe(false);
   });
 });
