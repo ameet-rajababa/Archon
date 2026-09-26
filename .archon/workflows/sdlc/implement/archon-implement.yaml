@@ -23,12 +23,32 @@ returns: implement
 outcome_field: green
 
 nodes:
+  # The repository whose pull requests this branch belongs to, decided deterministically
+  # before the guard that needs it can read one. It was resolved from the name `origin`
+  # in the command's prose, which is the upstream in a fork checkout — so the guard that
+  # proves this run's estate matches the pull request it was pointed at read a different
+  # pull request, or none, and nothing downstream can catch that: the guard is the thing
+  # that was supposed to catch things. This reads git's own push resolution for the
+  # branch instead. It reports an unsettled checkout rather than failing the run, because
+  # only the guard needs the identity and most implement runs never touch the forge — the
+  # guard stops on the empty `repo`. See scripts/resolve-pr-target.ts.
+  - id: pr-target
+    script: resolve-pr-target
+    runtime: bun
+    output_format:
+      type: object
+      properties:
+        repo: { type: string }
+        reason: { type: string }
+      required: [repo, reason]
+
   # Run success ≠ green. The loop completes on `done`, which deliberately includes
   # a definitive blocked decline (green: false) — so a completed run's status never
   # certifies the work. Consumers read $implement.output.green; compositions gate on
   # it deterministically before spending or shipping (deliver does), and the
   # workflow's outcome_field records it as the run's authored outcome.
   - id: implement
+    depends_on: [pr-target]
     loop:
       command: implement
       until_field: done

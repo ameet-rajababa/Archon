@@ -10,6 +10,12 @@ impl__implement:
   summary: "stub: the new parity assertion fails because a capability literal disagrees with its documented intent. Correcting the literal widens a security gate and is the operator's call, so the assertion stands and the suite is red."
 impl__assert-changed: "3 files changed"
 # gate-green is deliberately unstubbed: the real script must refuse.
+# The repository this branch's pull requests belong to. Stubbed because the
+# node is deterministic and resolves from git's push configuration, which a
+# fixture checkout does not have.
+impl__pr-target:
+  repo: "example/repo"
+  reason: ""
 fixture:
   expect: failed
   fail-node: gate-green

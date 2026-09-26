@@ -11,6 +11,12 @@ implement:
   green: false
   red_cause: inherited
   summary: "stub: the work is complete and its own checks pass; the type-check is red only in a package this diff never touches, red there at the starting commit too"
+# The repository this branch's pull requests belong to. Stubbed because the
+# node is deterministic and resolves from git's push configuration, which a
+# fixture checkout does not have.
+pr-target:
+  repo: "example/repo"
+  reason: ""
 fixture:
   expect: completed
 exec-code: true

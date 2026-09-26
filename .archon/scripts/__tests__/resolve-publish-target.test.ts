@@ -7,50 +7,31 @@
  * is the first case below, and every other case here is a way the resolution could
  * quietly pick something instead of stopping.
  *
- * Each test builds a throwaway repository with `git init` and real remotes, so what is
- * under test is git's own push resolution rather than a model of it.
+ * These cases cover the shared resolver (`.shared/publish-target.ts`) through this
+ * pack's entry, which refuses when the checkout does not settle the target. The
+ * `implement` entry wraps the same resolver with the other policy, and
+ * resolve-pr-target.test.ts covers that difference.
  */
 import { describe, expect, it } from 'bun:test';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { trackTempRoots } from '@archon/paths/test-utils';
+import {
+  checkout as initCheckout,
+  git,
+  packScript,
+  run as runScript,
+  type Ran,
+} from './publish-target-harness';
 
-const SCRIPT = resolve(
-  import.meta.dir,
-  '../../workflows/sdlc/pr/scripts/resolve-publish-target.ts'
-);
+const SCRIPT = packScript('pr/scripts/resolve-publish-target.ts');
 
 const trackTempRoot = trackTempRoots();
 
-function git(cwd: string, ...args: string[]): void {
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
-  if (result.status !== 0) {
-    throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`);
-  }
-}
-
-/** A repository on branch `work`, with whatever remotes and push config a case needs. */
 function checkout(setUp: (cwd: string) => void): string {
-  const cwd = trackTempRoot(mkdtempSync(join(tmpdir(), 'publish-target-')));
-  git(cwd, 'init', '--initial-branch', 'work');
-  git(cwd, 'config', 'user.email', 'test@example.invalid');
-  git(cwd, 'config', 'user.name', 'Test');
-  git(cwd, 'commit', '--allow-empty', '-qm', 'initial');
-  setUp(cwd);
-  return cwd;
+  return initCheckout(trackTempRoot, setUp);
 }
 
-interface Resolved {
-  code: number;
-  stdout: string;
-  stderr: string;
-}
-
-function run(cwd: string): Resolved {
-  const result = spawnSync(process.execPath, [SCRIPT], { cwd, encoding: 'utf8' });
-  return { code: result.status ?? -1, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
+function run(cwd: string): Ran {
+  return runScript(SCRIPT, cwd);
 }
 
 function target(cwd: string): { host: string; path: string; remote: string; branch: string } {

@@ -77,6 +77,12 @@ classify:
   reasons:
     errors: "stub: no new failure paths"
     docs: "stub: no doc-facing changes"
+# The repository this branch's pull requests belong to. Stubbed because the
+# node is deterministic and resolves from git's push configuration, which a
+# fixture checkout does not have.
+impl__pr-target:
+  repo: "example/repo"
+  reason: ""
 fixture:
   expect: completed
   inputs:

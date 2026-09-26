@@ -9,6 +9,12 @@ implement:
   green: false
   red_cause: deliberate
   summary: "stub: the new parity assertion fails because a capability literal disagrees with its documented intent. Correcting the literal widens a security gate, which is the operator's call."
+# The repository this branch's pull requests belong to. Stubbed because the
+# node is deterministic and resolves from git's push configuration, which a
+# fixture checkout does not have.
+pr-target:
+  repo: "example/repo"
+  reason: ""
 fixture:
   expect: failed
   fail-node: assert-changed
