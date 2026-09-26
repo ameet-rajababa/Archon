@@ -18,10 +18,9 @@
  * plan tests `./scripts/` directly.
  */
 import { describe, test } from 'bun:test';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join, relative, resolve } from 'node:path';
-import { trackTempRoots } from '@archon/paths/test-utils';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
+import ts from 'typescript';
 import { ROOT_TEST_PLAN } from './repo-tests';
 
 interface InventoryMismatch {
@@ -381,89 +380,125 @@ describe('repository test inventory', () => {
     }
   });
 });
-
 describe('compiler test inventory', () => {
-  const trackTempRoot = trackTempRoots();
-
   /**
-   * Collect a spawned `tsc --listFilesOnly` listing through files rather than pipes.
+   * Resolve a package's project the way `tsc` resolves it: read the `tsconfig.json`,
+   * follow `extends`, then apply `files`, `include` and `exclude` to the working tree.
+   * `fileNames` is the resulting root file set — the same list `tsc` would start a
+   * program from, and the only thing that decides whether a package's tests are
+   * type-checked at all.
    *
-   * `tsc` prints the whole program with `process.stdout.write` and then ends the process
-   * with `process.exit`. Under Bun a piped stdout is asynchronous, and `process.exit`
-   * does not flush what is still buffered, so an arbitrary tail of a listing this size is
-   * discarded while the exit status stays `0` and stderr stays empty. Measured on Bun
-   * 1.4.2 against a producer with the same write-then-exit shape, 19 of 40 piped runs
-   * lost part of a 416 KB payload and the worst lost 47% of it; the same 40 runs
-   * redirected to a file lost nothing. A regular file is written synchronously, so the
-   * listing this guard reads is the whole program or the spawn failed.
-   *
-   * This mattered because the loss is silent and reads as a real finding. Each project
-   * lists `src/**` first and `../<other>/src/**` after, so the referenced packages' test
-   * files sit in the last few percent of the listing and are the first thing a dropped
-   * tail removes — which is why the failure always named a referenced package's tests,
-   * never the project's own, and why which of the four cases failed varied per run
-   * (#47).
+   * This used to spawn `bun x tsc --noEmit --listFilesOnly` per package and read the
+   * printed program. That answered a broader question than the guard ever asked: a test
+   * file is imported by nothing, so it can only reach a program as a root, and roots come
+   * from the configuration. Paying for a full parse, bind and module resolution to learn
+   * a glob result cost 9-19s per package and gave the guard a wall-clock budget it lost
+   * whenever the machine was busy — three of the four cases timed out at 15s on an
+   * 8-core box under load average 11, each naming a file that was present and correctly
+   * included (#83). Resolving the configuration in-process answers the same question for
+   * all four packages in under 200ms, so how busy the machine is changes how long this
+   * takes and not whether it passes.
    */
-  async function expectProgramToInclude(
+  function projectRootFiles(
     packageName: string,
-    expectedFiles: string[]
-  ): Promise<void> {
+    configOverrides?: Record<string, unknown>
+  ): {
+    files: Set<string>;
+    project: string;
+  } {
     const projectPath = join(REPO_ROOT, 'packages', packageName, 'tsconfig.json');
-    const outputDirectory = trackTempRoot(mkdtempSync(join(tmpdir(), 'archon-tsc-listing-')));
-    const stdoutPath = join(outputDirectory, 'stdout.txt');
-    const stderrPath = join(outputDirectory, 'stderr.txt');
-    const process = Bun.spawn(
-      ['bun', 'x', 'tsc', '--noEmit', '--listFilesOnly', '--project', projectPath],
-      { cwd: REPO_ROOT, stdout: Bun.file(stdoutPath), stderr: Bun.file(stderrPath) }
-    );
-    const exitCode = await process.exited;
-    const stdout = readFileSync(stdoutPath, 'utf8');
+    const project = normalizePath(relative(REPO_ROOT, projectPath));
 
-    if (exitCode !== 0) {
+    const read = ts.readConfigFile(projectPath, ts.sys.readFile);
+    if (read.error !== undefined) {
       throw new Error(
-        `Could not list the ${packageName} TypeScript program:\n${readFileSync(stderrPath, 'utf8')}`
+        `Could not read ${project}: ${ts.flattenDiagnosticMessageText(read.error.messageText, '\n')}`
       );
     }
 
-    const programFiles = new Set(stdout.split(/\r?\n/).map(normalizePath));
+    const config: unknown = { ...(read.config as Record<string, unknown>), ...configOverrides };
+    const parsed = ts.parseJsonConfigFileContent(
+      config,
+      ts.sys,
+      dirname(projectPath),
+      undefined,
+      projectPath
+    );
+    if (parsed.errors.length > 0) {
+      throw new Error(
+        `Could not resolve the ${project} project:\n${parsed.errors
+          .map((error): string => ts.flattenDiagnosticMessageText(error.messageText, '\n'))
+          .join('\n')}`
+      );
+    }
+
+    return { files: new Set(parsed.fileNames.map(normalizePath)), project };
+  }
+
+  function expectProjectToInclude(packageName: string, expectedFiles: string[]): void {
+    const { files, project } = projectRootFiles(packageName);
     const missingFiles = expectedFiles.filter(
-      (expectedFile): boolean => !programFiles.has(normalizePath(expectedFile))
+      (expectedFile): boolean => !files.has(normalizePath(expectedFile))
     );
 
     if (missingFiles.length > 0) {
       throw new Error(
-        `The normal ${packageName} TypeScript project did not include:\n${missingFiles.join('\n')}`
+        [
+          `${project} resolved ${String(files.size)} root files and did not include:`,
+          ...missingFiles.map((path): string => `  - ${normalizePath(relative(REPO_ROOT, path))}`),
+          'A normal package project must type-check its own tests and those of the packages it includes.',
+        ].join('\n')
       );
     }
   }
 
   test("core's normal TypeScript project includes test files", () => {
-    return expectProgramToInclude('core', [
+    expectProjectToInclude('core', [
       join(REPO_ROOT, 'packages', 'core', 'src', 'utils', 'conversation-lock.test.ts'),
     ]);
-  }, 15_000);
+  });
 
   test("adapters' normal TypeScript project includes its own and imported core test files", () => {
-    return expectProgramToInclude('adapters', [
+    expectProjectToInclude('adapters', [
       join(REPO_ROOT, 'packages', 'adapters', 'src', 'forge', 'github', 'adapter.test.ts'),
       join(REPO_ROOT, 'packages', 'core', 'src', 'utils', 'conversation-lock.test.ts'),
     ]);
-  }, 15_000);
+  });
 
   test("server's normal TypeScript project includes its own, core, and adapter test files", () => {
-    return expectProgramToInclude('server', [
+    expectProjectToInclude('server', [
       join(REPO_ROOT, 'packages', 'server', 'src', 'routes', 'api.health.test.ts'),
       join(REPO_ROOT, 'packages', 'core', 'src', 'utils', 'conversation-lock.test.ts'),
       join(REPO_ROOT, 'packages', 'adapters', 'src', 'forge', 'github', 'adapter.test.ts'),
     ]);
-  }, 15_000);
+  });
 
   test("cli's normal TypeScript project includes its own, core, adapter, and server test files", () => {
-    return expectProgramToInclude('cli', [
+    expectProjectToInclude('cli', [
       join(REPO_ROOT, 'packages', 'cli', 'src', 'cli.test.ts'),
       join(REPO_ROOT, 'packages', 'core', 'src', 'utils', 'conversation-lock.test.ts'),
       join(REPO_ROOT, 'packages', 'adapters', 'src', 'forge', 'github', 'adapter.test.ts'),
       join(REPO_ROOT, 'packages', 'server', 'src', 'routes', 'api.health.test.ts'),
     ]);
-  }, 15_000);
+  });
+
+  /**
+   * The negative control for the four cases above. Without it, a resolution that silently
+   * returned nothing would satisfy them all. `exclude` is spliced into core's own
+   * configuration in memory rather than on disk, so the check runs against the real
+   * project and the working tree is never touched.
+   */
+  test('excluding a test file from a package project fails the check', () => {
+    const testFile = normalizePath(
+      join(REPO_ROOT, 'packages', 'core', 'src', 'utils', 'conversation-lock.test.ts')
+    );
+    const { files } = projectRootFiles('core', {
+      exclude: ['node_modules', 'dist', '**/*.test.ts'],
+    });
+
+    if (files.size === 0) throw new Error('Excluding tests emptied the core project entirely');
+    if (files.has(testFile)) {
+      throw new Error(`Excluding **/*.test.ts left ${testFile} in the core project`);
+    }
+  });
 });
