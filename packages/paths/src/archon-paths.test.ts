@@ -100,8 +100,9 @@ function useEnvSnapshot(): void {
   });
 }
 
-// These tests point ARCHON_HOME at a temp directory; without this the
-// container's Docker signals make getArchonHome() ignore it.
+// Clear the container's Docker signals so this file sees the same answers on a
+// laptop and on the containerized dev box. The tests below that own those
+// signals set them back themselves.
 honorArchonHomeEnv();
 
 describe('archon-paths', () => {
@@ -230,8 +231,41 @@ describe('archon-paths', () => {
 
   describe('getArchonHome', () => {
     test('returns /.archon in Docker', () => {
+      delete process.env.ARCHON_HOME;
       process.env.WORKSPACE_PATH = '/workspace';
       expect(getArchonHome()).toBe('/.archon');
+    });
+
+    // The ordering bug this guards: Docker detection used to return '/.archon'
+    // before ARCHON_HOME was ever read, so a container process could not
+    // redirect its home at all. Every home-scoped test in a container then
+    // read and wrote the container's live install instead of its own scratch
+    // tree. Asserted against each Docker signal independently, because any one
+    // of them short-circuiting is the whole failure.
+    test.each([
+      ['WORKSPACE_PATH', { WORKSPACE_PATH: '/workspace' }],
+      ['ARCHON_DOCKER', { ARCHON_DOCKER: 'true' }],
+      ['HOME=/root plus WORKSPACE_PATH', { HOME: '/root', WORKSPACE_PATH: '/somewhere' }],
+    ])('ARCHON_HOME wins over the %s Docker signal', (_label, signals) => {
+      delete process.env.WORKSPACE_PATH;
+      delete process.env.ARCHON_DOCKER;
+      Object.assign(process.env, signals);
+      expect(isDocker()).toBe(true);
+
+      process.env.ARCHON_HOME = '/tmp/scratch-archon';
+      expect(getArchonHome()).toBe('/tmp/scratch-archon');
+    });
+
+    test('expands tilde in ARCHON_HOME in Docker', () => {
+      process.env.ARCHON_DOCKER = 'true';
+      process.env.ARCHON_HOME = '~/my-archon';
+      expect(getArchonHome()).toBe(join(homedir(), 'my-archon'));
+    });
+
+    test('still throws on the literal string "undefined" in Docker', () => {
+      process.env.ARCHON_DOCKER = 'true';
+      process.env.ARCHON_HOME = 'undefined';
+      expect(() => getArchonHome()).toThrow('literal string "undefined"');
     });
 
     test('returns ARCHON_HOME when set (local)', () => {
@@ -265,6 +299,7 @@ describe('archon-paths', () => {
     });
 
     test('returns /.archon/workspaces in Docker', () => {
+      delete process.env.ARCHON_HOME;
       process.env.ARCHON_DOCKER = 'true';
       expect(getArchonWorkspacesPath()).toBe(join('/', '.archon', 'workspaces'));
     });
@@ -287,6 +322,7 @@ describe('archon-paths', () => {
     });
 
     test('returns /.archon/worktrees in Docker', () => {
+      delete process.env.ARCHON_HOME;
       process.env.ARCHON_DOCKER = 'true';
       expect(getArchonWorktreesPath()).toBe(join('/', '.archon', 'worktrees'));
     });
@@ -431,6 +467,7 @@ describe('archon-paths', () => {
     });
 
     test('returns /.archon/workflows in Docker', () => {
+      delete process.env.ARCHON_HOME;
       process.env.ARCHON_DOCKER = 'true';
       expect(getHomeWorkflowsPath()).toBe(join('/', '.archon', 'workflows'));
     });
@@ -458,6 +495,7 @@ describe('archon-paths', () => {
     });
 
     test('returns /.archon/commands in Docker', () => {
+      delete process.env.ARCHON_HOME;
       process.env.ARCHON_DOCKER = 'true';
       expect(getHomeCommandsPath()).toBe(join('/', '.archon', 'commands'));
     });
@@ -477,6 +515,7 @@ describe('archon-paths', () => {
     });
 
     test('returns /.archon/scripts in Docker', () => {
+      delete process.env.ARCHON_HOME;
       process.env.ARCHON_DOCKER = 'true';
       expect(getHomeScriptsPath()).toBe(join('/', '.archon', 'scripts'));
     });
@@ -908,6 +947,7 @@ describe('archon-paths', () => {
     });
 
     test('works in Docker', () => {
+      delete process.env.ARCHON_HOME;
       process.env.ARCHON_DOCKER = 'true';
       expect(getProjectRoot('acme', 'widget')).toBe(
         join('/', '.archon', 'workspaces', 'acme', 'widget')

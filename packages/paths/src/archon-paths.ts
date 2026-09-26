@@ -150,14 +150,19 @@ export function getWSLDistroName(): string | undefined {
 
 /**
  * Get the Archon home directory
- * - Docker: /.archon
- * - Local: ~/.archon (or ARCHON_HOME env var)
+ * - `ARCHON_HOME`, when set, wins everywhere — including in Docker
+ * - Docker default: /.archon
+ * - Local default: ~/.archon
+ *
+ * The explicit value is checked first on purpose. Docker detection is an
+ * inference about the environment; `ARCHON_HOME` is a statement about it, and
+ * an inference must not override a statement. When the container branch came
+ * first, a caller that redirected home to a scratch directory was silently
+ * ignored inside a container and read the container's real `/.archon`
+ * instead — which is how every home-scoped test in a container wrote to, and
+ * asserted against, the live install.
  */
 export function getArchonHome(env: NodeJS.ProcessEnv = process.env): string {
-  if (isDocker(env)) {
-    return '/.archon';
-  }
-
   const envHome = env.ARCHON_HOME;
   if (envHome) {
     if (envHome === 'undefined') {
@@ -168,6 +173,10 @@ export function getArchonHome(env: NodeJS.ProcessEnv = process.env): string {
       );
     }
     return expandTilde(envHome);
+  }
+
+  if (isDocker(env)) {
+    return '/.archon';
   }
 
   return join(homedir(), '.archon');

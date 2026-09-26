@@ -31,6 +31,8 @@ import { join, resolve } from 'node:path';
 import { getArchonHome, isDocker, RUN_ARTIFACTS_ENGINE_SUBDIR } from '@archon/paths';
 import { honorArchonHomeEnv, removeTempTree, trackTempRoots } from '@archon/paths/test-utils';
 import {
+  expandTilde as expandTildeReal,
+  isDocker as isDockerReal,
   getProjectStoragePaths as getProjectStoragePathsReal,
   getRunArtifactsDirForRoot as getRunArtifactsDirForRootReal,
   getRunLogPathForRoot as getRunLogPathForRootReal,
@@ -191,12 +193,11 @@ const mockResolveFolderBackend = mock(() => ({
   destroy: mockFolderBackendDestroy,
 }));
 
-const mockIsDocker = (env: NodeJS.ProcessEnv = process.env): boolean =>
-  env.WORKSPACE_PATH === '/workspace' ||
-  (env.HOME === '/root' && Boolean(env.WORKSPACE_PATH)) ||
-  env.ARCHON_DOCKER === 'true';
-const mockExpandTilde = (path: string): string =>
-  path.startsWith('~') ? join(homedir(), path.slice(1).replace(/^[/\\]/, '')) : path;
+// Detection and tilde expansion are not faked — restating them here only created
+// a second copy to keep in step. They come from the deep specifier, which
+// `mock.module('@archon/paths')` below does not intercept.
+const mockIsDocker = isDockerReal;
+const mockExpandTilde = expandTildeReal;
 
 // Mock @archon/paths (createLogger moved here from @archon/core)
 mock.module('@archon/paths', () => ({
@@ -204,11 +205,15 @@ mock.module('@archon/paths', () => ({
   createLogger: mock(() => mockLogger),
   expandTilde: mockExpandTilde,
   isDocker: mockIsDocker,
+  // Only the no-ARCHON_HOME default is faked, so these tests do not depend on the
+  // runner's real home. The precedence must stay the real one: an explicit
+  // ARCHON_HOME outranks Docker detection, or a container's signals would hide
+  // the temp home these tests point at.
   getArchonHome: mock((env: NodeJS.ProcessEnv = process.env) =>
-    mockIsDocker(env)
-      ? '/.archon'
-      : env.ARCHON_HOME
-        ? mockExpandTilde(env.ARCHON_HOME)
+    env.ARCHON_HOME
+      ? mockExpandTilde(env.ARCHON_HOME)
+      : mockIsDocker(env)
+        ? '/.archon'
         : '/home/test/.archon'
   ),
   getProjectStoragePaths: getProjectStoragePathsReal,
@@ -698,11 +703,9 @@ async function finishStartupWindow(
   await commandPromise;
 }
 
-// The detached-run tests point ARCHON_HOME at a temp directory and expect the
-// spawned child's log path to land under it; without this the container's
-// Docker signals send it to /.archon and the waits never finish. The
-// resolveDetachedRunEncryptionEnv tests pass their env explicitly and are
-// unaffected.
+// Clear the container's Docker signals so this file sees the same answers on a
+// laptop and on the containerized dev box. The resolveDetachedRunEncryptionEnv
+// tests pass their env explicitly and are unaffected.
 honorArchonHomeEnv();
 
 describe('workflowListCommand', () => {
@@ -8967,19 +8970,36 @@ describe('resolveDetachedRunEncryptionEnv', () => {
         HOME: '',
       }
     );
-    const dockerHandoff = resolveDetachedRunEncryptionEnv(
-      { ARCHON_DOCKER: 'true', ARCHON_HOME: '/ignored-custom-home' },
-      '/parent'
-    );
-    expect(dockerHandoff).toEqual({
+    const dockerDefault = resolveDetachedRunEncryptionEnv({ ARCHON_DOCKER: 'true' }, '/parent');
+    expect(dockerDefault).toEqual({
       TOKEN_ENCRYPTION_KEY: '',
       ARCHON_HOME: '/.archon',
       ARCHON_DOCKER: 'true',
       WORKSPACE_PATH: '',
       HOME: '',
     });
-    expect(isDocker(dockerHandoff)).toBe(true);
-    expect(getArchonHome(dockerHandoff)).toBe('/.archon');
+    expect(isDocker(dockerDefault)).toBe(true);
+    expect(getArchonHome(dockerDefault)).toBe('/.archon');
+  });
+
+  // An explicit ARCHON_HOME is a statement about the environment and outranks
+  // Docker detection, which is only an inference about it. The child must read
+  // the same home the parent did, so what is pinned here and what
+  // `getArchonHome` resolves have to agree.
+  it('carries an explicit ARCHON_HOME through a Docker handoff', () => {
+    const handoff = resolveDetachedRunEncryptionEnv(
+      { ARCHON_DOCKER: 'true', ARCHON_HOME: './scratch-home' },
+      '/parent'
+    );
+    expect(handoff).toEqual({
+      TOKEN_ENCRYPTION_KEY: '',
+      ARCHON_HOME: resolve('/parent', 'scratch-home'),
+      ARCHON_DOCKER: 'true',
+      WORKSPACE_PATH: '',
+      HOME: '',
+    });
+    expect(isDocker(handoff)).toBe(true);
+    expect(getArchonHome(handoff)).toBe(resolve('/parent', 'scratch-home'));
   });
 });
 

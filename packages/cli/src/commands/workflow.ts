@@ -556,10 +556,14 @@ export function resolveDetachedRunEncryptionEnv(
 ): DetachedInstallContext {
   return {
     ...captureDetachedInstallContext(env),
-    ARCHON_HOME: isDocker(env)
-      ? getArchonHome(env)
-      : env.ARCHON_HOME
-        ? resolve(cwd, expandTilde(env.ARCHON_HOME))
+    // Same precedence as `getArchonHome`: an explicit value wins over the
+    // Docker default. It is resolved against the parent's cwd here because the
+    // child changes cwd, and a relative home would otherwise land elsewhere —
+    // which `getArchonHome` cannot do for us, as it only expands `~`.
+    ARCHON_HOME: env.ARCHON_HOME
+      ? resolve(cwd, expandTilde(env.ARCHON_HOME))
+      : isDocker(env)
+        ? getArchonHome(env)
         : '',
   };
 }

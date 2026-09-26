@@ -123,9 +123,13 @@ delete any `mkdir -p .archon/state` — the executor pre-creates `$STATE_DIR`.
 
 ### Docker: `/.archon/`
 
-In Docker containers, the Archon home is fixed at `/.archon/` (root level). This is:
-- Mounted as a named volume for persistence
-- Not overridable by end users (simplifies container setup)
+In Docker containers, the Archon home defaults to `/.archon/` (root level), mounted as a
+named volume for persistence.
+
+`ARCHON_HOME` overrides that default in a container exactly as it does anywhere else. The
+default applies only when the variable is unset, so a containerized process that needs to
+point its home somewhere else -- a test suite redirecting to a scratch tree, for instance --
+can say so and be believed.
 
 ## Path Resolution
 
@@ -136,7 +140,7 @@ All path resolution is centralized in `packages/paths/src/archon-paths.ts` (`@ar
 ```typescript
 // Get the Archon home directory
 getArchonHome(): string
-// Returns: ~/.archon (local) or /.archon (Docker)
+// Returns: $ARCHON_HOME when set; otherwise /.archon (Docker) or ~/.archon (local)
 
 // Get workspaces directory
 getArchonWorkspacesPath(): string
@@ -198,8 +202,11 @@ Used to build Windows-host-friendly `vscode://vscode-remote/wsl+<distro>/...` ID
 
 ### Platform-Specific Paths
 
-| Platform | `getArchonHome()` |
-|----------|-------------------|
+Defaults, used when `ARCHON_HOME` is unset. When it is set, its value wins on every
+platform including Docker.
+
+| Platform | `getArchonHome()` default |
+|----------|---------------------------|
 | macOS | `/Users/<username>/.archon` |
 | Linux | `/home/<username>/.archon` |
 | Windows | `C:\Users\<username>\.archon` |
