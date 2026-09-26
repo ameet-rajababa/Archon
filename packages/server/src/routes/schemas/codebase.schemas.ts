@@ -29,6 +29,52 @@ export const addCodebaseBodySchema = z
   })
   .openapi('AddCodebaseBody');
 
+/**
+ * A git remote, as git itself would accept one.
+ *
+ * NOT `z.string().url()`. The scp-like form — `git@github.com:owner/repo.git` —
+ * has no scheme and fails that check, and it is the form `resolveIssueSource`
+ * already reads (`/github\.com[/:]/`). Rejecting it here would refuse a value
+ * the rest of the system handles.
+ *
+ * Syntax only. Reachability is deliberately NOT probed: a private repository
+ * whose token is configured later is a legitimate state, and it is exactly the
+ * setup order this route exists to rescue — a reachability gate would refuse
+ * the correction and leave the row wrong.
+ */
+const REMOTE_URL = /^(?:[a-z][a-z0-9+.-]*:\/\/[^\s/]+\/\S+|[^\s@]+@[^\s:]+:\S+)$/i;
+
+export const remoteUrlSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .refine(v => REMOTE_URL.test(v), {
+    message:
+      'Must be a git remote URL, e.g. https://github.com/owner/repo or git@github.com:owner/repo.git',
+  });
+
+/**
+ * PATCH /api/codebases/:id request body.
+ *
+ * `repository_url` is `.nullable().optional()` so the route can tell "not
+ * supplied" from "set to null" — clearing the field is a real operation and
+ * must not be indistinguishable from leaving it alone. `updateCodebase`
+ * already draws that line on `undefined`; this preserves it across the wire.
+ *
+ * Only `repository_url`. `default_cwd` has the same fill-only defect but
+ * moving it would re-point a live working tree, which this route must never
+ * do as a side effect; `default_branch` is deferred with it rather than
+ * shipped half-considered.
+ */
+export const updateCodebaseBodySchema = z
+  .object({
+    repository_url: remoteUrlSchema.nullable().optional(),
+  })
+  .refine(b => b.repository_url !== undefined, {
+    message: 'Nothing to update: supply "repository_url"',
+  })
+  .openapi('UpdateCodebaseBody');
+
 /** DELETE /api/codebases/:id response. */
 export const deleteCodebaseResponseSchema = z
   .object({ success: z.boolean() })

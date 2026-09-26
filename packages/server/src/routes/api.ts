@@ -356,6 +356,7 @@ import {
   codebaseSchema,
   codebaseIdParamsSchema,
   addCodebaseBodySchema,
+  updateCodebaseBodySchema,
   deleteCodebaseResponseSchema,
   codebaseEnvVarsResponseSchema,
   setEnvVarBodySchema,
@@ -1013,6 +1014,41 @@ const addCodebaseRoute = createRoute({
       description: 'Codebase created',
     },
     400: jsonError('Bad request'),
+    500: jsonError('Server error'),
+  },
+});
+
+/**
+ * PATCH /api/codebases/{id} — correct a codebase's recorded remote.
+ *
+ * `repository_url` could previously only be FILLED, and only from inside the
+ * clone path (`handlers/clone.ts`). A project registered from a local path got
+ * `NULL` permanently, and a wrong value could never be corrected — the issues
+ * board then answered `reason: 'no-repository'` forever with no supported way
+ * out.
+ *
+ * Reporting only. `default_cwd` stays authoritative for where work happens, so
+ * nothing here clones, moves, or re-points a working tree.
+ */
+const updateCodebaseRoute = createRoute({
+  method: 'patch',
+  path: '/api/codebases/{id}',
+  tags: ['Codebases'],
+  summary: "Update a codebase's recorded repository URL",
+  request: {
+    params: codebaseIdParamsSchema,
+    body: {
+      content: { 'application/json': { schema: updateCodebaseBodySchema } },
+      required: true,
+    },
+  },
+  responses: {
+    200: {
+      content: { 'application/json': { schema: codebaseSchema } },
+      description: 'Updated codebase',
+    },
+    400: jsonError('Bad request'),
+    404: jsonError('Not found'),
     500: jsonError('Server error'),
   },
 });
@@ -4063,6 +4099,33 @@ export function registerApiRoutes(
   });
 
   // DELETE /api/codebases/:id - Delete a project and clean up
+  // PATCH /api/codebases/:id - correct the recorded remote
+  registerOpenApiRoute(updateCodebaseRoute, async c => {
+    const id = c.req.param('id') ?? '';
+    const body = getValidatedBody(c, updateCodebaseBodySchema);
+
+    try {
+      if ((await codebaseDb.getCodebase(id)) === null) {
+        return apiError(c, 404, 'Codebase not found');
+      }
+
+      // `.refine()` guarantees the key is present, so `undefined` cannot reach
+      // `updateCodebase` — which is what keeps "not supplied" and "set to
+      // null" distinguishable all the way down.
+      await codebaseDb.updateCodebase(id, { repository_url: body.repository_url ?? null });
+
+      const updated = await codebaseDb.getCodebase(id);
+      if (updated === null) return apiError(c, 404, 'Codebase not found');
+      return c.json(toApiCodebase(updated));
+    } catch (error) {
+      if (error instanceof codebaseDb.CodebaseNotFoundError) {
+        return apiError(c, 404, 'Codebase not found');
+      }
+      getLog().error({ err: error, codebaseId: id }, 'update_codebase_failed');
+      return apiError(c, 500, 'Failed to update codebase');
+    }
+  });
+
   registerOpenApiRoute(deleteCodebaseRoute, async c => {
     const id = c.req.param('id') ?? '';
     try {
