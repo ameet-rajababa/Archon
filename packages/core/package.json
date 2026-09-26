@@ -258,6 +258,7 @@
       "src/orchestrator/handoff-nudge.test.ts",
       "src/orchestrator/handoff-tool.test.ts",
       "src/orchestrator/handoff.test.ts",
+      "src/orchestrator/ready-to-close-tool.test.ts",
       "src/orchestrator/update-project-brief-tool.test.ts"
     ]
   ]

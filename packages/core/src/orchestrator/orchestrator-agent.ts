@@ -34,6 +34,7 @@ import { getProviderCapabilities } from '@archon/providers';
 import { getAgentProvider } from '../services/provider-admission';
 import { buildManageRunTool } from './manage-run-tool';
 import { buildProjectBriefTool } from './update-project-brief-tool';
+import { buildReadyToCloseTool } from './ready-to-close-tool';
 import { basename } from 'node:path';
 import { buildHandoffTool, buildUndoHandoffTool } from './handoff-tool';
 import { lineageMetadata, readLineage } from './handoff';
@@ -2704,6 +2705,17 @@ export async function handleMessage(
               return `Failed to start workflow "${wf.name}": ${err.message}`;
             }
             return `Started workflow "${wf.name}" in the background — it'll appear in the runs list and the workflow dock shortly.`;
+          },
+        }),
+        // The claim half of the chat lifecycle. Scoped to this conversation for
+        // the same reason the handoff is: a chat may only speak for its own
+        // work. There is no matching tool for `done` — that is the human's
+        // judgement, and an agent able to write it would be closing its own
+        // work.
+        buildReadyToCloseTool({
+          conversationId: conversation.id,
+          mark: async (ready): Promise<void> => {
+            await db.setConversationReady(conversation.id, ready);
           },
         }),
         // Scoped to this conversation, not the project: a summary describes one
