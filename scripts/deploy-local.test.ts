@@ -61,6 +61,7 @@ interface Sandbox {
   curlLog: string;
   curlStdin: string;
   turnGapMarker: string;
+  assertDevMarker: string;
 }
 
 function write(path: string, body: string): void {
@@ -84,6 +85,9 @@ case "$all" in
     budget="\${all##*--budget }"
     budget="\${budget%%[!0-9]*}"
     exec bun "${join(REPO_ROOT, 'scripts', 'drain-wait.ts')}" --budget "$budget" ;;
+  *"assert-deploy-on-dev.sh"*)
+    printf 'called\\n' >>'${box.assertDevMarker}'
+    exit "\${ASSERT_DEV_EXIT:-0}" ;;
   *"drain-wait.ts"*) exit "\${DRAIN_WAIT_EXIT:-0}" ;;
   *"turn-gap.ts"*) printf 'called\\n' >>'${box.turnGapMarker}'; exit "\${TURN_GAP_EXIT:-0}" ;;
   *"status --porcelain"*) printf '0\\n' ;;
@@ -154,6 +158,7 @@ function sandbox(name: string, envBody: string | null): Sandbox {
     curlLog: join(root, 'curl.log'),
     curlStdin: join(root, 'curl.stdin'),
     turnGapMarker: join(root, 'turn-gap.called'),
+    assertDevMarker: join(root, 'assert-dev.called'),
   };
   mkdirSync(box.bin, { recursive: true });
   mkdirSync(box.deployDir, { recursive: true });
@@ -172,6 +177,7 @@ interface Result {
   argv: string;
   stdin: string;
   turnGapCalled: boolean;
+  assertDevCalled: boolean;
 }
 
 async function run(box: Sandbox, env: Record<string, string> = {}): Promise<Result> {
@@ -214,6 +220,7 @@ async function run(box: Sandbox, env: Record<string, string> = {}): Promise<Resu
     argv: logged,
     stdin: existsSync(box.curlStdin) ? readFileSync(box.curlStdin, 'utf8') : '',
     turnGapCalled: existsSync(box.turnGapMarker),
+    assertDevCalled: existsSync(box.assertDevMarker),
   };
 }
 
@@ -479,5 +486,29 @@ describe('the step markers the deploy status reader depends on', () => {
 
   test('says the same total in every marker as the reader expects', () => {
     expect(new Set(steps.map(match => match[2]))).toEqual(new Set([String(DEPLOY_STEP_COUNT)]));
+  });
+});
+
+describePosix('the deploy-is-on-dev guard in step 1', () => {
+  test('runs on every deploy', async () => {
+    const result = await run(sandbox('assert-dev-ok', `ARCHON_DRAIN_TOKEN=${TOKEN}\n`));
+
+    expect(result.code).toBe(0);
+    expect(result.assertDevCalled).toBe(true);
+  });
+
+  test('stops the deploy BEFORE anything is published or drained when it refuses', async () => {
+    // The order is the point. Step 2 pushes to `deploy` and step 5 arms drain;
+    // a refusal after either one would have published the mistake, or left the
+    // box refusing work over a commit that was never going to ship.
+    const result = await run(sandbox('assert-dev-refused', `ARCHON_DRAIN_TOKEN=${TOKEN}\n`), {
+      ASSERT_DEV_EXIT: '1',
+    });
+
+    expect(result.code).toBe(1);
+    expect(result.output).toContain('is not on dev');
+    expect(result.output).not.toContain('2/7');
+    expect(result.drainCalls).toEqual([]);
+    expect(result.turnGapCalled).toBe(false);
   });
 });
