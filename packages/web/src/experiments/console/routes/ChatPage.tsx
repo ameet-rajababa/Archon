@@ -136,12 +136,11 @@ export function ChatPage(): ReactElement {
     setError(null);
     setStartingNew(id === null);
     setActiveConvId(id);
-    // Both flags describe the conversation being read, not the page. Leaving
-    // them set while switching made one chat's pending reply lock every other
-    // chat in the project. The new chat's own lock event and the server's
-    // active-chat list re-establish the truth for it.
+    // `sending` describes the conversation being read, not the page. Leaving it
+    // set while switching made one chat's pending reply lock every other chat
+    // in the project. The lock itself needs no reset: it is keyed by
+    // conversation, so the new chat reads its own answer.
     setSending(false);
-    setLocked(false);
     sawServerWorkingRef.current = false;
     // The echo belongs to the chat it was typed in, not to the page.
     setPendingUser(null);
@@ -250,12 +249,21 @@ export function ChatPage(): ReactElement {
   /**
    * The server holds this conversation's lock — it is executing a turn.
    *
-   * Straight from the `conversation_lock` event on this chat's own stream,
-   * which brackets the turn exactly: `true` when the handler starts, `false`
-   * in its `finally`. This is the fast, precise half of `working`; the
-   * /api/health read below is the half that survives a dropped stream.
+   * Read from a cache key, not from component state. While the stream is up
+   * the `conversation_lock` events on this chat's own stream write it, and
+   * they bracket the turn exactly: `true` when the handler starts, `false` in
+   * its `finally`. A reconnect refetches it from the server, which is what an
+   * unlock emitted while the socket was down no longer strands — see
+   * `lib/sse.ts`. Nothing polls it.
    */
-  const [locked, setLocked] = useState(false);
+  const { data: lock } = useEntity<skill.ConversationLock>(
+    activeConvId !== null ? K.conversationLock(activeConvId) : 'noop:no-conv-lock',
+    () =>
+      activeConvId !== null
+        ? skill.getConversationLock(activeConvId)
+        : Promise.resolve({ conversationId: '', locked: false })
+  );
+  const locked = lock?.locked ?? false;
   /**
    * This tab just sent, and no authority has confirmed it yet.
    *
@@ -302,15 +310,13 @@ export function ChatPage(): ReactElement {
   // Non-error advisory (distinct channel from `error` so it doesn't read as a
   // send failure) — e.g. files dropped from a first message.
 
-  // The lock event in both directions. It is the server narrating its own turn,
-  // so it is believed in both — taking only the release half was what left the
-  // page inferring the start from message shape. Must be useCallback-stable:
-  // the SSE hook's effect depends on it, so an inline lambda would reconnect
-  // the EventSource on every render.
-  const onLockChange = useCallback((next: boolean): void => {
-    setLocked(next);
-    if (next) setSending(false); // confirmed — the server has it now
-  }, []);
+  // The lock going up is the server confirming it has this turn, so the
+  // unconfirmed-send flag has nothing left to cover. Driven off the lock value
+  // rather than off the event, so a lock learned from the reconnect refetch
+  // retires the flag exactly as a live event does.
+  useEffect(() => {
+    if (locked) setSending(false);
+  }, [locked]);
   // Streamed text that has not been written to the database yet. The server
   // holds assistant text in memory and persists it late, so without this the
   // reply is invisible until a flush — the reload-to-see-it bug. See
@@ -320,7 +326,7 @@ export function ChatPage(): ReactElement {
     setLiveSegments(prev => reduceLive(prev, event));
   }, []);
 
-  useConversationSSE(activeConvId, onLockChange, onLive);
+  useConversationSSE(activeConvId, onLive);
 
   // Switching chats must not carry one conversation's preview into another.
   useEffect(() => {
@@ -388,11 +394,14 @@ export function ChatPage(): ReactElement {
   const working = sending || locked || serverWorking;
 
   /**
-   * The lock event is fast but unreliable in one direction: if the stream drops
-   * between `locked:true` and `locked:false`, nothing on the client ever clears
-   * it and the composer stays shut. /api/health is polled and so cannot be
-   * missed — once it has seen this turn and stopped seeing it, the release
-   * event is not coming.
+   * A correction for the gap a reconnect does not cover: the stream stays UP
+   * and the release event is simply never seen. /api/health is polled and so
+   * cannot be missed — once it has seen this turn and stopped seeing it, the
+   * release event is not coming.
+   *
+   * It invalidates rather than asserting. The composer's lock has one
+   * authority, and this says "ask it again", never "the answer is false" —
+   * a second writer of the same value is how the two drift apart.
    */
   const sawServerWorkingRef = useRef(false);
   useEffect(() => {
@@ -402,8 +411,8 @@ export function ChatPage(): ReactElement {
     }
     if (!sawServerWorkingRef.current) return;
     sawServerWorkingRef.current = false;
-    setLocked(false);
-  }, [serverWorking]);
+    if (activeConvId !== null) invalidate(K.conversationLock(activeConvId));
+  }, [serverWorking, activeConvId]);
 
   // The rail reads the server's list; this chat also knows its own unconfirmed
   // send, so its dot lights on the keystroke rather than on the next poll.

@@ -227,6 +227,67 @@ describe('GET /api/conversations', () => {
   });
 });
 
+describe('GET /api/conversations/:id/lock', () => {
+  const lockApp = (isActive: (id: string) => boolean): OpenAPIHono => {
+    const app = new OpenAPIHono();
+    registerApiRoutes(app, {} as WebAdapter, makeMockLockManager({ isActive: mock(isActive) }));
+    return app;
+  };
+
+  test('reports the lock the manager is actually holding', async () => {
+    mockFindConversationByPlatformId.mockImplementationOnce(async () => MOCK_CONV);
+
+    const response = await lockApp(id => id === 'web-test-abc').request(
+      '/api/conversations/web-test-abc/lock'
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ conversationId: 'web-test-abc', locked: true });
+  });
+
+  test('reports an idle conversation as unlocked', async () => {
+    mockFindConversationByPlatformId.mockImplementationOnce(async () => MOCK_CONV);
+
+    const response = await lockApp(() => false).request('/api/conversations/web-test-abc/lock');
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ conversationId: 'web-test-abc', locked: false });
+  });
+
+  test('asks about the id it was given, not some other conversation', async () => {
+    // The whole value of the route is that it answers for ONE chat. A manager
+    // consulted with the wrong id would answer confidently and wrongly.
+    mockFindConversationByPlatformId.mockImplementationOnce(async () => MOCK_CONV);
+    const isActive = mock((_id: string) => true);
+
+    const app = new OpenAPIHono();
+    registerApiRoutes(app, {} as WebAdapter, makeMockLockManager({ isActive }));
+    await app.request('/api/conversations/web-test-abc/lock');
+
+    expect(isActive).toHaveBeenCalledWith('web-test-abc');
+  });
+
+  test('an unknown conversation is a 404, not an unlocked one', async () => {
+    // `locked: false` for an id that names nothing reads as a real answer about
+    // a real chat, and a composer would enable itself on the strength of it.
+    mockFindConversationByPlatformId.mockImplementationOnce(async () => null);
+
+    const response = await lockApp(() => false).request('/api/conversations/web-nope/lock');
+
+    expect(response.status).toBe(404);
+  });
+
+  test('returns 500 when the lookup throws', async () => {
+    mockFindConversationByPlatformId.mockImplementationOnce(async () => {
+      throw new Error('DB connection lost');
+    });
+
+    const response = await lockApp(() => false).request('/api/conversations/web-test-abc/lock');
+
+    expect(response.status).toBe(500);
+  });
+});
+
 describe('GET /api/conversations/:id', () => {
   test('returns conversation JSON by platform conversation ID', async () => {
     mockFindConversationByPlatformId.mockImplementationOnce(async () => MOCK_CONV);

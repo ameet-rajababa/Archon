@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import {
+  applyLockEvent,
   recoverOnReconnect,
   conversationStreamKeys,
   runStreamKeys,
@@ -117,6 +118,55 @@ describe('stream recovery — the keys each stream keeps live', () => {
     expect(loads).toBe(2);
     expect(get(key)).toEqual(['m2']); // the transcript is current again
     expect(get(key)).not.toBeUndefined(); // and was never blanked to get there
+
+    unsubscribe();
+  });
+
+  /**
+   * The composer bug this closes, driven end to end.
+   *
+   * A turn is running, so the composer is disabled. The socket drops; the turn
+   * finishes and the server emits `locked: false` to nobody. EventSource comes
+   * back and replays nothing, so the only thing that can correct the composer
+   * is the reconnect asking the server what the state is now.
+   */
+  test('a lock released during a socket gap is recovered on reconnect', async () => {
+    const conversationId = 'test-sse-lock-gap';
+    const key = K.conversationLock(conversationId);
+    // The server's own answer, which the gap is going to change underneath the
+    // client. GET /api/conversations/:id/lock reads exactly this.
+    let serverLocked = true;
+    let loads = 0;
+    const unsubscribe = subscribeKey(
+      key,
+      () => {},
+      () => {
+        loads += 1;
+        return Promise.resolve({ conversationId, locked: serverLocked });
+      }
+    );
+    await flush();
+
+    const { stream, open } = fakeStream();
+    recoverOnReconnect(stream, conversationStreamKeys(conversationId));
+    open(); // the connection the mount opened
+
+    // The turn starts. The live event carries its answer, so nothing refetches.
+    applyLockEvent(conversationId, true);
+    await flush();
+    expect(get(key)).toEqual({ conversationId, locked: true }); // composer disabled
+    expect(loads).toBe(1);
+
+    // The socket is down. The turn ends and the unlock is emitted into the gap:
+    // the server's answer changes, the client is told nothing.
+    serverLocked = false;
+    await flush();
+    expect(get(key)).toEqual({ conversationId, locked: true }); // still stuck
+
+    open(); // reconnect
+    await flush();
+    expect(get(key)).toEqual({ conversationId, locked: false }); // composer enabled again
+    expect(loads).toBe(2);
 
     unsubscribe();
   });

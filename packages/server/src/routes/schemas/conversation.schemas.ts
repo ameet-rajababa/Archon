@@ -76,6 +76,21 @@ export const conversationListResponseSchema = z
 /** Path params for routes with :id (platform conversation ID). */
 export const conversationIdParamsSchema = z.object({ id: z.string() });
 
+/**
+ * GET /api/conversations/:id/lock response.
+ *
+ * Whether the server is executing a turn for this conversation right now. It
+ * is the same fact the `conversation_lock` SSE event announces, asked for
+ * rather than waited for: a client that lost the stream missed whichever
+ * announcements were made in the gap, and nothing replays them.
+ */
+export const conversationLockResponseSchema = z
+  .object({
+    conversationId: z.string(),
+    locked: z.boolean(),
+  })
+  .openapi('ConversationLockResponse');
+
 /** POST /api/conversations request body. Uses strict() to reject unknown fields (e.g. conversationId). */
 export const createConversationBodySchema = z
   .object({

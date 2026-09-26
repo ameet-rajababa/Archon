@@ -105,7 +105,8 @@ export function makeDefaultsMock(): {
  * start calling, and a copy that misses one fails at runtime with a bare TypeError.
  *
  * Override the members a test is actually about — `isDraining` for drain refusal,
- * `getStats`/`getDrainStatus` for what health reports.
+ * `getStats`/`getDrainStatus` for what health reports, `isActive` for whether one
+ * conversation is mid-turn.
  */
 export function makeMockLockManager(
   overrides: Partial<ConversationLockManager> = {}
@@ -118,6 +119,7 @@ export function makeMockLockManager(
       maxConcurrent: 10,
       activeConversationIds: [],
     })),
+    isActive: mock(() => false),
     beginDrain: mock(() => {
       throw new Error('makeMockLockManager: beginDrain is not stubbed');
     }),
