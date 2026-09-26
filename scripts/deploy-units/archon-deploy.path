@@ -13,6 +13,13 @@
 # from the data volume, where nothing version-controlled them.
 #
 # Enable the .path, never the .service — the service is what the path starts.
+#
+# THIS PATH NAMES THIS MACHINE, and that is correct — a unit is host
+# configuration. The script no longer hardcodes it: it asks Docker where the
+# service's data mount is, and only falls back to being told. The same literal
+# is therefore passed to the service as VOLUME= in archon-deploy.service, so a
+# box that keeps its volume somewhere unusual states it once, here, rather than
+# in repo content. `scripts/deploy-on-request.test.ts` asserts the two agree.
 
 [Unit]
 Description=Watch for an Archon deploy request

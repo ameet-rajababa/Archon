@@ -12,6 +12,13 @@ Description=Deploy the Archon commit the container asked for
 Type=oneshot
 ExecStart=/opt/archon/scripts/deploy-on-request.sh
 
+# The same path archon-deploy.path watches, and it must stay the same path:
+# this is where the request the unit reacted to actually is. The script can
+# discover it from Docker on its own, but being told is cheaper and survives a
+# container that was never created. Kept honest by a conformance test rather
+# than by remembering — see scripts/deploy-on-request.test.ts.
+Environment=VOLUME=/var/lib/docker/volumes/archon_archon_data/_data
+
 # THIS DEADLINE IS THE DEPLOY'S WHOLE BUDGET, and deploy-local.sh spends it:
 # a docker build takes minutes and the wait for a turn-gap can take half an
 # hour. systemd's default 90s would kill it mid-build.
