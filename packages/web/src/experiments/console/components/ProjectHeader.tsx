@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 import { useLocation, useParams } from 'react-router';
 import { ProjectViewTabs } from './ProjectViewTabs';
+import { DeployStrip } from './DeployStrip';
 import { ProjectStateChip } from './ProjectStateChip';
 import { useProjectLabel } from '../lib/display-name';
 import { Glyph } from '../lib/glyph';
@@ -95,6 +96,11 @@ export function ProjectHeader(): ReactElement {
                 entirely when the answer is no. */}
           {projectId !== undefined ? <ProjectStateChip projectId={projectId} /> : null}
         </span>
+
+        {/* Install-wide, in space this row was already spending on nothing.
+            See components/DeployStrip for why it is here rather than in a band
+            of its own, and what that placement costs. */}
+        <DeployStrip />
 
         {activity !== null ? (
           <span
